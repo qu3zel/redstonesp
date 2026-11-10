@@ -1,5 +1,9 @@
 # Redstone Server Panel
 
+<p align="center">
+  <img src="assets/preview.png" alt="Redstone Server Panel Preview" width="800">
+</p>
+
 **Redstone Server Panel** is a modern, lightweight, single-file, zero-dependency Minecraft Java Edition Server Manager for Windows, built with pure Win32 API and GDI/GDI+.
 
 ---
