@@ -9,3 +9,9 @@
 *.exe binary
 *.o binary
 *.res binary
+
+# GitHub Linguist (Language Statistics)
+*.cpp linguist-language=C++ linguist-detectable=true
+*.rc linguist-detectable=false
+build.bat linguist-detectable=false
+
