@@ -1,0 +1,33 @@
+# Build outputs
+*.obj
+*.o
+*.res
+*.pdb
+*.ilk
+*.exp
+*.old.exe
+*.exe
+
+# Local server files & runtime config
+settings.ini
+eula.txt
+server.properties
+console.log*
+*.jar
+logs/
+world/
+world_nether/
+world_the_end/
+plugins/
+mods/
+backups/
+libraries/
+versions/
+cache/
+crash-reports/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.suo
+*.user

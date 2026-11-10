@@ -1,0 +1,11 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Ensure Windows batch files always use CRLF
+*.bat text eol=crlf
+
+# Binary files
+*.ico binary
+*.exe binary
+*.o binary
+*.res binary
