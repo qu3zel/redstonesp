@@ -10,8 +10,8 @@
 *.o binary
 *.res binary
 
-# GitHub Linguist (Language Statistics)
-*.cpp linguist-language=C++ linguist-detectable=true
-*.rc linguist-detectable=false
-build.bat linguist-detectable=false
+# GitHub Linguist Language Configuration
+*.cpp linguist-language=C++
+*.rc linguist-vendored=true
+build.bat linguist-vendored=true
 
