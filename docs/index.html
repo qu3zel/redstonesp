@@ -76,7 +76,7 @@
       <div class="win-titlebar">
         <div class="win-title">
           <img src="favicon.ico" width="16" height="16" alt="ico">
-          <span id="winTitleText">Redstone Server Panel — Minecraft Sunucu Yöneticisi</span>
+          <span id="winTitleText" data-i18n="wndTitle">Redstone Server Panel — Minecraft Sunucu Yöneticisi</span>
         </div>
         <div class="win-controls-box">
           <div class="win-ctl"></div>
@@ -112,23 +112,23 @@
                 <div class="w-card-title" data-i18n="cardSettings">SUNUCU AYARLARI</div>
                 <label class="w-label" data-i18n="lblJar">Sunucu .jar dosyası</label>
                 <div class="w-input-row">
-                  <input type="text" class="w-input" value="C:\Minecraft\paper-1.20.4.jar" readonly>
-                  <button class="w-btn" data-i18n="btnBrowse" style="height: 32px;">Seç</button>
+                  <input type="text" class="w-input" id="inputJar" value="C:\Minecraft\paper-1.20.4.jar" readonly>
+                  <button class="w-btn" id="btnBrowse" data-i18n="btnBrowse" style="height: 32px;">Seç</button>
                 </div>
 
                 <div class="w-input-row">
                   <div style="flex: 1;">
                     <label class="w-label" data-i18n="lblIp">IP adresi</label>
-                    <input type="text" class="w-input" placeholder="26.19.27.172">
+                    <input type="text" class="w-input" id="inputIp" placeholder="26.19.27.172">
                   </div>
                   <div style="width: 80px;">
                     <label class="w-label" data-i18n="lblPort">Port</label>
-                    <input type="text" class="w-input" value="25565">
+                    <input type="text" class="w-input" id="inputPort" value="25565">
                   </div>
                 </div>
 
                 <label class="w-label" data-i18n="lblRam">Bellek</label>
-                <input type="text" class="w-input" value="4G">
+                <input type="text" class="w-input" id="inputRam" value="4G">
 
                 <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
                   <button class="w-btn w-btn-start" id="btnStartStop" data-i18n="btnStart">Başlat</button>
@@ -179,7 +179,7 @@
                 </div>
                 <div class="tile">
                   <div class="tile-cap" data-i18n="tileTime">OYUN SAATİ</div>
-                  <div class="tile-val">19:33</div>
+                  <div class="tile-val" id="tileTime">--:--</div>
                 </div>
               </div>
 
@@ -285,9 +285,9 @@
             <!-- Whitelist Card -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardWl">WHITELIST (WHITELIST.JSON)</div>
-              <div class="player-list" style="height: 180px;">
-                <div class="player-item selected"><div class="skin-head"></div> Steve</div>
-                <div class="player-item"><div class="skin-head" style="background:#f59e0b;"></div> Alex</div>
+              <div class="player-list" id="listWhitelist" style="height: 180px;">
+                <div class="player-item selected"><div class="skin-head"></div><span>Steve</span></div>
+                <div class="player-item"><div class="skin-head" style="background:#f59e0b;"></div><span>Alex</span></div>
               </div>
               <div class="w-input-row" style="margin-bottom: 0.5rem;">
                 <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
@@ -302,8 +302,8 @@
             <!-- Operators Card -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardOps">OPERATÖRLER (OPS.JSON)</div>
-              <div class="player-list" style="height: 180px;">
-                <div class="player-item selected"><div class="skin-head" style="background:#ef4444;"></div> Steve (Level 4 OP)</div>
+              <div class="player-list" id="listOps" style="height: 180px;">
+                <div class="player-item selected"><div class="skin-head" style="background:#ef4444;"></div><span>Steve (Level 4 OP)</span></div>
               </div>
               <div class="w-input-row" style="margin-bottom: 0.5rem;">
                 <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
@@ -327,7 +327,7 @@
                 Dünya klasörlerini (world, nether, end) .zip olarak sunucu klasöründeki 'backups' dizinine yedekler. Sunucu açıksa önce otomatik "save-all" gönderilir.
               </p>
               <label class="w-label" data-i18n="lblBackupTag">İsteğe bağlı etiket (ör: nether-oncesi)</label>
-              <input type="text" class="w-input" placeholder="survival_nether">
+              <input type="text" class="w-input" id="inputBackupTag" placeholder="survival_nether">
               <button class="w-btn w-btn-start" style="width: 100%; margin-bottom: 0.5rem;" data-i18n="btnNewBackup">⚡ Dünyayı Yedekle (.zip)</button>
               <button class="w-btn" style="width: 100%;" data-i18n="btnOpenBkFolder">📁 Yedek Klasörünü Aç</button>
             </div>
@@ -335,7 +335,7 @@
             <!-- Right Card: Saved Backups List -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardBackups">KAYITLI YEDEKLER (BACKUPS\)</div>
-              <div class="player-list" style="height: 150px;">
+              <div class="player-list" id="listBackups" style="height: 150px;">
                 <div class="player-item selected">📦 backup_2026-11-10_20-15-00_survival.zip   •   142 MB</div>
                 <div class="player-item">📦 backup_2026-11-09_18-00-12_auto.zip   •   139 MB</div>
               </div>
@@ -354,7 +354,7 @@
             <!-- Plugins Card -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardPlugins">EKLENTİLER (PLUGINS\)</div>
-              <div class="player-list" style="height: 160px;">
+              <div class="player-list" id="listPlugins" style="height: 160px;">
                 <div class="player-item selected">🧩 EssentialsX.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
                 <div class="player-item">🧩 Vault.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
                 <div class="player-item" style="opacity: 0.6;">🧩 Dynmap.jar.disabled <span style="margin-left:auto; color:var(--w-red);" class="badge-status-disabled" data-i18n="badgeDisabled">Devre Dışı</span></div>
@@ -371,7 +371,7 @@
             <!-- Mods Card -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardMods">MODLAR (MODS\)</div>
-              <div class="player-list" style="height: 160px;">
+              <div class="player-list" id="listMods" style="height: 160px;">
                 <div class="player-item selected">⚙️ Fabric-API.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
                 <div class="player-item">⚙️ Sodium.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
                 <div class="player-item">⚙️ Lithium.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
@@ -404,7 +404,7 @@
             <!-- Right Card: Profiles List -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardProfiles">KAYITLI SUNUCU PROFİLLERİ</div>
-              <div class="player-list" style="height: 150px;">
+              <div class="player-list" id="listProfiles" style="height: 150px;">
                 <div class="player-item selected">📂 26.3 Survival   •   5G   •   :25565</div>
                 <div class="player-item">📂 Modlu Forge Sunucu   •   8G   •   :25566</div>
                 <div class="player-item">📂 Test Paper Server   •   2G   •   :25567</div>
@@ -531,6 +531,8 @@
         </div>
 
       </div>
+
+      <div class="sim-toast" id="simToast" aria-live="polite"></div>
 
     </div>
   </section>

@@ -10,8 +10,13 @@ const state = {
   uptimeInterval: null,
   simTimeouts: [],
   memoryMB: 13,
+  worldTimeTick: 6000,
   onlinePlayers: [],
   selectedPlayer: null,
+  cmdHistory: [],
+  cmdHistoryIdx: -1,
+  jarIndex: 0,
+  toastTimer: null,
   gamemode: 'survival',
   difficulty: 'normal',
   properties: {
@@ -226,6 +231,16 @@ const i18n = {
     logProfileLoaded: "» [PROFİL] Sunucu profili yüklendi: ",
     logPropsSaved: "» [AYAR] server.properties dosyası kaydedildi.",
     logSettingsSaved: "» [AYAR] Otomasyon ve sunucu ayarları güncellendi.",
+    logListReloaded: "» [SİSTEM] Liste güncellendi.",
+    logFolderOpened: "» [SİSTEM] Klasör dosya gezgininde açıldı.",
+    logJarSelected: "» [AYAR] Sunucu JAR seçildi: ",
+    logItemAdded: "» [YÖNETİM] Eklendi: ",
+    logItemRemoved: "» [YÖNETİM] Kaldırıldı: ",
+    logBackupRestored: "» [YEDEK] Seçili dünya yedeği geri yüklendi.",
+    logBackupDeleted: "» [YEDEK] Yedek kalıcı olarak silindi.",
+    logProfileDeleted: "» [PROFİL] Seçili profil silindi.",
+    toastSaved: "Değişiklikler kaydedildi",
+    toastUpdated: "Liste güncellendi",
 
     // Features Section
     featTag: "Neden Redstone Server Panel?",
@@ -423,6 +438,16 @@ const i18n = {
     logProfileLoaded: "» [PROFILE] Loaded profile: ",
     logPropsSaved: "» [PROPERTIES] server.properties has been saved.",
     logSettingsSaved: "» [SETTINGS] Automation and server settings updated.",
+    logListReloaded: "» [SYSTEM] List refreshed.",
+    logFolderOpened: "» [SYSTEM] Opened folder in File Explorer.",
+    logJarSelected: "» [SETTINGS] Selected server JAR: ",
+    logItemAdded: "» [MANAGER] Added: ",
+    logItemRemoved: "» [MANAGER] Removed: ",
+    logBackupRestored: "» [BACKUP] Selected world backup restored.",
+    logBackupDeleted: "» [BACKUP] Backup permanently deleted.",
+    logProfileDeleted: "» [PROFILE] Selected profile deleted.",
+    toastSaved: "Changes saved",
+    toastUpdated: "List refreshed",
 
     // Features Section
     featTag: "Why Redstone Server Panel?",
@@ -471,7 +496,37 @@ const tileStatus = document.getElementById('tileStatus');
 const tileUptime = document.getElementById('tileUptime');
 const tileMemory = document.getElementById('tileMemory');
 const tilePlayers = document.getElementById('tilePlayers');
+const tileTime = document.getElementById('tileTime');
+const inputJar = document.getElementById('inputJar');
+const btnBrowse = document.getElementById('btnBrowse');
+const inputPort = document.getElementById('inputPort');
+const inputRam = document.getElementById('inputRam');
+const simToast = document.getElementById('simToast');
 const langPillLabel = document.getElementById('langPillLabel');
+
+function showToast(msg) {
+  if (!simToast || !msg) return;
+  simToast.textContent = msg;
+  simToast.classList.add('show');
+  if (state.toastTimer) clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => {
+    simToast.classList.remove('show');
+  }, 2400);
+}
+
+function formatWorldTime(ticks) {
+  const norm = ((ticks % 24000) + 24000) % 24000;
+  const totalMinutes = Math.floor((norm / 1000) * 60 + 360) % 1440;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function selectListItem(list, item) {
+  if (!list || !item) return;
+  list.querySelectorAll('.player-item').forEach(it => it.classList.remove('selected'));
+  item.classList.add('selected');
+}
 
 // Simulation timers
 function clearSimTimeouts() {
@@ -611,6 +666,7 @@ function renderDashboardPlayers() {
 // Language change
 function setLanguage(langCode) {
   state.lang = langCode;
+  document.documentElement.lang = langCode;
   const t = i18n[langCode];
   
   if (langPillLabel) {
@@ -634,13 +690,15 @@ function setLanguage(langCode) {
     b.classList.toggle('active', b.dataset.lang === langCode);
   });
 
-  // Update Start/Stop button
+  // Update Start/Stop button & telemetry tiles
   if (state.isRunning) {
     btnStartStop.textContent = t.btnStop;
-    tileStatus.textContent = t.statusOnline;
+    tileStatus.textContent = state.uptimeSeconds > 0 ? t.statusOnline : t.statusStarting;
+    if (tileTime && state.uptimeSeconds > 0) tileTime.textContent = formatWorldTime(state.worldTimeTick);
   } else {
     btnStartStop.textContent = t.btnStart;
     tileStatus.textContent = t.statusOffline;
+    if (tileTime) tileTime.textContent = '--:--';
   }
 
   // Update initial console greeting if only 1 line exists
@@ -665,26 +723,31 @@ btnStartStop.addEventListener('click', () => {
 
 function startServer() {
   clearSimTimeouts();
+  clearInterval(state.uptimeInterval);
   state.isRunning = true;
+  state.uptimeSeconds = 0;
   state.onlinePlayers = [];
   state.selectedPlayer = null;
   renderDashboardPlayers();
 
   const t = i18n[state.lang];
+  const ramVal = (inputRam && inputRam.value.trim()) ? inputRam.value.trim() : '4G';
+  const portVal = (inputPort && inputPort.value.trim()) ? inputPort.value.trim() : '25565';
   tileStatus.textContent = t.statusStarting;
   tileStatus.className = 'tile-val tile-status';
   btnStartStop.textContent = t.btnStop;
   btnStartStop.className = 'w-btn w-btn-stop';
+  if (tileTime) tileTime.textContent = '--:--';
 
-  appendLog(t.consoleStarting, 'sys');
+  appendLog(t.consoleStarting.replace('4G', ramVal), 'sys');
   appendLog(`[${now()}] [Server thread/INFO]: Loading libraries, please wait...`, 'info');
 
   scheduleSim(() => {
     appendLog(`[${now()}] [Server thread/INFO]: Starting minecraft server version 1.20.4`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Loading properties`, 'info');
-    appendLog(`[${now()}] [Server thread/INFO]: Default game type: SURVIVAL`, 'info');
+    appendLog(`[${now()}] [Server thread/INFO]: Default game type: ${(state.gamemode || 'survival').toUpperCase()}`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Generating keypair`, 'info');
-    appendLog(`[${now()}] [Server thread/INFO]: Starting Minecraft server on *:25565`, 'info');
+    appendLog(`[${now()}] [Server thread/INFO]: Starting Minecraft server on *:${portVal}`, 'info');
   }, 600);
 
   scheduleSim(() => {
@@ -697,11 +760,17 @@ function startServer() {
     tileStatus.className = 'tile-val tile-status active';
     state.memoryMB = 3719;
     tileMemory.textContent = `${state.memoryMB} MB`;
+    state.worldTimeTick = 6000;
+    if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
 
     state.uptimeSeconds = 0;
     state.uptimeInterval = setInterval(() => {
       state.uptimeSeconds++;
       tileUptime.textContent = formatUptime(state.uptimeSeconds);
+      if (state.uptimeSeconds % 2 === 0 && tileTime) {
+        state.worldTimeTick = (state.worldTimeTick + 200) % 24000;
+        tileTime.textContent = formatWorldTime(state.worldTimeTick);
+      }
     }, 1000);
   }, 1500);
 
@@ -752,6 +821,7 @@ function stopServer() {
   state.isRunning = false;
   clearSimTimeouts();
   clearInterval(state.uptimeInterval);
+  state.uptimeSeconds = 0;
 
   const t = i18n[state.lang];
   btnStartStop.textContent = t.btnStart;
@@ -761,6 +831,7 @@ function stopServer() {
   state.memoryMB = 13;
   tileMemory.textContent = `${state.memoryMB} MB`;
   tileUptime.textContent = '00:00:00';
+  if (tileTime) tileTime.textContent = '--:--';
 
   if (state.onlinePlayers.length > 0) {
     state.onlinePlayers.forEach(p => {
@@ -781,12 +852,17 @@ function stopServer() {
 }
 
 // Console command handler
+const cmdSuggestions = ['help', 'list', 'say ', 'op ', 'deop ', 'whitelist ', 'time set day', 'time set night', 'gamemode ', 'stop'];
+
 function sendCommand() {
   const cmd = consoleInput.value.trim();
   if (!cmd) return;
   consoleInput.value = '';
+  state.cmdHistory.push(cmd);
+  state.cmdHistoryIdx = state.cmdHistory.length;
 
-  appendLog(`> ${cmd}`, 'chat');
+  const cleanCmd = cmd.startsWith('/') ? cmd.slice(1) : cmd;
+  appendLog(`> ${cleanCmd}`, 'chat');
 
   const t = i18n[state.lang];
   if (!state.isRunning) {
@@ -794,7 +870,7 @@ function sendCommand() {
     return;
   }
 
-  const parts = cmd.split(' ');
+  const parts = cleanCmd.split(/\s+/);
   const base = parts[0].toLowerCase();
 
   setTimeout(() => {
@@ -803,21 +879,34 @@ function sendCommand() {
         appendLog(`[${now()}] [Server thread/INFO]: --- Showing help page 1 of 1 ---`, 'info');
         appendLog(`[${now()}] [Server thread/INFO]: /help, /list, /say <message>, /stop, /op <player>, /time set <day|night>`, 'info');
         break;
-      case 'list':
+      case 'list': {
         const names = state.onlinePlayers.map(p => p.name).join(', ');
         appendLog(`[${now()}] [Server thread/INFO]: There are ${state.onlinePlayers.length} of a max of 20 players online${names ? ': ' + names : ''}`, 'info');
         break;
-      case 'say':
+      }
+      case 'say': {
         const msg = parts.slice(1).join(' ') || 'Hello from Server!';
         appendLog(`[${now()}] [Server thread/INFO]: [Server] ${msg}`, 'chat');
         break;
-      case 'op':
+      }
+      case 'op': {
         const pl = parts[1] || 'Player';
+        addAccessListItem('listOps', pl, true);
         appendLog(`[${now()}] [Server thread/INFO]: Made ${pl} a server operator`, 'sys');
         break;
-      case 'time':
-        appendLog(`[${now()}] [Server thread/INFO]: Set the time to 1000`, 'info');
+      }
+      case 'deop': {
+        const pl = parts[1] || 'Player';
+        appendLog(`[${now()}] [Server thread/INFO]: Made ${pl} no longer a server operator`, 'warn');
         break;
+      }
+      case 'time': {
+        const arg = (parts[2] || 'day').toLowerCase();
+        state.worldTimeTick = (arg === 'night') ? 13000 : 1000;
+        if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
+        appendLog(`[${now()}] [Server thread/INFO]: Set the time to ${state.worldTimeTick}`, 'info');
+        break;
+      }
       case 'gamemode':
         appendLog(`[${now()}] [Server thread/INFO]: Set game mode to ${parts[1] || 'creative'}`, 'info');
         break;
@@ -833,8 +922,55 @@ function sendCommand() {
 
 document.getElementById('btnConsoleSend').addEventListener('click', sendCommand);
 consoleInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendCommand();
+  if (e.key === 'Enter') {
+    sendCommand();
+  } else if (e.key === 'ArrowUp') {
+    if (!state.cmdHistory.length) return;
+    e.preventDefault();
+    state.cmdHistoryIdx = Math.max(0, state.cmdHistoryIdx - 1);
+    consoleInput.value = state.cmdHistory[state.cmdHistoryIdx] || '';
+  } else if (e.key === 'ArrowDown') {
+    if (!state.cmdHistory.length) return;
+    e.preventDefault();
+    state.cmdHistoryIdx = Math.min(state.cmdHistory.length, state.cmdHistoryIdx + 1);
+    consoleInput.value = state.cmdHistoryIdx < state.cmdHistory.length ? state.cmdHistory[state.cmdHistoryIdx] : '';
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    const val = consoleInput.value.trimStart();
+    if (!val) {
+      consoleInput.value = cmdSuggestions[0];
+      return;
+    }
+    const clean = val.startsWith('/') ? val.slice(1) : val;
+    const prefix = val.startsWith('/') ? '/' : '';
+    const spaceIdx = clean.indexOf(' ');
+    if (spaceIdx === -1) {
+      const match = cmdSuggestions.find(c => c.startsWith(clean.toLowerCase()));
+      if (match) consoleInput.value = prefix + match;
+    } else {
+      const cmdHead = clean.slice(0, spaceIdx + 1);
+      const argPart = clean.slice(spaceIdx + 1).toLowerCase();
+      const playerMatch = state.onlinePlayers.find(p => p.name.toLowerCase().startsWith(argPart));
+      if (playerMatch) consoleInput.value = prefix + cmdHead + playerMatch.name;
+    }
+  }
 });
+
+// Browse .jar simulator
+const sampleJars = [
+  'C:\\Minecraft\\paper-1.20.4.jar',
+  'C:\\Minecraft\\purpur-1.20.4.jar',
+  'C:\\Minecraft\\fabric-server-mc1.20.4.jar'
+];
+if (btnBrowse && inputJar) {
+  btnBrowse.addEventListener('click', () => {
+    state.jarIndex = (state.jarIndex + 1) % sampleJars.length;
+    inputJar.value = sampleJars[state.jarIndex];
+    const t = i18n[state.lang];
+    appendLog(`${t.logJarSelected}${inputJar.value}`, 'info');
+    showToast(inputJar.value.split('\\').pop());
+  });
+}
 
 // Unban button interaction
 const btnUnban = document.getElementById('btnUnban');
@@ -844,6 +980,7 @@ if (btnUnban && inputUnban) {
     const val = inputUnban.value.trim() || 'Alex';
     const t = i18n[state.lang];
     appendLog(`[${now()}] [Server thread/INFO]: Unbanned player ${val}`, 'sys');
+    showToast(`${t.logUnban.replace('» ', '')}${val}`);
     inputUnban.value = '';
   });
 }
@@ -875,40 +1012,93 @@ if (btnBanPlayer) {
   });
 }
 
+// Whitelist & Ops dynamic helpers
+function addAccessListItem(listId, name, isOp) {
+  const list = document.getElementById(listId);
+  if (!list) return;
+  const label = isOp ? `${name} (Level 4 OP)` : name;
+  const existing = Array.from(list.querySelectorAll('.player-item')).find(el => {
+    const txt = el.textContent.trim().toLowerCase();
+    return txt === name.toLowerCase() || txt.startsWith(`${name.toLowerCase()} (`);
+  });
+  if (existing) {
+    selectListItem(list, existing);
+    return;
+  }
+  const item = document.createElement('div');
+  item.className = 'player-item';
+  const head = document.createElement('div');
+  head.className = 'skin-head';
+  if (isOp) head.style.background = '#ef4444';
+  const span = document.createElement('span');
+  span.textContent = label;
+  item.appendChild(head);
+  item.appendChild(span);
+  list.appendChild(item);
+  selectListItem(list, item);
+}
+
+function removeSelectedAccessItem(listId, fallbackName) {
+  const list = document.getElementById(listId);
+  if (!list) return fallbackName;
+  const sel = list.querySelector('.player-item.selected') || list.querySelector('.player-item');
+  if (!sel) return fallbackName;
+  const raw = sel.textContent.trim();
+  const cleanName = raw.replace(/\s*\(Level\s+\d+\s+OP\)$/i, '').trim() || fallbackName;
+  sel.remove();
+  const next = list.querySelector('.player-item');
+  if (next) next.classList.add('selected');
+  return cleanName;
+}
+
 // Whitelist & Ops actions
 document.querySelectorAll('[data-i18n="btnAddWl"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const card = btn.closest('.w-card');
     const input = card ? card.querySelector('input') : null;
-    const name = (input && input.value.trim()) ? input.value.trim() : 'NewPlayer';
+    const name = (input && input.value.trim()) ? input.value.trim() : 'Herobrine';
+    const t = i18n[state.lang];
+    addAccessListItem('listWhitelist', name, false);
     appendLog(`[${now()}] [Server thread/INFO]: Added ${name} to the whitelist`, 'sys');
+    showToast(`${t.logItemAdded.replace('» ', '')}${name}`);
     if (input) input.value = '';
   });
 });
 document.querySelectorAll('[data-i18n="btnRemWl"]').forEach(btn => {
   btn.addEventListener('click', () => {
-    appendLog(`[${now()}] [Server thread/INFO]: Removed Steve from the whitelist`, 'warn');
+    const removed = removeSelectedAccessItem('listWhitelist', 'Steve');
+    const t = i18n[state.lang];
+    appendLog(`[${now()}] [Server thread/INFO]: Removed ${removed} from the whitelist`, 'warn');
+    showToast(`${t.logItemRemoved.replace('» ', '')}${removed}`);
   });
 });
 document.querySelectorAll('[data-i18n="btnOpAdd"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const card = btn.closest('.w-card');
     const input = card ? card.querySelector('input') : null;
-    const name = (input && input.value.trim()) ? input.value.trim() : 'Player';
+    const name = (input && input.value.trim()) ? input.value.trim() : 'Alex';
+    const t = i18n[state.lang];
+    addAccessListItem('listOps', name, true);
     appendLog(`[${now()}] [Server thread/INFO]: Made ${name} a server operator`, 'sys');
+    showToast(`${t.logItemAdded.replace('» ', '')}${name} (OP)`);
     if (input) input.value = '';
   });
 });
 document.querySelectorAll('[data-i18n="btnOpRem"]').forEach(btn => {
   btn.addEventListener('click', () => {
-    appendLog(`[${now()}] [Server thread/INFO]: Made Steve no longer a server operator`, 'warn');
+    const removed = removeSelectedAccessItem('listOps', 'Steve');
+    const t = i18n[state.lang];
+    appendLog(`[${now()}] [Server thread/INFO]: Made ${removed} no longer a server operator`, 'warn');
+    showToast(`${t.logItemRemoved.replace('» ', '')}${removed}`);
   });
 });
 
 // Reload buttons
 document.querySelectorAll('[data-i18n="btnReload"]').forEach(btn => {
   btn.addEventListener('click', () => {
-    appendLog(`» [SİSTEM] Liste güncellendi.`, 'info');
+    const t = i18n[state.lang];
+    appendLog(t.logListReloaded, 'info');
+    showToast(t.toastUpdated);
   });
 });
 
@@ -918,6 +1108,9 @@ document.querySelectorAll('.btn-sel').forEach(btn => {
     const parent = btn.parentElement;
     parent.querySelectorAll('.btn-sel').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+    const k = btn.dataset.i18n || '';
+    if (k.startsWith('gm')) state.gamemode = k.slice(2).toLowerCase();
+    if (k.startsWith('df')) state.difficulty = k.slice(2).toLowerCase();
   });
 });
 
@@ -936,18 +1129,120 @@ document.querySelectorAll('.tab-page:not(#page-panel) .player-list').forEach(lis
   list.addEventListener('click', (e) => {
     const item = e.target.closest('.player-item');
     if (item && list.contains(item)) {
-      list.querySelectorAll('.player-item').forEach(it => it.classList.remove('selected'));
-      item.classList.add('selected');
+      selectListItem(list, item);
     }
   });
 });
 
-// Backup creation simulator
+// Backup creation, restore, delete & folder simulator
 document.querySelectorAll('[data-i18n="btnNewBackup"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const t = i18n[state.lang];
+    const tagInput = document.getElementById('inputBackupTag');
+    const rawTag = tagInput ? tagInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, '') : '';
+    const tag = rawTag || 'survival';
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const ts = now().replace(/:/g, '-');
-    appendLog(`${t.logBackupDone}backup_${ts}_survival.zip`, 'sys');
+    const fname = `backup_${dateStr}_${ts}_${tag}.zip`;
+
+    const list = document.getElementById('listBackups');
+    if (list) {
+      const item = document.createElement('div');
+      item.className = 'player-item';
+      item.textContent = `📦 ${fname}   •   142 MB`;
+      list.prepend(item);
+      selectListItem(list, item);
+    }
+    if (tagInput) tagInput.value = '';
+    appendLog(`${t.logBackupDone}${fname}`, 'sys');
+    showToast(fname);
+  });
+});
+
+document.querySelectorAll('[data-i18n="btnRestoreBackup"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(t.logBackupRestored, 'sys');
+    showToast(t.logBackupRestored.replace('» ', ''));
+  });
+});
+
+document.querySelectorAll('[data-i18n="btnDeleteBackup"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const list = document.getElementById('listBackups');
+    const sel = list ? (list.querySelector('.player-item.selected') || list.querySelector('.player-item')) : null;
+    if (sel) {
+      sel.remove();
+      const next = list.querySelector('.player-item');
+      if (next) next.classList.add('selected');
+    }
+    const t = i18n[state.lang];
+    appendLog(t.logBackupDeleted, 'warn');
+    showToast(t.logBackupDeleted.replace('» ', ''));
+  });
+});
+
+// Folder buttons (Backups, Plugins/Mods, Logs)
+document.querySelectorAll('[data-i18n="btnOpenBkFolder"], [data-i18n="btnOpenFolder"], [data-i18n="btnOpenLogs"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(t.logFolderOpened, 'info');
+    showToast(t.logFolderOpened.replace('» ', ''));
+  });
+});
+
+// Plugin/Mod Add & Delete simulator
+const sampleAddons = {
+  plugins: ['WorldEdit.jar', 'CoreProtect.jar', 'LuckPerms.jar', 'PlaceholderAPI.jar'],
+  mods: ['Iris.jar', 'FerriteCore.jar', 'Indium.jar', 'ModMenu.jar']
+};
+let addonIdx = { plugins: 0, mods: 0 };
+
+document.querySelectorAll('[data-i18n="btnAddItem"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const card = btn.closest('.w-card');
+    const list = card ? card.querySelector('.player-list') : null;
+    if (!list) return;
+    const isPlugin = list.id === 'listPlugins';
+    const pool = isPlugin ? sampleAddons.plugins : sampleAddons.mods;
+    const key = isPlugin ? 'plugins' : 'mods';
+    const name = pool[addonIdx[key] % pool.length];
+    addonIdx[key]++;
+
+    const t = i18n[state.lang];
+    const item = document.createElement('div');
+    item.className = 'player-item';
+    const icon = isPlugin ? '🧩 ' : '⚙️ ';
+    item.appendChild(document.createTextNode(`${icon}${name} `));
+    const badge = document.createElement('span');
+    badge.style.marginLeft = 'auto';
+    badge.style.color = 'var(--w-green)';
+    badge.className = 'badge-status-active';
+    badge.dataset.i18n = 'badgeEnabled';
+    badge.textContent = t.badgeEnabled;
+    item.appendChild(badge);
+    list.appendChild(item);
+    selectListItem(list, item);
+    appendLog(`${t.logItemAdded}${name}`, 'sys');
+    showToast(`${t.logItemAdded.replace('» ', '')}${name}`);
+  });
+});
+
+document.querySelectorAll('[data-i18n="btnDelItem"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const card = btn.closest('.w-card');
+    const list = card ? card.querySelector('.player-list') : null;
+    if (!list) return;
+    const sel = list.querySelector('.player-item.selected') || list.querySelector('.player-item');
+    if (!sel) return;
+    const label = sel.firstChild ? sel.firstChild.textContent.trim() : 'item.jar';
+    sel.remove();
+    const next = list.querySelector('.player-item');
+    if (next) next.classList.add('selected');
+    const t = i18n[state.lang];
+    appendLog(`${t.logItemRemoved}${label}`, 'warn');
+    showToast(`${t.logItemRemoved.replace('» ', '')}${label}`);
   });
 });
 
@@ -957,7 +1252,19 @@ document.querySelectorAll('[data-i18n="btnSaveProfile"]').forEach(btn => {
     const t = i18n[state.lang];
     const input = btn.parentElement.querySelector('input');
     const name = (input && input.value.trim()) ? input.value.trim() : 'Custom Server';
+    const ramVal = (inputRam && inputRam.value.trim()) ? inputRam.value.trim() : '4G';
+    const portVal = (inputPort && inputPort.value.trim()) ? inputPort.value.trim() : '25565';
+    const list = document.getElementById('listProfiles');
+    if (list) {
+      const item = document.createElement('div');
+      item.className = 'player-item';
+      item.textContent = `📂 ${name}   •   ${ramVal}   •   :${portVal}`;
+      list.prepend(item);
+      selectListItem(list, item);
+    }
+    if (input) input.value = '';
     appendLog(`${t.logProfileSaved}"${name}"`, 'sys');
+    showToast(`${t.logProfileSaved.replace('» ', '')}"${name}"`);
   });
 });
 
@@ -965,7 +1272,31 @@ document.querySelectorAll('[data-i18n="btnSaveProfile"]').forEach(btn => {
 document.querySelectorAll('[data-i18n="btnLoadProfile"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const t = i18n[state.lang];
-    appendLog(`${t.logProfileLoaded}"26.3 Survival" (5G, :25565)`, 'info');
+    const list = document.getElementById('listProfiles');
+    const sel = list ? (list.querySelector('.player-item.selected') || list.querySelector('.player-item')) : null;
+    const txt = sel ? sel.textContent.replace(/^📂\s*/, '').trim() : '26.3 Survival   •   5G   •   :25565';
+    const ramMatch = txt.match(/•\s*([^\s•]+)\s*•/);
+    const portMatch = txt.match(/:(\d+)/);
+    if (ramMatch && inputRam) inputRam.value = ramMatch[1];
+    if (portMatch && inputPort) inputPort.value = portMatch[1];
+    appendLog(`${t.logProfileLoaded}"${txt}"`, 'info');
+    showToast(`${t.logProfileLoaded.replace('» ', '')}${txt.split('•')[0].trim()}`);
+  });
+});
+
+// Delete Profile simulator
+document.querySelectorAll('[data-i18n="btnDeleteProfile"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const list = document.getElementById('listProfiles');
+    const sel = list ? (list.querySelector('.player-item.selected') || list.querySelector('.player-item')) : null;
+    if (sel) {
+      sel.remove();
+      const next = list.querySelector('.player-item');
+      if (next) next.classList.add('selected');
+    }
+    const t = i18n[state.lang];
+    appendLog(t.logProfileDeleted, 'warn');
+    showToast(t.logProfileDeleted.replace('» ', ''));
   });
 });
 
@@ -974,6 +1305,7 @@ document.querySelectorAll('[data-i18n="btnSaveProps"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const t = i18n[state.lang];
     appendLog(t.logPropsSaved, 'sys');
+    showToast(t.toastSaved);
   });
 });
 
@@ -982,6 +1314,7 @@ document.querySelectorAll('.tab-page button[data-i18n="btnSave"]').forEach(btn =
   btn.addEventListener('click', () => {
     const t = i18n[state.lang];
     appendLog(t.logSettingsSaved, 'sys');
+    showToast(t.toastSaved);
   });
 });
 

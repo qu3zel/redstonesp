@@ -584,6 +584,8 @@ static std::wstring g_schedRestartTime = L"04:00";
 static time_t g_lastAutoBackupTime = 0;
 static int  g_lastRestartMinute = -1;
 static int  g_restartWarningStep = 0;
+static bool g_schedRestartPending = false;
+static bool g_scheduledRestartTrigger = false;
 static HWND g_hChkSchedBk, g_hEditBkHours, g_hBtnSchedBkSave;
 static HWND g_hChkSchedRestart, g_hEditRestartTime, g_hBtnSchedRestartSave;
 
@@ -1440,6 +1442,17 @@ static COLORREF GetConsoleColorForLine(const std::wstring& line, bool isDark) {
     return isDark ? RGB(245, 248, 252) : P.logText;
 }
 
+static void LockConsoleHorizontalScroll() {
+    if (!g_hLog) return;
+    SendMessageW(g_hLog, WM_HSCROLL, SB_LEFT, 0);
+    POINT pt = { 0, 0 };
+    SendMessageW(g_hLog, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
+    if (pt.x != 0) {
+        pt.x = 0;
+        SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+    }
+}
+
 static void AppendLogInternal(const std::wstring& text, bool logToFile) {
     if (!g_hLog || text.empty()) return;
     if (logToFile) LogToFile(text);
@@ -1539,9 +1552,7 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
             SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
         }
         // Lock horizontal scroll to 0 so the beginning of lines is NEVER hidden to the left
-        SendMessageW(g_hLog, WM_HSCROLL, SB_LEFT, 0);
-        POINTL pt = { 0, -1 };
-        SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+        LockConsoleHorizontalScroll();
         InvalidateRect(g_hLog, NULL, FALSE);
         UpdateWindow(g_hLog);
     } else {
@@ -1581,9 +1592,7 @@ static void ReapplyLogColors() {
     SendMessageW(g_hLog, WM_SETREDRAW, TRUE, 0);
     if (IsWindowVisible(g_hLog)) {
         SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
-        SendMessageW(g_hLog, WM_HSCROLL, SB_LEFT, 0);
-        POINTL pt = { 0, -1 };
-        SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+        LockConsoleHorizontalScroll();
         InvalidateRect(g_hLog, NULL, TRUE);
         UpdateWindow(g_hLog);
     }
@@ -1993,6 +2002,10 @@ static void UpdateProperties(const std::wstring& dir, const std::vector<std::pai
     WriteAll(path, out);
 }
 
+static bool HasServerJar() {
+    return g_hJar && !Trim(GetText(g_hJar)).empty();
+}
+
 static std::wstring GetServerDir() {
     if (!g_hJar) return L".";
     std::wstring jar = Trim(GetText(g_hJar));
@@ -2125,6 +2138,31 @@ static std::string ExtractJsonField(const std::string& obj, const std::string& k
     return obj.substr(q1 + 1, q2 - q1 - 1);
 }
 
+static int ExtractJsonInt(const std::string& obj, const std::string& key, int defVal) {
+    std::string pat = "\"" + key + "\"";
+    size_t k = obj.find(pat);
+    if (k == std::string::npos) return defVal;
+    size_t col = obj.find(':', k + pat.size());
+    if (col == std::string::npos) return defVal;
+    size_t p = col + 1;
+    while (p < obj.size() && (obj[p] == ' ' || obj[p] == '\t' || obj[p] == '\r' || obj[p] == '\n')) ++p;
+    if (p >= obj.size() || !(isdigit((unsigned char)obj[p]) || obj[p] == '-')) return defVal;
+    return atoi(obj.c_str() + p);
+}
+
+static bool ExtractJsonBool(const std::string& obj, const std::string& key, bool defVal) {
+    std::string pat = "\"" + key + "\"";
+    size_t k = obj.find(pat);
+    if (k == std::string::npos) return defVal;
+    size_t col = obj.find(':', k + pat.size());
+    if (col == std::string::npos) return defVal;
+    size_t p = col + 1;
+    while (p < obj.size() && (obj[p] == ' ' || obj[p] == '\t' || obj[p] == '\r' || obj[p] == '\n')) ++p;
+    if (obj.compare(p, 4, "true") == 0) return true;
+    if (obj.compare(p, 5, "false") == 0) return false;
+    return defVal;
+}
+
 static std::vector<JsonPlayerEntry> ReadPlayerJsonList(const std::wstring& path) {
     std::vector<JsonPlayerEntry> out;
     std::string data;
@@ -2139,6 +2177,8 @@ static std::vector<JsonPlayerEntry> ReadPlayerJsonList(const std::wstring& path)
         JsonPlayerEntry pe;
         pe.name = ExtractJsonField(obj, "name");
         pe.uuid = ExtractJsonField(obj, "uuid");
+        pe.level = ExtractJsonInt(obj, "level", 4);
+        pe.bypassesPlayerLimit = ExtractJsonBool(obj, "bypassesPlayerLimit", false);
         if (!pe.name.empty()) out.push_back(pe);
         pos = e + 1;
     }
@@ -2184,8 +2224,13 @@ static void WritePlayerJsonList(const std::wstring& path, const std::vector<Json
 
 static void LoadAccessListsToUi() {
     if (!g_hListWl || !g_hListOp) return;
-    std::wstring dir = GetServerDir();
     SendMessageW(g_hListWl, LB_RESETCONTENT, 0, 0);
+    SendMessageW(g_hListOp, LB_RESETCONTENT, 0, 0);
+    if (!HasServerJar()) {
+        if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+        return;
+    }
+    std::wstring dir = GetServerDir();
     for (const auto& e : ReadPlayerJsonList(dir + L"\\whitelist.json")) {
         std::wstring w = FromUtf8(e.name);
         if (ValidPlayerName(w)) {
@@ -2193,7 +2238,6 @@ static void LoadAccessListsToUi() {
             SendMessageW(g_hListWl, LB_ADDSTRING, 0, (LPARAM)w.c_str());
         }
     }
-    SendMessageW(g_hListOp, LB_RESETCONTENT, 0, 0);
     for (const auto& e : ReadPlayerJsonList(dir + L"\\ops.json")) {
         std::wstring w = FromUtf8(e.name);
         if (ValidPlayerName(w)) {
@@ -2225,6 +2269,10 @@ static void ModifyAccessList(bool isOp, bool add) {
     }
     if (!ValidPlayerName(name)) {
         AppLog(L().logInvalidPlayer);
+        return;
+    }
+    if (!HasServerJar()) {
+        Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
         return;
     }
 
@@ -2319,6 +2367,7 @@ struct BackupTaskArgs {
     HWND hwnd;
     bool restore;
     bool serverWasRunning;
+    Lang lang;
     std::wstring srvDir;
     std::wstring zipPath;
     std::vector<std::wstring> worldFolders;
@@ -2357,12 +2406,12 @@ static DWORD WINAPI BackupWorkerThread(LPVOID param) {
     std::wstring msg;
     if (exitCode == 0) {
         msg = a->restore
-            ? (g_lang == Lang::TR ? L"Yedek başarıyla geri yüklendi: " : L"Backup restored successfully: ") + a->zipPath
-            : (g_lang == Lang::TR ? L"Dünya yedeği oluşturuldu: " : L"World backup created: ") + a->zipPath;
+            ? (a->lang == Lang::TR ? L"Yedek başarıyla geri yüklendi: " : L"Backup restored successfully: ") + a->zipPath
+            : (a->lang == Lang::TR ? L"Dünya yedeği oluşturuldu: " : L"World backup created: ") + a->zipPath;
     } else {
         msg = a->restore
-            ? (g_lang == Lang::TR ? L"Yedek geri yüklenemedi!" : L"Failed to restore backup!")
-            : (g_lang == Lang::TR ? L"Yedek oluşturulamadı!" : L"Failed to create backup!");
+            ? (a->lang == Lang::TR ? L"Yedek geri yüklenemedi!" : L"Failed to restore backup!")
+            : (a->lang == Lang::TR ? L"Yedek oluşturulamadı!" : L"Failed to create backup!");
     }
 
     g_backupBusy = false;
@@ -2418,7 +2467,7 @@ static void StartCreateBackup(bool silent = false) {
     EnableWindow(g_hBtnBkCreate, FALSE);
     AppLog(Tx(L"Dünya yedekleniyor, lütfen bekleyin…", L"Creating world backup, please wait…"));
 
-    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, false, running, srvDir, zipPath, folders };
+    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, false, running, g_lang, srvDir, zipPath, folders };
     HANDLE th = args ? CreateThread(NULL, 0, BackupWorkerThread, args, 0, NULL) : NULL;
     if (th) CloseHandle(th);
     else { delete args; g_backupBusy = false; EnableWindow(g_hBtnBkCreate, TRUE); }
@@ -2448,7 +2497,7 @@ static void RestoreSelectedBackup() {
     EnableWindow(g_hBtnBkRestore, FALSE);
     AppLog(Tx(L"Yedek geri yükleniyor…", L"Restoring backup…"));
 
-    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, true, false, srvDir, zipPath, {} };
+    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, true, false, g_lang, srvDir, zipPath, {} };
     HANDLE th = args ? CreateThread(NULL, 0, BackupWorkerThread, args, 0, NULL) : NULL;
     if (th) CloseHandle(th);
     else { delete args; g_backupBusy = false; EnableWindow(g_hBtnBkRestore, TRUE); }
@@ -2572,10 +2621,16 @@ static void DeleteSelectedProfile() {
 static void LoadModFolder(const std::wstring& subDir, std::vector<ModItem>& outList, HWND hLb) {
     outList.clear();
     if (hLb) SendMessageW(hLb, LB_RESETCONTENT, 0, 0);
+    if (!HasServerJar()) {
+        if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+        return;
+    }
     std::wstring srvDir = GetServerDir();
-    if (srvDir.empty()) return;
     std::wstring dir = srvDir + L"\\" + subDir;
-    if (!DirExists(dir)) return;
+    if (!DirExists(dir)) {
+        if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+        return;
+    }
 
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
@@ -2615,6 +2670,7 @@ static void LoadModFolder(const std::wstring& subDir, std::vector<ModItem>& outL
             SendMessageW(hLb, LB_ADDSTRING, 0, (LPARAM)it.displayName.c_str());
         }
     }
+    if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
 }
 
 static void ToggleModItem(bool isPlugin) {
@@ -2654,11 +2710,11 @@ static void ToggleModItem(bool isPlugin) {
 }
 
 static void AddModItem(bool isPlugin) {
-    std::wstring srvDir = GetServerDir();
-    if (srvDir.empty()) {
+    if (!HasServerJar()) {
         Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
         return;
     }
+    std::wstring srvDir = GetServerDir();
     std::wstring subDir = isPlugin ? L"plugins" : L"mods";
     std::wstring destDir = srvDir + L"\\" + subDir;
     CreateDirectoryW(destDir.c_str(), NULL);
@@ -2709,8 +2765,11 @@ static void DeleteModItem(bool isPlugin) {
 }
 
 static void OpenModFolder(bool isPlugin) {
+    if (!HasServerJar()) {
+        Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
+        return;
+    }
     std::wstring srvDir = GetServerDir();
-    if (srvDir.empty()) return;
     std::wstring target = srvDir + L"\\" + (isPlugin ? L"plugins" : L"mods");
     CreateDirectoryW(target.c_str(), NULL);
     ShellExecuteW(g_hwnd, L"open", target.c_str(), NULL, NULL, SW_SHOWNORMAL);
@@ -3020,8 +3079,13 @@ static void StartServer() {
     Balloon(L"Redstone Server Panel", L().balloonStarting);
 }
 
-static void StopServer() {
+static void StopServer(bool fromScheduledRestart = false) {
     if (g_state != SrvState::Starting && g_state != SrvState::Running) return;
+    if (!fromScheduledRestart) {
+        g_schedRestartPending = false;
+        g_scheduledRestartTrigger = false;
+        KillTimer(g_hwnd, TID_RESTART);
+    }
     g_state = SrvState::Stopping;
     WriteToConsole(L"stop");
     SetTimer(g_hwnd, TID_STOPWATCH, 60000, NULL);
@@ -3042,6 +3106,7 @@ static void OnServerExited() {
     UpdateTelemetryStats();
 
     if (!expected && code != 0) {
+        g_schedRestartPending = false;
         AppLog(std::wstring(L().logCrashed) + std::to_wstring((long long)(int)code) + L").");
         Balloon(L"Redstone Server Panel", L().balloonCrashed);
         if (g_autoRestart && !g_quitPending) {
@@ -3061,6 +3126,13 @@ static void OnServerExited() {
         g_crashCount = 0;
         AppLog(L().logStopped);
         Balloon(L"Redstone Server Panel", L().balloonStopped);
+        if (g_schedRestartPending && !g_quitPending) {
+            g_schedRestartPending = false;
+            g_scheduledRestartTrigger = true;
+            AppLog(Tx(L"[Otomasyon] Planlı yeniden başlatma için sunucu 5 saniye içinde açılacak…",
+                      L"[Automation] Scheduled restart: starting server in 5 seconds…"));
+            SetTimer(g_hwnd, TID_RESTART, 5000, NULL);
+        }
     }
     UpdateUi();
     if (g_quitPending) DestroyWindow(g_hwnd);
@@ -3346,9 +3418,7 @@ static void SendCommandFromUi() {
     AppendLog(L"> " + c + L"\r\n");
     if (g_hLog) {
         SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
-        SendMessageW(g_hLog, WM_HSCROLL, SB_LEFT, 0);
-        POINTL pt = { 0, -1 };
-        SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+        LockConsoleHorizontalScroll();
     }
     g_hist.push_back(c); g_histPos = (int)g_hist.size();
     SetWindowTextW(g_hCmd, L"");
@@ -3628,6 +3698,11 @@ static void PaintHeader(HDC mem, int W) {
     DrawTxt(mem, up, title, g_fCap, P.text, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
+static COLORREF ContrastText(COLORREF bg) {
+    int lum = (GetRValue(bg) * 299 + GetGValue(bg) * 587 + GetBValue(bg) * 114) / 1000;
+    return lum >= 150 ? RGB(15, 23, 42) : RGB(255, 255, 255);
+}
+
 // Card pages (Properties & Settings): optional sub-tab pills + cards + fields + descriptions
 static void PaintCardPage(HDC mem) {
     int p = S(16);
@@ -3638,7 +3713,7 @@ static void PaintCardPage(HDC mem) {
             bool act = (i == g_subTab);
             COLORREF bg = act ? P.accent : ((i == g_subTabHover) ? P.field : P.card);
             COLORREF bdr = act ? P.accent : ((i == g_subTabHover) ? P.accent : P.border);
-            COLORREF txt = act ? RGB(255, 255, 255) : ((i == g_subTabHover) ? P.text : P.muted);
+            COLORREF txt = act ? ContrastText(bg) : ((i == g_subTabHover) ? P.text : P.muted);
             FillRound(mem, g_rcSub[i], bg, bdr, S(30));
             DrawTxt(mem, g_lang == Lang::TR ? subTr[i] : subEn[i], g_rcSub[i], g_fCap,
                     txt, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -3794,7 +3869,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         RECT box = { r.left, (r.top + r.bottom - bs) / 2, r.left + bs, (r.top + r.bottom - bs) / 2 + bs };
         FillRound(dc, box, on ? P.accent : P.field, on ? P.accent : ((hover || focus) ? P.accent : P.border), S(6));
         if (on) {
-            HPEN pen = CreatePen(PS_SOLID, std::max(2, S(2)), RGB(255, 255, 255));
+            HPEN pen = CreatePen(PS_SOLID, std::max(2, S(2)), ContrastText(P.accent));
             HGDIOBJ op = SelectObject(dc, pen);
             MoveToEx(dc, box.left + S(4), box.top + bs / 2, NULL);
             LineTo(dc, box.left + S(7), box.bottom - S(5));
@@ -4005,9 +4080,7 @@ static void Layout(int W, int H) {
     if (dw) EndDeferWindowPos(dw);
     if (g_hLog) {
         SendMessageW(g_hLog, EM_SETTARGETDEVICE, 0, 0);
-        SendMessageW(g_hLog, WM_HSCROLL, SB_LEFT, 0);
-        POINTL pt = { 0, -1 };
-        SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+        LockConsoleHorizontalScroll();
     }
     if (g_page == PG_PROPS) LayoutProps(W, m, g, p, fh);
     else if (g_page == PG_ACCESS) LayoutAccess(W, H, m, g, p, fh);
@@ -4353,9 +4426,7 @@ static void ShowPage() {
         ReapplyLogColors();
     } else if (pan && g_hLog) {
         SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
-        SendMessageW(g_hLog, WM_HSCROLL, SB_LEFT, 0);
-        POINTL pt = { 0, -1 };
-        SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
+        LockConsoleHorizontalScroll();
     }
 
     RECT rc; GetClientRect(g_hwnd, &rc);
@@ -4890,7 +4961,13 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case ID_BTN_OP_REM:    ModifyAccessList(true, false); break;
                 case ID_BTN_OP_RELOAD: LoadAccessListsToUi(); break;
                 case ID_BTN_BK_CREATE:  StartCreateBackup(); break;
-                case ID_BTN_BK_OPEN:    ShellExecuteW(hwnd, L"open", BackupsDir().c_str(), NULL, NULL, SW_SHOWNORMAL); break;
+                case ID_BTN_BK_OPEN:
+                    if (!HasServerJar()) {
+                        Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
+                    } else {
+                        ShellExecuteW(hwnd, L"open", BackupsDir().c_str(), NULL, NULL, SW_SHOWNORMAL);
+                    }
+                    break;
                 case ID_BTN_BK_RESTORE: RestoreSelectedBackup(); break;
                 case ID_BTN_BK_DEL:     DeleteSelectedBackup(); break;
                 case ID_BTN_BK_RELOAD:  LoadBackupsListToUi(); break;
@@ -5043,20 +5120,23 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
                             if (diff == 5 && g_restartWarningStep == 0) {
                                 g_restartWarningStep = 1;
-                                WriteToConsole(L"say §c[Duyuru] Sunucu 5 dakika içinde planlı olarak yeniden başlatılacak!");
+                                WriteToConsole(Tx(L"say §c[Duyuru] Sunucu 5 dakika içinde planlı olarak yeniden başlatılacak!",
+                                                  L"say §c[Notice] Server will perform a scheduled restart in 5 minutes!"));
                                 AppLog(Tx(L"[Otomasyon] 5 dakika uyarısı verildi.", L"[Automation] 5-minute warning sent."));
                             } else if (diff == 1 && g_restartWarningStep == 1) {
                                 g_restartWarningStep = 2;
-                                WriteToConsole(L"say §c[Duyuru] Sunucu 1 dakika içinde yeniden başlatılıyor!");
+                                WriteToConsole(Tx(L"say §c[Duyuru] Sunucu 1 dakika içinde yeniden başlatılıyor!",
+                                                  L"say §c[Notice] Server is restarting in 1 minute!"));
                                 AppLog(Tx(L"[Otomasyon] 1 dakika uyarısı verildi.", L"[Automation] 1-minute warning sent."));
                             } else if (diff == 0 && curMinutes != g_lastRestartMinute) {
                                 g_lastRestartMinute = curMinutes;
                                 g_restartWarningStep = 0;
-                                WriteToConsole(L"say §c[Duyuru] Sunucu planlı olarak yeniden başlatılıyor...");
+                                WriteToConsole(Tx(L"say §c[Duyuru] Sunucu planlı olarak yeniden başlatılıyor...",
+                                                  L"say §c[Notice] Server is performing a scheduled restart..."));
                                 AppLog(Tx(L"[Otomasyon] Zamanlanmış yeniden başlatma yürütülüyor...",
                                           L"[Automation] Executing scheduled restart..."));
-                                g_autoRestart = true;
-                                StopServer();
+                                g_schedRestartPending = true;
+                                StopServer(true);
                             } else if (diff > 5 || diff < 0) {
                                 g_restartWarningStep = 0;
                             }
@@ -5067,7 +5147,9 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (g_state == SrvState::Running) QueryTime();
             } else if (wp == TID_RESTART) {
                 KillTimer(hwnd, TID_RESTART);
-                if (g_autoRestart && g_state == SrvState::Stopped && !g_quitPending) StartServer();
+                bool trigSched = g_scheduledRestartTrigger;
+                g_scheduledRestartTrigger = false;
+                if ((g_autoRestart || trigSched) && g_state == SrvState::Stopped && !g_quitPending) StartServer();
             } else if (wp == TID_STOPWATCH) {
                 KillTimer(hwnd, TID_STOPWATCH);
                 if (g_state == SrvState::Stopping && g_hProc) {
