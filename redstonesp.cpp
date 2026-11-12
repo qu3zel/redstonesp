@@ -721,6 +721,13 @@ static std::wstring Trim(const std::wstring& s) {
     size_t b = s.find_last_not_of(L" \t\r\n");
     return s.substr(a, b - a + 1);
 }
+static std::wstring TrimQuotes(std::wstring s) {
+    s = Trim(s);
+    while (s.size() >= 2 && s.front() == L'"' && s.back() == L'"') {
+        s = Trim(s.substr(1, s.size() - 2));
+    }
+    return s;
+}
 static std::string TrimA(const std::string& s) {
     size_t a = s.find_first_not_of(" \t\r\n");
     if (a == std::string::npos) return "";
@@ -846,13 +853,14 @@ static void LoadAppPrefs() {
     g_schedBkEnabled = Trim(IniGet(L"SchedBkEnabled", L"0")) == L"1";
     g_schedBkHours = _wtoi(IniGet(L"SchedBkHours", L"2").c_str());
     if (g_schedBkHours <= 0) g_schedBkHours = 2;
+    else if (g_schedBkHours > 72) g_schedBkHours = 72;
 
     g_schedRestartEnabled = Trim(IniGet(L"SchedRestartEnabled", L"0")) == L"1";
     g_schedRestartTime = Trim(IniGet(L"SchedRestartTime", L"04:00"));
     if (g_schedRestartTime.empty()) g_schedRestartTime = L"04:00";
 }
 static void LoadSettings() {
-    SetWindowTextW(g_hJar,  IniGet(L"Jar", L"").c_str());
+    SetWindowTextW(g_hJar,  TrimQuotes(IniGet(L"Jar", L"")).c_str());
     SetWindowTextW(g_hIp,   IniGet(L"Ip", L"").c_str());
     SetWindowTextW(g_hPort, IniGet(L"Port", L"25565").c_str());
     SetWindowTextW(g_hRam,  IniGet(L"Ram", L"4G").c_str());
@@ -863,7 +871,7 @@ static void LoadSettings() {
 static void SaveSettings() {
     std::wstring p = SettingsPath();
     if (g_hJar) {
-        WritePrivateProfileStringW(L"Server", L"Jar",  Trim(GetText(g_hJar)).c_str(),  p.c_str());
+        WritePrivateProfileStringW(L"Server", L"Jar",  TrimQuotes(GetText(g_hJar)).c_str(), p.c_str());
         WritePrivateProfileStringW(L"Server", L"Ip",   Trim(GetText(g_hIp)).c_str(),   p.c_str());
         WritePrivateProfileStringW(L"Server", L"Port", Trim(GetText(g_hPort)).c_str(), p.c_str());
         WritePrivateProfileStringW(L"Server", L"Ram",  Trim(GetText(g_hRam)).c_str(),  p.c_str());
@@ -2027,14 +2035,6 @@ static void UpdateProperties(const std::wstring& dir, const std::vector<std::pai
     WriteAll(path, out);
 }
 
-static std::wstring TrimQuotes(std::wstring s) {
-    s = Trim(s);
-    while (s.size() >= 2 && s.front() == L'"' && s.back() == L'"') {
-        s = Trim(s.substr(1, s.size() - 2));
-    }
-    return s;
-}
-
 static std::wstring GetJarPath() {
     return g_hJar ? TrimQuotes(GetText(g_hJar)) : L"";
 }
@@ -2138,17 +2138,27 @@ static void SaveServerPropertiesFromUi() {
         return;
     }
     std::wstring dir = GetServerDir();
-    std::wstring motd = Trim(GetText(g_hMotd));
-    std::wstring maxp = Trim(GetText(g_hMaxPl));
-    std::wstring view = Trim(GetText(g_hViewDist));
-    std::wstring simd = Trim(GetText(g_hSimDist));
-    std::wstring spwn = Trim(GetText(g_hSpawnProt));
-    std::wstring lvlN = Trim(GetText(g_hLevelName));
-    std::wstring lvlS = Trim(GetText(g_hLevelSeed));
-    if (maxp.empty()) maxp = L"20";
-    if (view.empty()) view = L"10";
-    if (simd.empty()) simd = L"10";
-    if (spwn.empty()) spwn = L"16";
+    auto singleLine = [](std::wstring s) {
+        std::wstring out;
+        for (wchar_t c : s) if (c >= 32) out.push_back(c);
+        return Trim(out);
+    };
+    auto digitsOr = [](const std::wstring& s, const wchar_t* def, long long minV, long long maxV) -> std::wstring {
+        if (s.empty()) return def;
+        for (wchar_t c : s) if (c < L'0' || c > L'9') return def;
+        long long v = _wtoi64(s.c_str());
+        if (v < minV) v = minV;
+        if (v > maxV) v = maxV;
+        return std::to_wstring(v);
+    };
+
+    std::wstring motd = singleLine(GetText(g_hMotd));
+    std::wstring maxp = digitsOr(Trim(GetText(g_hMaxPl)),     L"20", 1, 99999);
+    std::wstring view = digitsOr(Trim(GetText(g_hViewDist)),  L"10", 2, 64);
+    std::wstring simd = digitsOr(Trim(GetText(g_hSimDist)),   L"10", 2, 64);
+    std::wstring spwn = digitsOr(Trim(GetText(g_hSpawnProt)), L"16", 0, 9999);
+    std::wstring lvlN = singleLine(GetText(g_hLevelName));
+    std::wstring lvlS = singleLine(GetText(g_hLevelSeed));
     if (lvlN.empty()) lvlN = L"world";
 
     static const char* gmNames[4] = { "survival", "creative", "adventure", "spectator" };
@@ -2184,6 +2194,8 @@ static void SaveServerPropertiesFromUi() {
         { "spawn-npcs",             g_propNpcs        ? "true" : "false" }
     };
     UpdateProperties(dir, kv);
+    g_propRawLvlType = lvlTypeVal;
+    g_propLoadedLvlType = g_propLvlType;
 
     if (g_state == SrvState::Running) {
         WriteToConsole(std::wstring(L"defaultgamemode ") + FromUtf8(gmNames[g_propGm & 3]));
@@ -5195,13 +5207,15 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     break;
                 case ID_BTN_SCHED_RESTART_SAVE: {
                     std::wstring t = Trim(GetText(g_hEditRestartTime));
-                    int th = 0, tm = 0;
-                    if (swscanf(t.c_str(), L"%d:%d", &th, &tm) != 2 || th < 0 || th > 23 || tm < 0 || tm > 59) {
+                    int th = 0, tm = 0; wchar_t extra = 0;
+                    if (swscanf(t.c_str(), L"%d:%d%lc", &th, &tm, &extra) != 2 || th < 0 || th > 23 || tm < 0 || tm > 59) {
                         AppLog(Tx(L"Saat formatı geçersiz (örnek format: 04:00)", L"Invalid time format (e.g. 04:00)"));
                         break;
                     }
                     wchar_t b[16]; swprintf(b, 16, L"%02d:%02d", th, tm);
                     g_schedRestartTime = b;
+                    g_restartWarningStep = 0;
+                    g_lastRestartMinute = -1;
                     SetWindowTextW(g_hEditRestartTime, g_schedRestartTime.c_str());
                     SaveSettings();
                     AppLog(std::wstring(Tx(L"Yeniden başlatma saati kaydedildi: ", L"Scheduled restart time saved: ")) + g_schedRestartTime);
@@ -5299,7 +5313,8 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         SYSTEMTIME st; GetLocalTime(&st);
                         int curMinutes = st.wHour * 60 + st.wMinute;
                         int targetH = 4, targetM = 0;
-                        if (swscanf(g_schedRestartTime.c_str(), L"%d:%d", &targetH, &targetM) == 2) {
+                        if (swscanf(g_schedRestartTime.c_str(), L"%d:%d", &targetH, &targetM) == 2 &&
+                            targetH >= 0 && targetH <= 23 && targetM >= 0 && targetM <= 59) {
                             int targetMinutes = targetH * 60 + targetM;
                             int diff = targetMinutes - curMinutes;
                             if (diff < -720) diff += 1440;
