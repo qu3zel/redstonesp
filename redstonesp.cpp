@@ -79,7 +79,10 @@ enum {
     ID_BTN_PROPSAVE, ID_BTN_PROPRELOAD,
     ID_BTN_GM_SURV, ID_BTN_GM_CREA, ID_BTN_GM_ADV, ID_BTN_GM_SPEC,
     ID_BTN_DF_PEACE, ID_BTN_DF_EASY, ID_BTN_DF_NORM, ID_BTN_DF_HARD,
+    ID_BTN_LVL_NORM, ID_BTN_LVL_FLAT, ID_BTN_LVL_LARGE, ID_BTN_LVL_AMP,
     ID_CHK_ONLINE, ID_CHK_PVP, ID_CHK_WHITELIST, ID_CHK_FLIGHT, ID_CHK_CMDBLOCK,
+    ID_CHK_HARDCORE, ID_CHK_FORCEGM, ID_CHK_SECUREPROF, ID_CHK_HIDEPL,
+    ID_CHK_NETHER, ID_CHK_MONSTERS, ID_CHK_ANIMALS, ID_CHK_NPCS,
     ID_BTN_WL_ADD, ID_BTN_WL_REM, ID_BTN_WL_RELOAD,
     ID_BTN_OP_ADD, ID_BTN_OP_REM, ID_BTN_OP_RELOAD,
     ID_BTN_BK_CREATE, ID_BTN_BK_OPEN, ID_BTN_BK_RESTORE, ID_BTN_BK_DEL, ID_BTN_BK_RELOAD,
@@ -91,6 +94,7 @@ enum {
     ID_EDIT_JAR = 1101, ID_EDIT_IP, ID_EDIT_PORT, ID_EDIT_RAM, ID_EDIT_UNBAN,
     ID_EDIT_CMD, ID_EDIT_LOG, ID_LIST_PLAYERS, ID_EDIT_JVM,
     ID_EDIT_MOTD, ID_EDIT_MAXPL, ID_EDIT_VIEWDIST, ID_EDIT_SPAWNPROT,
+    ID_EDIT_SIMDIST, ID_EDIT_LEVELNAME, ID_EDIT_LEVELSEED,
     ID_EDIT_WL, ID_EDIT_OP, ID_LIST_WL, ID_LIST_OP,
     ID_EDIT_BK_TAG, ID_LIST_BK, ID_EDIT_PROF_NAME, ID_LIST_PROF,
     ID_LIST_PLUGINS, ID_LIST_MODS, ID_EDIT_BK_HOURS, ID_EDIT_RESTART_TIME,
@@ -551,7 +555,7 @@ static std::wstring g_lastTip;
 static int g_lastTrayIcon = -1;
 
 // Layout
-enum { F_JAR, F_IP, F_PORT, F_RAM, F_UNBAN, F_CMD, F_JVM, F_MOTD, F_MAXPL, F_VIEWDIST, F_SPAWNPROT, F_WL, F_OP, F_BK_TAG, F_PROF_NAME, F_BK_HOURS, F_RESTART_TIME, F_COUNT };
+enum { F_JAR, F_IP, F_PORT, F_RAM, F_UNBAN, F_CMD, F_JVM, F_MOTD, F_MAXPL, F_VIEWDIST, F_SIMDIST, F_SPAWNPROT, F_LEVELNAME, F_LEVELSEED, F_WL, F_OP, F_BK_TAG, F_PROF_NAME, F_BK_HOURS, F_RESTART_TIME, F_COUNT };
 struct Field { HWND h; RECT rc; const wchar_t* caption; };
 static Field g_f[F_COUNT];
 static RECT g_rcSet, g_rcPl, g_rcCon, g_rcStats, g_rcTile[5], g_rcListBg, g_rcLogBg;
@@ -590,13 +594,20 @@ static HWND g_hChkSchedBk, g_hEditBkHours, g_hBtnSchedBkSave;
 static HWND g_hChkSchedRestart, g_hEditRestartTime, g_hBtnSchedRestartSave;
 
 // Server Properties page state & controls
-static HWND g_hMotd, g_hMaxPl, g_hViewDist, g_hSpawnProt;
+static HWND g_hMotd, g_hMaxPl, g_hViewDist, g_hSimDist, g_hSpawnProt, g_hLevelName, g_hLevelSeed;
 static HWND g_hBtnPropSave, g_hBtnPropReload;
-static HWND g_hBtnGm[4], g_hBtnDf[4];
+static HWND g_hBtnGm[4], g_hBtnDf[4], g_hBtnLvlType[4];
 static HWND g_hChkOnline, g_hChkPvp, g_hChkWhitelist, g_hChkFlight, g_hChkCmdBlock;
+static HWND g_hChkHardcore, g_hChkForceGm, g_hChkSecureProf, g_hChkHidePlayers;
+static HWND g_hChkNether, g_hChkMonsters, g_hChkAnimals, g_hChkNpcs;
 static int  g_propGm = 0; // 0=survival, 1=creative, 2=adventure, 3=spectator
 static int  g_propDf = 2; // 0=peaceful, 1=easy, 2=normal, 3=hard
+static int  g_propLvlType = 0; // 0=normal, 1=flat, 2=large_biomes, 3=amplified, -1=custom
+static int  g_propLoadedLvlType = 0;
+static std::string g_propRawLvlType;
 static bool g_propOnline = true, g_propPvp = true, g_propWhitelist = false, g_propFlight = false, g_propCmdBlock = false;
+static bool g_propHardcore = false, g_propForceGm = false, g_propSecureProf = true, g_propHidePlayers = false;
+static bool g_propNether = true, g_propMonsters = true, g_propAnimals = true, g_propNpcs = true;
 
 // Access (Whitelist & OP) page controls
 static HWND g_hListWl, g_hEditWl, g_hBtnWlAdd, g_hBtnWlRem, g_hBtnWlReload;
@@ -648,7 +659,7 @@ static const wchar_t* CardTitle(int id) {
         case 3: return Tx(L"OTOMATİK YENİDEN BAŞLATMA", L"AUTO-RESTART");
         case 4: return Tx(L"JVM ARGÜMANLARI", L"JVM ARGUMENTS");
         case 5: return Tx(L"LOGLAR", L"LOGS");
-        case 6: return Tx(L"SUNUCU BİLGİLERİ (SERVER.PROPERTIES)", L"SERVER INFO (SERVER.PROPERTIES)");
+        case 6: return Tx(L"SUNUCU BİLGİLERİ", L"SERVER INFO");
         case 7: return Tx(L"OYUN MODU & ZORLUK", L"GAMEMODE & DIFFICULTY");
         case 8: return Tx(L"KURALLAR & GÜVENLİK", L"RULES & SECURITY");
         case 9: return Tx(L"WHITELIST LİSTESİ (WHITELIST.JSON)", L"WHITELIST (WHITELIST.JSON)");
@@ -661,6 +672,7 @@ static const wchar_t* CardTitle(int id) {
         case 16: return Tx(L"GÜNLÜK YENİDEN BAŞLATMA", L"DAILY SCHEDULED RESTART");
         case 17: return Tx(L"EKLENTİLER (PLUGINS\\)", L"PLUGINS (PLUGINS\\)");
         case 18: return Tx(L"MODLAR (MODS\\)", L"MODS (MODS\\)");
+        case 19: return Tx(L"DÜNYA & VARLIKLAR", L"WORLD & ENTITIES");
         default: return L"";
     }
 }
@@ -688,6 +700,7 @@ static const wchar_t* DescText(int id) {
                            L"Plugins in plugins\\ folder. Disabled plugins get .disabled extension and configurations are kept.");
         case 11: return Tx(L"mods\\ klasöründeki modlar. Devre dışı bırakılan modlar .disabled uzantısı alır.",
                            L"Mods in mods\\ folder. Disabled mods get .disabled extension.");
+        case 12: return Tx(L"Dünya oluşturma türü (level-type)", L"World generation type (level-type)");
         default: return L"";
     }
 }
@@ -2074,7 +2087,10 @@ static void LoadServerPropertiesToUi() {
     SetWindowTextW(g_hMotd,      FromUtf8(get("motd", "A Minecraft Server")).c_str());
     SetWindowTextW(g_hMaxPl,     FromUtf8(get("max-players", "20")).c_str());
     SetWindowTextW(g_hViewDist,  FromUtf8(get("view-distance", "10")).c_str());
+    SetWindowTextW(g_hSimDist,   FromUtf8(get("simulation-distance", "10")).c_str());
     SetWindowTextW(g_hSpawnProt, FromUtf8(get("spawn-protection", "16")).c_str());
+    SetWindowTextW(g_hLevelName, FromUtf8(get("level-name", "world")).c_str());
+    SetWindowTextW(g_hLevelSeed, FromUtf8(get("level-seed", "")).c_str());
 
     std::string gm = ToLowerA(get("gamemode", "survival"));
     if (gm == "creative" || gm == "1") g_propGm = 1;
@@ -2088,11 +2104,30 @@ static void LoadServerPropertiesToUi() {
     else if (df == "hard" || df == "3") g_propDf = 3;
     else g_propDf = 2;
 
-    g_propOnline    = getBool("online-mode", true);
-    g_propPvp       = getBool("pvp", true);
-    g_propWhitelist = getBool("white-list", false);
-    g_propFlight    = getBool("allow-flight", false);
-    g_propCmdBlock  = getBool("enable-command-block", false);
+    g_propRawLvlType = get("level-type", "");
+    std::string lt = ToLowerA(g_propRawLvlType);
+    if (lt.rfind("minecraft\\:", 0) == 0) lt = lt.substr(11);
+    else if (lt.rfind("minecraft:", 0) == 0) lt = lt.substr(10);
+    if (lt.empty() || lt == "normal" || lt == "default") g_propLvlType = 0;
+    else if (lt == "flat") g_propLvlType = 1;
+    else if (lt == "large_biomes" || lt == "largebiomes") g_propLvlType = 2;
+    else if (lt == "amplified") g_propLvlType = 3;
+    else g_propLvlType = -1;
+    g_propLoadedLvlType = g_propLvlType;
+
+    g_propOnline      = getBool("online-mode", true);
+    g_propPvp         = getBool("pvp", true);
+    g_propWhitelist   = getBool("white-list", false);
+    g_propFlight      = getBool("allow-flight", false);
+    g_propCmdBlock    = getBool("enable-command-block", false);
+    g_propHardcore    = getBool("hardcore", false);
+    g_propForceGm     = getBool("force-gamemode", false);
+    g_propSecureProf  = getBool("enforce-secure-profile", true);
+    g_propHidePlayers = getBool("hide-online-players", false);
+    g_propNether      = getBool("allow-nether", true);
+    g_propMonsters    = getBool("spawn-monsters", true);
+    g_propAnimals     = getBool("spawn-animals", true);
+    g_propNpcs        = getBool("spawn-npcs", true);
 
     if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
 }
@@ -2106,26 +2141,47 @@ static void SaveServerPropertiesFromUi() {
     std::wstring motd = Trim(GetText(g_hMotd));
     std::wstring maxp = Trim(GetText(g_hMaxPl));
     std::wstring view = Trim(GetText(g_hViewDist));
+    std::wstring simd = Trim(GetText(g_hSimDist));
     std::wstring spwn = Trim(GetText(g_hSpawnProt));
+    std::wstring lvlN = Trim(GetText(g_hLevelName));
+    std::wstring lvlS = Trim(GetText(g_hLevelSeed));
     if (maxp.empty()) maxp = L"20";
     if (view.empty()) view = L"10";
+    if (simd.empty()) simd = L"10";
     if (spwn.empty()) spwn = L"16";
+    if (lvlN.empty()) lvlN = L"world";
 
     static const char* gmNames[4] = { "survival", "creative", "adventure", "spectator" };
     static const char* dfNames[4] = { "peaceful", "easy", "normal", "hard" };
+    static const char* lvlNames[4] = { "minecraft:normal", "minecraft:flat", "minecraft:large_biomes", "minecraft:amplified" };
+    std::string lvlTypeVal = (g_propLvlType < 0 || (g_propLvlType == g_propLoadedLvlType && !g_propRawLvlType.empty()))
+        ? g_propRawLvlType
+        : std::string(lvlNames[g_propLvlType & 3]);
 
     std::vector<std::pair<std::string, std::string>> kv = {
-        { "motd",                 ToUtf8(motd.empty() ? L"A Minecraft Server" : motd) },
-        { "max-players",          ToUtf8(maxp) },
-        { "view-distance",        ToUtf8(view) },
-        { "spawn-protection",     ToUtf8(spwn) },
-        { "gamemode",             gmNames[g_propGm & 3] },
-        { "difficulty",           dfNames[g_propDf & 3] },
-        { "online-mode",          g_propOnline    ? "true" : "false" },
-        { "pvp",                  g_propPvp       ? "true" : "false" },
-        { "white-list",           g_propWhitelist ? "true" : "false" },
-        { "allow-flight",         g_propFlight    ? "true" : "false" },
-        { "enable-command-block", g_propCmdBlock  ? "true" : "false" }
+        { "motd",                   ToUtf8(motd.empty() ? L"A Minecraft Server" : motd) },
+        { "max-players",            ToUtf8(maxp) },
+        { "view-distance",          ToUtf8(view) },
+        { "simulation-distance",    ToUtf8(simd) },
+        { "spawn-protection",       ToUtf8(spwn) },
+        { "level-name",             ToUtf8(lvlN) },
+        { "level-seed",             ToUtf8(lvlS) },
+        { "level-type",             lvlTypeVal },
+        { "gamemode",               gmNames[g_propGm & 3] },
+        { "difficulty",             dfNames[g_propDf & 3] },
+        { "online-mode",            g_propOnline      ? "true" : "false" },
+        { "pvp",                    g_propPvp         ? "true" : "false" },
+        { "white-list",             g_propWhitelist   ? "true" : "false" },
+        { "allow-flight",           g_propFlight      ? "true" : "false" },
+        { "enable-command-block",   g_propCmdBlock    ? "true" : "false" },
+        { "hardcore",               g_propHardcore    ? "true" : "false" },
+        { "force-gamemode",         g_propForceGm     ? "true" : "false" },
+        { "enforce-secure-profile", g_propSecureProf  ? "true" : "false" },
+        { "hide-online-players",    g_propHidePlayers ? "true" : "false" },
+        { "allow-nether",           g_propNether      ? "true" : "false" },
+        { "spawn-monsters",         g_propMonsters    ? "true" : "false" },
+        { "spawn-animals",          g_propAnimals     ? "true" : "false" },
+        { "spawn-npcs",             g_propNpcs        ? "true" : "false" }
     };
     UpdateProperties(dir, kv);
 
@@ -2921,9 +2977,12 @@ static void ApplyLanguage() {
     g_f[F_CMD].caption   = NULL;
     g_f[F_JVM].caption   = Tx(L"JVM argümanları", L"JVM arguments");
     g_f[F_MOTD].caption      = Tx(L"Sunucu açıklaması (MOTD)", L"Server description (MOTD)");
-    g_f[F_MAXPL].caption     = Tx(L"Maks. oyuncu", L"Max players");
+    g_f[F_MAXPL].caption     = Tx(L"Maks. oyuncu (max-players)", L"Max players (max-players)");
     g_f[F_VIEWDIST].caption  = Tx(L"Görüş mesafesi (chunk)", L"View distance (chunks)");
-    g_f[F_SPAWNPROT].caption = Tx(L"Başlangıç koruması", L"Spawn protection");
+    g_f[F_SIMDIST].caption   = Tx(L"Simülasyon mesafesi", L"Simulation distance");
+    g_f[F_SPAWNPROT].caption = Tx(L"Başlangıç koruması (blok)", L"Spawn protection (blocks)");
+    g_f[F_LEVELNAME].caption = Tx(L"Dünya adı (level-name)", L"World name (level-name)");
+    g_f[F_LEVELSEED].caption = Tx(L"Dünya tohumu (level-seed)", L"World seed (level-seed)");
     g_f[F_WL].caption        = Tx(L"Oyuncu adı", L"Player name");
     g_f[F_OP].caption        = Tx(L"Oyuncu adı", L"Player name");
     g_f[F_BK_TAG].caption    = Tx(L"Yedek etiketi (isteğe bağlı, ör: sezon1)", L"Backup label (optional, e.g. pre-update)");
@@ -2954,11 +3013,23 @@ static void ApplyLanguage() {
     SetWindowTextW(g_hBtnDf[1],       Tx(L"Kolay", L"Easy"));
     SetWindowTextW(g_hBtnDf[2],       Tx(L"Normal", L"Normal"));
     SetWindowTextW(g_hBtnDf[3],       Tx(L"Zor", L"Hard"));
+    SetWindowTextW(g_hBtnLvlType[0],  Tx(L"Normal", L"Normal"));
+    SetWindowTextW(g_hBtnLvlType[1],  Tx(L"Düz", L"Flat"));
+    SetWindowTextW(g_hBtnLvlType[2],  Tx(L"Geniş Biyom", L"Large Biomes"));
+    SetWindowTextW(g_hBtnLvlType[3],  Tx(L"Yükseltilmiş", L"Amplified"));
     SetWindowTextW(g_hChkOnline,      Tx(L"Orijinal Hesap Zorunlu (online-mode)", L"Require Premium Account (online-mode)"));
-    SetWindowTextW(g_hChkPvp,         Tx(L"Oyuncular Arası Hasar (PVP)", L"Player vs Player Damage (PVP)"));
+    SetWindowTextW(g_hChkPvp,         Tx(L"Oyuncular Arası Hasar (pvp)", L"Player vs Player Damage (pvp)"));
     SetWindowTextW(g_hChkWhitelist,   Tx(L"Whitelist Zorunlu (white-list)", L"Enforce Whitelist (white-list)"));
     SetWindowTextW(g_hChkFlight,      Tx(L"Uçmaya İzin Ver (allow-flight)", L"Allow Flight (allow-flight)"));
     SetWindowTextW(g_hChkCmdBlock,    Tx(L"Komut Bloklarını Etkinleştir (enable-command-block)", L"Enable Command Blocks (enable-command-block)"));
+    SetWindowTextW(g_hChkSecureProf,  Tx(L"Güvenli Sohbet İmzası (enforce-secure-profile)", L"Secure Profile (enforce-secure-profile)"));
+    SetWindowTextW(g_hChkHidePlayers, Tx(L"Oyuncu Listesini Gizle (hide-online-players)", L"Hide Online Players (hide-online-players)"));
+    SetWindowTextW(g_hChkHardcore,    Tx(L"Hardcore Modu (hardcore — tek yaşam)", L"Hardcore Mode (hardcore)"));
+    SetWindowTextW(g_hChkForceGm,     Tx(L"Oyun Modunu Zorla (force-gamemode)", L"Force Gamemode (force-gamemode)"));
+    SetWindowTextW(g_hChkNether,      Tx(L"Nether Boyutuna İzin Ver (allow-nether)", L"Allow Nether (allow-nether)"));
+    SetWindowTextW(g_hChkMonsters,    Tx(L"Canavar Doğumu (spawn-monsters)", L"Spawn Monsters (spawn-monsters)"));
+    SetWindowTextW(g_hChkAnimals,     Tx(L"Hayvan Doğumu (spawn-animals)", L"Spawn Animals (spawn-animals)"));
+    SetWindowTextW(g_hChkNpcs,        Tx(L"Köylü / NPC Doğumu (spawn-npcs)", L"Spawn Villagers (spawn-npcs)"));
 
     SetWindowTextW(g_hBtnWlAdd,       Tx(L"Whitelist Ekle", L"Add to Whitelist"));
     SetWindowTextW(g_hBtnWlRem,       Tx(L"Seçileni Çıkar", L"Remove Selected"));
@@ -3899,6 +3970,8 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
     // Checkbox-style toggles on the settings / properties pages
     if (id == ID_CHK_AUTOSTART || id == ID_MENU_AUTORESTART ||
         id == ID_CHK_ONLINE || id == ID_CHK_PVP || id == ID_CHK_WHITELIST || id == ID_CHK_FLIGHT || id == ID_CHK_CMDBLOCK ||
+        id == ID_CHK_HARDCORE || id == ID_CHK_FORCEGM || id == ID_CHK_SECUREPROF || id == ID_CHK_HIDEPL ||
+        id == ID_CHK_NETHER || id == ID_CHK_MONSTERS || id == ID_CHK_ANIMALS || id == ID_CHK_NPCS ||
         id == ID_CHK_SCHED_BK || id == ID_CHK_SCHED_RESTART) {
         bool on = false;
         switch (id) {
@@ -3909,6 +3982,14 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
             case ID_CHK_WHITELIST:     on = g_propWhitelist; break;
             case ID_CHK_FLIGHT:        on = g_propFlight; break;
             case ID_CHK_CMDBLOCK:      on = g_propCmdBlock; break;
+            case ID_CHK_HARDCORE:      on = g_propHardcore; break;
+            case ID_CHK_FORCEGM:       on = g_propForceGm; break;
+            case ID_CHK_SECUREPROF:    on = g_propSecureProf; break;
+            case ID_CHK_HIDEPL:        on = g_propHidePlayers; break;
+            case ID_CHK_NETHER:        on = g_propNether; break;
+            case ID_CHK_MONSTERS:      on = g_propMonsters; break;
+            case ID_CHK_ANIMALS:       on = g_propAnimals; break;
+            case ID_CHK_NPCS:          on = g_propNpcs; break;
             case ID_CHK_SCHED_BK:      on = g_schedBkEnabled; break;
             case ID_CHK_SCHED_RESTART: on = g_schedRestartEnabled; break;
         }
@@ -3930,18 +4011,19 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         return;
     }
 
-    // Selector buttons (language, theme, gamemode, difficulty) highlight the active choice
+    // Selector buttons (language, theme, gamemode, difficulty, level-type) highlight the active choice
     bool isSel = (id == ID_MENU_LANG_TR || id == ID_MENU_LANG_EN ||
                   id == ID_MENU_THEME_DARK || id == ID_MENU_THEME_LIGHT ||
                   id == ID_MENU_THEME_REDSTONE || id == ID_MENU_THEME_MC ||
-                  (id >= ID_BTN_GM_SURV && id <= ID_BTN_DF_HARD));
+                  (id >= ID_BTN_GM_SURV && id <= ID_BTN_LVL_AMP));
     bool selActive = (id == ID_MENU_LANG_TR && g_lang == Lang::TR) || (id == ID_MENU_LANG_EN && g_lang == Lang::EN) ||
                      (id == ID_MENU_THEME_DARK && g_theme == Theme::Dark) ||
                      (id == ID_MENU_THEME_LIGHT && g_theme == Theme::Light) ||
                      (id == ID_MENU_THEME_REDSTONE && g_theme == Theme::Redstone) ||
                      (id == ID_MENU_THEME_MC && g_theme == Theme::Minecraft) ||
                      (id >= ID_BTN_GM_SURV && id <= ID_BTN_GM_SPEC && (id - ID_BTN_GM_SURV) == g_propGm) ||
-                     (id >= ID_BTN_DF_PEACE && id <= ID_BTN_DF_HARD && (id - ID_BTN_DF_PEACE) == g_propDf);
+                     (id >= ID_BTN_DF_PEACE && id <= ID_BTN_DF_HARD && (id - ID_BTN_DF_PEACE) == g_propDf) ||
+                     (g_propLvlType >= 0 && id >= ID_BTN_LVL_NORM && id <= ID_BTN_LVL_AMP && (id - ID_BTN_LVL_NORM) == g_propLvlType);
 
     COLORREF base, hov, txtCol = RGB(255, 255, 255);
     switch (id) {
@@ -4323,21 +4405,23 @@ static void LayoutProps(int W, int m, int g, int p, int fh) {
         mv(g_f[fi].h, x + S(10), y + (fh - g_textH) / 2, w - S(20), g_textH);
     };
 
-    // Left Column Card 1: Server Info (MOTD, Max Players, View Distance, Spawn Protection, Save/Reload)
-    RECT cInfo = card(lx, top, S(268), 6);
+    // Left Column Card 1: Server Info (MOTD, Max Players, Spawn Protection, View/Sim Distance, Save/Reload)
+    RECT cInfo = card(lx, top, S(332), 6);
     putField(F_MOTD, cInfo.left + p, cInfo.top + S(62), iw);
-    int w3 = (iw - 2 * S(10)) / 3;
-    int yRow2 = cInfo.top + S(128);
-    putField(F_MAXPL,     cInfo.left + p,                    yRow2, w3);
-    putField(F_VIEWDIST,  cInfo.left + p + w3 + S(10),       yRow2, w3);
-    putField(F_SPAWNPROT, cInfo.left + p + 2 * (w3 + S(10)), yRow2, iw - 2 * (w3 + S(10)));
+    int w2 = (iw - S(10)) / 2;
+    int yRow2 = cInfo.top + S(126);
+    putField(F_MAXPL,     cInfo.left + p,             yRow2, w2);
+    putField(F_SPAWNPROT, cInfo.left + p + w2 + S(10), yRow2, iw - w2 - S(10));
+    int yRow3 = cInfo.top + S(190);
+    putField(F_VIEWDIST,  cInfo.left + p,             yRow3, w2);
+    putField(F_SIMDIST,   cInfo.left + p + w2 + S(10), yRow3, iw - w2 - S(10));
     int bw = (iw - S(10)) / 2;
-    mv(g_hBtnPropSave,   cInfo.left + p,             cInfo.top + S(182), bw, S(38));
-    mv(g_hBtnPropReload, cInfo.left + p + bw + S(10), cInfo.top + S(182), iw - bw - S(10), S(38));
-    desc(cInfo.left + p, cInfo.top + S(228), iw, S(34), 5);
+    mv(g_hBtnPropSave,   cInfo.left + p,             cInfo.top + S(240), bw, S(38));
+    mv(g_hBtnPropReload, cInfo.left + p + bw + S(10), cInfo.top + S(240), iw - bw - S(10), S(38));
+    desc(cInfo.left + p, cInfo.top + S(286), iw, S(34), 5);
 
-    // Left Column Card 2: Gamemode & Difficulty
-    RECT cGm = card(lx, cInfo.bottom + g, S(194), 7);
+    // Left Column Card 2: Gamemode, Difficulty & Mode Flags
+    RECT cGm = card(lx, cInfo.bottom + g, S(266), 7);
     desc(cGm.left + p, cGm.top + S(42), iw, S(18), 3);
     int gbw = (iw - 3 * S(8)) / 4;
     for (int i = 0; i < 4; i++) {
@@ -4351,12 +4435,29 @@ static void LayoutProps(int W, int m, int g, int p, int fh) {
         int w  = (i == 3) ? (cGm.left + p + iw - bx) : gbw;
         mv(g_hBtnDf[i], bx, cGm.top + S(132), w, fh);
     }
+    mv(g_hChkHardcore, cGm.left + p, cGm.top + S(184), iw, S(26));
+    mv(g_hChkForceGm,  cGm.left + p, cGm.top + S(218), iw, S(26));
 
-    // Right Column Card: Rules & Security
-    RECT cRules = card(rxc, top, S(246), 8);
-    HWND chks[5] = { g_hChkOnline, g_hChkPvp, g_hChkWhitelist, g_hChkFlight, g_hChkCmdBlock };
-    for (int i = 0; i < 5; i++) {
-        mv(chks[i], cRules.left + p, cRules.top + S(48) + i * S(36), iw, S(26));
+    // Right Column Card 1: Rules & Security
+    RECT cRules = card(rxc, top, S(282), 8);
+    HWND chks[7] = { g_hChkOnline, g_hChkPvp, g_hChkWhitelist, g_hChkFlight, g_hChkCmdBlock, g_hChkSecureProf, g_hChkHidePlayers };
+    for (int i = 0; i < 7; i++) {
+        mv(chks[i], cRules.left + p, cRules.top + S(46) + i * S(32), iw, S(26));
+    }
+
+    // Right Column Card 2: World & Entities
+    RECT cWorld = card(rxc, cRules.bottom + g, S(316), 19);
+    putField(F_LEVELNAME, cWorld.left + p,             cWorld.top + S(62), w2);
+    putField(F_LEVELSEED, cWorld.left + p + w2 + S(10), cWorld.top + S(62), iw - w2 - S(10));
+    desc(cWorld.left + p, cWorld.top + S(110), iw, S(18), 12);
+    for (int i = 0; i < 4; i++) {
+        int bx = cWorld.left + p + i * (gbw + S(8));
+        int w  = (i == 3) ? (cWorld.left + p + iw - bx) : gbw;
+        mv(g_hBtnLvlType[i], bx, cWorld.top + S(130), w, fh);
+    }
+    HWND wchks[4] = { g_hChkNether, g_hChkMonsters, g_hChkAnimals, g_hChkNpcs };
+    for (int i = 0; i < 4; i++) {
+        mv(wchks[i], cWorld.left + p, cWorld.top + S(178) + i * S(32), iw, S(26));
     }
 }
 
@@ -4435,10 +4536,14 @@ static void ShowPage() {
          bkp = (g_page == PG_BACKUPS), plug = (g_page == PG_PLUGINS), prof = (g_page == PG_PROFILES), st = (g_page == PG_SETTINGS);
     HWND panelCtl[] = { g_hJar, g_hBtnBrowse, g_hIp, g_hPort, g_hRam, g_hBtnStart, g_hBtnStop, g_hList,
                         g_hBtnKick, g_hBtnBan, g_hUnban, g_hBtnUnban, g_hLog, g_hCmd, g_hBtnSend };
-    HWND propCtl[]  = { g_hMotd, g_hMaxPl, g_hViewDist, g_hSpawnProt, g_hBtnPropSave, g_hBtnPropReload,
+    HWND propCtl[]  = { g_hMotd, g_hMaxPl, g_hViewDist, g_hSimDist, g_hSpawnProt, g_hLevelName, g_hLevelSeed,
+                        g_hBtnPropSave, g_hBtnPropReload,
                         g_hBtnGm[0], g_hBtnGm[1], g_hBtnGm[2], g_hBtnGm[3],
                         g_hBtnDf[0], g_hBtnDf[1], g_hBtnDf[2], g_hBtnDf[3],
-                        g_hChkOnline, g_hChkPvp, g_hChkWhitelist, g_hChkFlight, g_hChkCmdBlock };
+                        g_hBtnLvlType[0], g_hBtnLvlType[1], g_hBtnLvlType[2], g_hBtnLvlType[3],
+                        g_hChkOnline, g_hChkPvp, g_hChkWhitelist, g_hChkFlight, g_hChkCmdBlock,
+                        g_hChkHardcore, g_hChkForceGm, g_hChkSecureProf, g_hChkHidePlayers,
+                        g_hChkNether, g_hChkMonsters, g_hChkAnimals, g_hChkNpcs };
     HWND accCtl[]   = { g_hListWl, g_hEditWl, g_hBtnWlAdd, g_hBtnWlRem, g_hBtnWlReload,
                         g_hListOp, g_hEditOp, g_hBtnOpAdd, g_hBtnOpRem, g_hBtnOpReload };
     HWND bkpCtl[]   = { g_hEditBkTag, g_hBtnBkCreate, g_hBtnBkOpen, g_hListBk, g_hBtnBkRestore, g_hBtnBkDel, g_hBtnBkReload };
@@ -4595,12 +4700,14 @@ static bool OnCreate(HWND hwnd) {
     // Server Properties page controls
     g_hMotd          = MakeEdit(ID_EDIT_MOTD);
     g_hMaxPl         = MakeEdit(ID_EDIT_MAXPL, ES_NUMBER);
-    g_hViewDist      = MakeEdit(ID_EDIT_VIEWDIST, ES_NUMBER);
     g_hSpawnProt     = MakeEdit(ID_EDIT_SPAWNPROT, ES_NUMBER);
-    SendMessageW(g_hMotd, EM_LIMITTEXT, 128, 0);
+    g_hViewDist      = MakeEdit(ID_EDIT_VIEWDIST, ES_NUMBER);
+    g_hSimDist       = MakeEdit(ID_EDIT_SIMDIST, ES_NUMBER);
+    SendMessageW(g_hMotd, EM_LIMITTEXT, 512, 0);
     SendMessageW(g_hMaxPl, EM_LIMITTEXT, 5, 0);
-    SendMessageW(g_hViewDist, EM_LIMITTEXT, 2, 0);
     SendMessageW(g_hSpawnProt, EM_LIMITTEXT, 4, 0);
+    SendMessageW(g_hViewDist, EM_LIMITTEXT, 2, 0);
+    SendMessageW(g_hSimDist, EM_LIMITTEXT, 2, 0);
     g_hBtnPropSave   = MakeBtn(ID_BTN_PROPSAVE,   Tx(L"Ayarları Kaydet", L"Save Properties"));
     g_hBtnPropReload = MakeBtn(ID_BTN_PROPRELOAD, Tx(L"Yeniden Yükle", L"Reload"));
     g_hBtnGm[0]      = MakeBtn(ID_BTN_GM_SURV,    Tx(L"Hayatta Kalma", L"Survival"));
@@ -4611,11 +4718,27 @@ static bool OnCreate(HWND hwnd) {
     g_hBtnDf[1]      = MakeBtn(ID_BTN_DF_EASY,    Tx(L"Kolay", L"Easy"));
     g_hBtnDf[2]      = MakeBtn(ID_BTN_DF_NORM,    Tx(L"Normal", L"Normal"));
     g_hBtnDf[3]      = MakeBtn(ID_BTN_DF_HARD,    Tx(L"Zor", L"Hard"));
-    g_hChkOnline     = MakeBtn(ID_CHK_ONLINE,     Tx(L"Orijinal Hesap Zorunlu (online-mode)", L"Require Premium Account (online-mode)"));
-    g_hChkPvp        = MakeBtn(ID_CHK_PVP,        Tx(L"Oyuncular Arası Hasar (PVP)", L"Player vs Player Damage (PVP)"));
-    g_hChkWhitelist  = MakeBtn(ID_CHK_WHITELIST,  Tx(L"Whitelist Zorunlu (white-list)", L"Enforce Whitelist (white-list)"));
-    g_hChkFlight     = MakeBtn(ID_CHK_FLIGHT,     Tx(L"Uçmaya İzin Ver (allow-flight)", L"Allow Flight (allow-flight)"));
-    g_hChkCmdBlock   = MakeBtn(ID_CHK_CMDBLOCK,   Tx(L"Komut Bloklarını Etkinleştir (enable-command-block)", L"Enable Command Blocks (enable-command-block)"));
+    g_hChkHardcore    = MakeBtn(ID_CHK_HARDCORE,   Tx(L"Hardcore Modu (hardcore — tek yaşam)", L"Hardcore Mode (hardcore)"));
+    g_hChkForceGm     = MakeBtn(ID_CHK_FORCEGM,    Tx(L"Oyun Modunu Zorla (force-gamemode)", L"Force Gamemode (force-gamemode)"));
+    g_hChkOnline      = MakeBtn(ID_CHK_ONLINE,     Tx(L"Orijinal Hesap Zorunlu (online-mode)", L"Require Premium Account (online-mode)"));
+    g_hChkPvp         = MakeBtn(ID_CHK_PVP,        Tx(L"Oyuncular Arası Hasar (pvp)", L"Player vs Player Damage (pvp)"));
+    g_hChkWhitelist   = MakeBtn(ID_CHK_WHITELIST,  Tx(L"Whitelist Zorunlu (white-list)", L"Enforce Whitelist (white-list)"));
+    g_hChkFlight      = MakeBtn(ID_CHK_FLIGHT,     Tx(L"Uçmaya İzin Ver (allow-flight)", L"Allow Flight (allow-flight)"));
+    g_hChkCmdBlock    = MakeBtn(ID_CHK_CMDBLOCK,   Tx(L"Komut Bloklarını Etkinleştir (enable-command-block)", L"Enable Command Blocks (enable-command-block)"));
+    g_hChkSecureProf  = MakeBtn(ID_CHK_SECUREPROF, Tx(L"Güvenli Sohbet İmzası (enforce-secure-profile)", L"Secure Profile (enforce-secure-profile)"));
+    g_hChkHidePlayers = MakeBtn(ID_CHK_HIDEPL,     Tx(L"Oyuncu Listesini Gizle (hide-online-players)", L"Hide Online Players (hide-online-players)"));
+    g_hLevelName      = MakeEdit(ID_EDIT_LEVELNAME);
+    g_hLevelSeed      = MakeEdit(ID_EDIT_LEVELSEED);
+    SendMessageW(g_hLevelName, EM_LIMITTEXT, 64, 0);
+    SendMessageW(g_hLevelSeed, EM_LIMITTEXT, 128, 0);
+    g_hBtnLvlType[0]  = MakeBtn(ID_BTN_LVL_NORM,   Tx(L"Normal", L"Normal"));
+    g_hBtnLvlType[1]  = MakeBtn(ID_BTN_LVL_FLAT,   Tx(L"Düz", L"Flat"));
+    g_hBtnLvlType[2]  = MakeBtn(ID_BTN_LVL_LARGE,  Tx(L"Geniş Biyom", L"Large Biomes"));
+    g_hBtnLvlType[3]  = MakeBtn(ID_BTN_LVL_AMP,    Tx(L"Yükseltilmiş", L"Amplified"));
+    g_hChkNether      = MakeBtn(ID_CHK_NETHER,     Tx(L"Nether Boyutuna İzin Ver (allow-nether)", L"Allow Nether (allow-nether)"));
+    g_hChkMonsters    = MakeBtn(ID_CHK_MONSTERS,   Tx(L"Canavar Doğumu (spawn-monsters)", L"Spawn Monsters (spawn-monsters)"));
+    g_hChkAnimals     = MakeBtn(ID_CHK_ANIMALS,    Tx(L"Hayvan Doğumu (spawn-animals)", L"Spawn Animals (spawn-animals)"));
+    g_hChkNpcs        = MakeBtn(ID_CHK_NPCS,       Tx(L"Köylü / NPC Doğumu (spawn-npcs)", L"Spawn Villagers (spawn-npcs)"));
 
     // Access (Whitelist & OP) page controls
     g_hListWl = CreateWindowExW(0, L"LISTBOX", L"", WS_CHILD | WS_TABSTOP | WS_VSCROLL |
@@ -4706,9 +4829,12 @@ static bool OnCreate(HWND hwnd) {
     g_f[F_CMD]   = { g_hCmd,   {}, NULL };
     g_f[F_JVM]   = { g_hJvm,   {}, Tx(L"JVM argümanları", L"JVM arguments") };
     g_f[F_MOTD]      = { g_hMotd,      {}, Tx(L"Sunucu açıklaması (MOTD)", L"Server description (MOTD)") };
-    g_f[F_MAXPL]     = { g_hMaxPl,     {}, Tx(L"Maks. oyuncu", L"Max players") };
+    g_f[F_MAXPL]     = { g_hMaxPl,     {}, Tx(L"Maks. oyuncu (max-players)", L"Max players (max-players)") };
     g_f[F_VIEWDIST]  = { g_hViewDist,  {}, Tx(L"Görüş mesafesi (chunk)", L"View distance (chunks)") };
-    g_f[F_SPAWNPROT] = { g_hSpawnProt, {}, Tx(L"Başlangıç koruması", L"Spawn protection") };
+    g_f[F_SIMDIST]   = { g_hSimDist,   {}, Tx(L"Simülasyon mesafesi", L"Simulation distance") };
+    g_f[F_SPAWNPROT] = { g_hSpawnProt, {}, Tx(L"Başlangıç koruması (blok)", L"Spawn protection (blocks)") };
+    g_f[F_LEVELNAME] = { g_hLevelName, {}, Tx(L"Dünya adı (level-name)", L"World name (level-name)") };
+    g_f[F_LEVELSEED] = { g_hLevelSeed, {}, Tx(L"Dünya tohumu (level-seed)", L"World seed (level-seed)") };
     g_f[F_WL]        = { g_hEditWl,    {}, Tx(L"Oyuncu adı", L"Player name") };
     g_f[F_OP]        = { g_hEditOp,    {}, Tx(L"Oyuncu adı", L"Player name") };
     g_f[F_BK_TAG]    = { g_hEditBkTag, {}, Tx(L"Yedek etiketi (isteğe bağlı, ör: sezon1)", L"Backup label (optional, e.g. pre-update)") };
@@ -4997,11 +5123,23 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g_propDf = id - ID_BTN_DF_PEACE;
                     for (HWND b : g_hBtnDf) if (b) InvalidateRect(b, NULL, FALSE);
                     break;
-                case ID_CHK_ONLINE:    g_propOnline    = !g_propOnline;    InvalidateRect(g_hChkOnline, NULL, FALSE); break;
-                case ID_CHK_PVP:       g_propPvp       = !g_propPvp;       InvalidateRect(g_hChkPvp, NULL, FALSE); break;
-                case ID_CHK_WHITELIST: g_propWhitelist = !g_propWhitelist; InvalidateRect(g_hChkWhitelist, NULL, FALSE); break;
-                case ID_CHK_FLIGHT:    g_propFlight    = !g_propFlight;    InvalidateRect(g_hChkFlight, NULL, FALSE); break;
-                case ID_CHK_CMDBLOCK:  g_propCmdBlock  = !g_propCmdBlock;  InvalidateRect(g_hChkCmdBlock, NULL, FALSE); break;
+                case ID_BTN_LVL_NORM: case ID_BTN_LVL_FLAT: case ID_BTN_LVL_LARGE: case ID_BTN_LVL_AMP:
+                    g_propLvlType = id - ID_BTN_LVL_NORM;
+                    for (HWND b : g_hBtnLvlType) if (b) InvalidateRect(b, NULL, FALSE);
+                    break;
+                case ID_CHK_ONLINE:     g_propOnline      = !g_propOnline;      InvalidateRect(g_hChkOnline, NULL, FALSE); break;
+                case ID_CHK_PVP:        g_propPvp         = !g_propPvp;         InvalidateRect(g_hChkPvp, NULL, FALSE); break;
+                case ID_CHK_WHITELIST:  g_propWhitelist   = !g_propWhitelist;   InvalidateRect(g_hChkWhitelist, NULL, FALSE); break;
+                case ID_CHK_FLIGHT:     g_propFlight      = !g_propFlight;      InvalidateRect(g_hChkFlight, NULL, FALSE); break;
+                case ID_CHK_CMDBLOCK:   g_propCmdBlock    = !g_propCmdBlock;    InvalidateRect(g_hChkCmdBlock, NULL, FALSE); break;
+                case ID_CHK_HARDCORE:   g_propHardcore    = !g_propHardcore;    InvalidateRect(g_hChkHardcore, NULL, FALSE); break;
+                case ID_CHK_FORCEGM:    g_propForceGm     = !g_propForceGm;     InvalidateRect(g_hChkForceGm, NULL, FALSE); break;
+                case ID_CHK_SECUREPROF: g_propSecureProf  = !g_propSecureProf;  InvalidateRect(g_hChkSecureProf, NULL, FALSE); break;
+                case ID_CHK_HIDEPL:     g_propHidePlayers = !g_propHidePlayers; InvalidateRect(g_hChkHidePlayers, NULL, FALSE); break;
+                case ID_CHK_NETHER:     g_propNether      = !g_propNether;      InvalidateRect(g_hChkNether, NULL, FALSE); break;
+                case ID_CHK_MONSTERS:   g_propMonsters    = !g_propMonsters;    InvalidateRect(g_hChkMonsters, NULL, FALSE); break;
+                case ID_CHK_ANIMALS:    g_propAnimals     = !g_propAnimals;     InvalidateRect(g_hChkAnimals, NULL, FALSE); break;
+                case ID_CHK_NPCS:       g_propNpcs        = !g_propNpcs;        InvalidateRect(g_hChkNpcs, NULL, FALSE); break;
                 case ID_BTN_WL_ADD:    ModifyAccessList(false, true); break;
                 case ID_BTN_WL_REM:    ModifyAccessList(false, false); break;
                 case ID_BTN_WL_RELOAD: LoadAccessListsToUi(); break;

@@ -205,74 +205,136 @@
         <!-- PAGE 2: PROPERTIES -->
         <div class="tab-page" id="page-props">
           <div class="prop-grid">
-            <div class="w-card">
-              <div class="w-card-title" data-i18n="cardPropServer">SUNUCU BİLGİLERİ (SERVER.PROPERTIES)</div>
-              <label class="w-label" data-i18n="lblMotd">Sunucu Açıklaması (MOTD)</label>
-              <input type="text" class="w-input" value="A Minecraft Server - Powered by Redstone SP">
-              
-              <div class="w-input-row">
-                <div style="flex: 1;">
-                  <label class="w-label" data-i18n="lblMaxPlayers">Maks. Oyuncu</label>
-                  <input type="text" class="w-input" value="20">
+            <div>
+              <div class="w-card">
+                <div class="w-card-title" data-i18n="cardPropServer">SUNUCU BİLGİLERİ</div>
+                <label class="w-label" data-i18n="lblMotd">Sunucu Açıklaması (MOTD)</label>
+                <input type="text" class="w-input" value="A Minecraft Server - Powered by Redstone SP">
+
+                <div class="w-input-row">
+                  <div style="flex: 1;">
+                    <label class="w-label" data-i18n="lblMaxPlayers">Maks. Oyuncu (max-players)</label>
+                    <input type="text" class="w-input" value="20">
+                  </div>
+                  <div style="flex: 1;">
+                    <label class="w-label" data-i18n="lblSpawnProt">Başlangıç Koruması (blok)</label>
+                    <input type="text" class="w-input" value="16">
+                  </div>
                 </div>
-                <div style="flex: 1;">
-                  <label class="w-label" data-i18n="lblViewDist">Görüş Mesafesi</label>
-                  <input type="text" class="w-input" value="10">
+
+                <div class="w-input-row">
+                  <div style="flex: 1;">
+                    <label class="w-label" data-i18n="lblViewDist">Görüş Mesafesi (chunk)</label>
+                    <input type="text" class="w-input" value="10">
+                  </div>
+                  <div style="flex: 1;">
+                    <label class="w-label" data-i18n="lblSimDist">Simülasyon Mesafesi</label>
+                    <input type="text" class="w-input" value="10">
+                  </div>
                 </div>
-                <div style="flex: 1;">
-                  <label class="w-label" data-i18n="lblSpawnProt">Spawn Koruması</label>
-                  <input type="text" class="w-input" value="16">
+
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                  <button class="w-btn w-btn-start" style="flex: 1;" data-i18n="btnSaveProps">Ayarları Kaydet</button>
+                  <button class="w-btn" data-i18n="btnReload">Yeniden Yükle</button>
                 </div>
+
+                <p class="w-desc-text" style="margin-top: 0.75rem;" data-i18n="descPropsNote">Not: Bazı ayarların tam geçerli olması için sunucuyu yeniden başlatmanız gerekir.</p>
               </div>
 
-              <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-                <button class="w-btn w-btn-start" style="flex: 1;" data-i18n="btnSaveProps">Özellikleri Kaydet</button>
-                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+              <div class="w-card" style="margin-bottom: 0;">
+                <div class="w-card-title" data-i18n="cardGmDiff">OYUN MODU &amp; ZORLUK</div>
+                <div class="w-label" data-i18n="lblDefGamemode">Varsayılan Oyun Modu (gamemode)</div>
+                <div class="btn-group">
+                  <div class="btn-sel active" data-i18n="gmSurvival">Hayatta Kalma</div>
+                  <div class="btn-sel" data-i18n="gmCreative">Yaratıcı</div>
+                  <div class="btn-sel" data-i18n="gmAdventure">Macera</div>
+                  <div class="btn-sel" data-i18n="gmSpectator">İzleyici</div>
+                </div>
+                <div class="w-label" data-i18n="lblDifficulty">Oyun Zorluğu (difficulty)</div>
+                <div class="btn-group">
+                  <div class="btn-sel" data-i18n="dfPeaceful">Barışçıl</div>
+                  <div class="btn-sel" data-i18n="dfEasy">Kolay</div>
+                  <div class="btn-sel active" data-i18n="dfNormal">Normal</div>
+                  <div class="btn-sel" data-i18n="dfHard">Zor</div>
+                </div>
+                <div class="chk-row">
+                  <div class="chk-box"></div>
+                  <span data-i18n="chkHardcore">Hardcore Modu (hardcore — tek yaşam)</span>
+                </div>
+                <div class="chk-row" style="margin-bottom: 0;">
+                  <div class="chk-box"></div>
+                  <span data-i18n="chkForceGm">Oyun Modunu Zorla (force-gamemode)</span>
+                </div>
               </div>
-
-              <p class="w-desc-text" style="margin-top: 0.75rem;" data-i18n="descPropsNote">Not: Bazı ayarların tam geçerli olması için sunucuyu yeniden başlatmanız gerekir.</p>
             </div>
 
             <div>
               <div class="w-card">
-                <div class="w-card-title" data-i18n="cardGmDiff">OYUN MODU & ZORLUK</div>
-                <div class="w-label" data-i18n="lblDefGamemode">Varsayılan Oyun Modu</div>
-                <div class="btn-group">
-                  <div class="btn-sel active" data-i18n="gmSurvival">Survival</div>
-                  <div class="btn-sel" data-i18n="gmCreative">Creative</div>
-                  <div class="btn-sel" data-i18n="gmAdventure">Adventure</div>
-                  <div class="btn-sel" data-i18n="gmSpectator">Spectator</div>
-                </div>
-                <div class="w-label" data-i18n="lblDifficulty">Zorluk Derecesi</div>
-                <div class="btn-group">
-                  <div class="btn-sel" data-i18n="dfPeaceful">Peaceful</div>
-                  <div class="btn-sel" data-i18n="dfEasy">Easy</div>
-                  <div class="btn-sel active" data-i18n="dfNormal">Normal</div>
-                  <div class="btn-sel" data-i18n="dfHard">Hard</div>
-                </div>
-              </div>
-
-              <div class="w-card">
-                <div class="w-card-title" data-i18n="cardRules">KURALLAR & GÜVENLİK</div>
+                <div class="w-card-title" data-i18n="cardRules">KURALLAR &amp; GÜVENLİK</div>
                 <div class="chk-row">
                   <div class="chk-box checked">✓</div>
                   <span data-i18n="chkOnline">Orijinal Hesap Zorunlu (online-mode)</span>
                 </div>
                 <div class="chk-row">
                   <div class="chk-box checked">✓</div>
-                  <span data-i18n="chkPvp">Oyuncular Arası Hasar (PVP)</span>
+                  <span data-i18n="chkPvp">Oyuncular Arası Hasar (pvp)</span>
                 </div>
                 <div class="chk-row">
                   <div class="chk-box"></div>
-                  <span data-i18n="chkWhitelist">Whitelist Açık (white-list)</span>
+                  <span data-i18n="chkWhitelist">Whitelist Zorunlu (white-list)</span>
                 </div>
                 <div class="chk-row">
                   <div class="chk-box"></div>
-                  <span data-i18n="chkFlight">Uçuşa İzin Ver (allow-flight)</span>
+                  <span data-i18n="chkFlight">Uçmaya İzin Ver (allow-flight)</span>
                 </div>
                 <div class="chk-row">
                   <div class="chk-box"></div>
-                  <span data-i18n="chkCmdBlock">Komut Blokları Aktif (enable-command-block)</span>
+                  <span data-i18n="chkCmdBlock">Komut Bloklarını Etkinleştir (enable-command-block)</span>
+                </div>
+                <div class="chk-row">
+                  <div class="chk-box checked">✓</div>
+                  <span data-i18n="chkSecureProf">Güvenli Sohbet İmzası (enforce-secure-profile)</span>
+                </div>
+                <div class="chk-row" style="margin-bottom: 0;">
+                  <div class="chk-box"></div>
+                  <span data-i18n="chkHidePlayers">Oyuncu Listesini Gizle (hide-online-players)</span>
+                </div>
+              </div>
+
+              <div class="w-card" style="margin-bottom: 0;">
+                <div class="w-card-title" data-i18n="cardWorld">DÜNYA &amp; VARLIKLAR</div>
+                <div class="w-input-row">
+                  <div style="flex: 1;">
+                    <label class="w-label" data-i18n="lblLevelName">Dünya Adı (level-name)</label>
+                    <input type="text" class="w-input" value="world">
+                  </div>
+                  <div style="flex: 1;">
+                    <label class="w-label" data-i18n="lblLevelSeed">Dünya Tohumu (level-seed)</label>
+                    <input type="text" class="w-input" value="">
+                  </div>
+                </div>
+                <div class="w-label" data-i18n="lblLevelType">Dünya Oluşturma Türü (level-type)</div>
+                <div class="btn-group">
+                  <div class="btn-sel active" data-i18n="lvlNormal">Normal</div>
+                  <div class="btn-sel" data-i18n="lvlFlat">Düz</div>
+                  <div class="btn-sel" data-i18n="lvlLarge">Geniş Biyom</div>
+                  <div class="btn-sel" data-i18n="lvlAmp">Yükseltilmiş</div>
+                </div>
+                <div class="chk-row">
+                  <div class="chk-box checked">✓</div>
+                  <span data-i18n="chkNether">Nether Boyutuna İzin Ver (allow-nether)</span>
+                </div>
+                <div class="chk-row">
+                  <div class="chk-box checked">✓</div>
+                  <span data-i18n="chkMonsters">Canavar Doğumu (spawn-monsters)</span>
+                </div>
+                <div class="chk-row">
+                  <div class="chk-box checked">✓</div>
+                  <span data-i18n="chkAnimals">Hayvan Doğumu (spawn-animals)</span>
+                </div>
+                <div class="chk-row" style="margin-bottom: 0;">
+                  <div class="chk-box checked">✓</div>
+                  <span data-i18n="chkNpcs">Köylü / NPC Doğumu (spawn-npcs)</span>
                 </div>
               </div>
             </div>
