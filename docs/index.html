@@ -21,11 +21,10 @@
       <span>Redstone Server Panel</span>
     </a>
     <div class="nav-links">
-      <a href="#simulator" class="nav-link">Canlı Demo</a>
-      <a href="#features" class="nav-link">Özellikler</a>
-      <a href="#projects" class="nav-link">Diğer Projeler</a>
+      <a href="#features" class="nav-link" data-i18n="navFeatures">Özellikler</a>
+      <a href="#projects" class="nav-link" data-i18n="navProjects">Diğer Projeler</a>
       <a href="https://github.com/qu3zel/redstonesp" target="_blank" class="nav-link">GitHub ⭐</a>
-      <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" class="btn-nav-download">
+      <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" class="btn-nav-download" data-i18n="navDownload">
         ⬇️ İndir (.exe)
       </a>
     </div>
@@ -35,43 +34,38 @@
   <header class="hero">
     <div class="badge-wrapper">
       <span class="badge-dot"></span>
-      <span>Saf Win32 C++17 • 100% Yerel • Sıfır Bağımlılık • ~10 MB RAM</span>
+      <span data-i18n="heroBadge">Saf Win32 C++17 • 100% Yerel • Sıfır Bağımlılık • ~10 MB RAM</span>
     </div>
-    <h1 class="hero-title">Windows İçin Modern Minecraft Sunucu Yöneticisi</h1>
-    <p class="hero-desc">
+    <h1 class="hero-title" data-i18n="heroTitle">Windows İçin Modern Minecraft Sunucu Yöneticisi</h1>
+    <p class="hero-desc" data-i18n="heroDesc">
       Electron veya hantal arayüzler yok. Tek dosyada derlenen ultra hafif saf Win32 mimarisi, Razer tarzı modern sekmeler, gerçek zamanlı renkli konsol ve otomatik yedekleme sistemi.
     </p>
     <div class="hero-actions">
-      <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" class="btn-primary">
+      <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" class="btn-primary" data-i18n="heroBtnDownload">
         ⚡ Windows İçin İndir (.exe)
       </a>
-      <a href="https://github.com/qu3zel/redstonesp" target="_blank" class="btn-secondary">
+      <a href="https://github.com/qu3zel/redstonesp" target="_blank" class="btn-secondary" data-i18n="heroBtnGithub">
         ⭐ GitHub'da İncele
-      </a>
-      <a href="#simulator" class="btn-secondary">
-        🕹️ Web Demosunu Dene
       </a>
     </div>
     <div class="quick-stats">
-      <div class="quick-stat-item">🚀 <strong>10ms</strong> Açılış Süresi</div>
-      <div class="quick-stat-item">💾 <strong>~10 MB</strong> RAM Tüketimi</div>
-      <div class="quick-stat-item">🎨 <strong>4</strong> Özel Tema</div>
-      <div class="quick-stat-item">🌐 <strong>TR / EN</strong> Çift Dil</div>
+      <div class="quick-stat-item">🚀 <strong>10ms</strong> <span data-i18n="statStartup">Açılış Süresi</span></div>
+      <div class="quick-stat-item">💾 <strong>~10 MB</strong> <span data-i18n="statRam">RAM Tüketimi</span></div>
+      <div class="quick-stat-item">🎨 <strong>4</strong> <span data-i18n="statThemes">Özel Tema</span></div>
+      <div class="quick-stat-item">🌐 <strong>TR / EN</strong> <span data-i18n="statLang">Çift Dil</span></div>
     </div>
   </header>
 
   <!-- Interactive Desktop App Simulator -->
   <section class="simulator-section" id="simulator">
     <div class="simulator-header-bar">
-      <div class="sim-hint">
-        <span>🎮</span>
-        <strong>İnteraktif Web Simülasyonu:</strong> Butonlara tıklayın, temaları değiştirin ve konsolu canlı deneyin!
-      </div>
+      <div style="flex: 1;"></div>
       <div class="sim-controls">
-        <button class="sim-btn-pill" onclick="setTheme('dark')">🌙 Koyu</button>
-        <button class="sim-btn-pill" onclick="setTheme('redstone')">🔴 Redstone</button>
-        <button class="sim-btn-pill" onclick="setTheme('minecraft')">🟢 Minecraft</button>
-        <button class="sim-btn-pill" onclick="setLanguage(state.lang === 'tr' ? 'en' : 'tr')">🌐 Dil Değiştir</button>
+        <button class="sim-btn-pill active" data-theme="dark" onclick="setTheme('dark')">🌙 Dark</button>
+        <button class="sim-btn-pill" data-theme="redstone" onclick="setTheme('redstone')">🔴 Redstone</button>
+        <button class="sim-btn-pill" data-theme="minecraft" onclick="setTheme('minecraft')">🟢 Minecraft</button>
+        <button class="sim-btn-pill" data-theme="light" onclick="setTheme('light')">☀️ Light</button>
+        <button class="sim-btn-pill lang-toggle-pill" onclick="toggleLanguage()">🌐 <span id="langPillLabel">English</span></button>
       </div>
     </div>
 
@@ -192,7 +186,7 @@
                 <div class="w-card-title" data-i18n="cardConsole" style="margin-left: 0.25rem;">KONSOL</div>
                 <div class="console-wrapper">
                   <div class="console-body" id="consoleBody">
-                    <div class="console-line-sys">» Redstone Server Panel hazır. .jar dosyasını seçip "Başlat"a basın.</div>
+                    <div class="console-line-sys" id="consoleInitialMsg" data-i18n="consoleReady">» Redstone Server Panel hazır. .jar dosyasını seçip "Başlat"a basın.</div>
                   </div>
                   <div class="console-input-bar">
                     <input type="text" class="console-input" id="consoleInput" placeholder="Komut girin (ör: help, say Selam, op Steve)..." data-i18n-ph="inputCmdPlaceholder">
@@ -238,19 +232,19 @@
             <div>
               <div class="w-card">
                 <div class="w-card-title" data-i18n="cardGmDiff">OYUN MODU & ZORLUK</div>
-                <div class="w-label">Varsayılan Oyun Modu</div>
+                <div class="w-label" data-i18n="lblDefGamemode">Varsayılan Oyun Modu</div>
                 <div class="btn-group">
-                  <div class="btn-sel active">Survival</div>
-                  <div class="btn-sel">Creative</div>
-                  <div class="btn-sel">Adventure</div>
-                  <div class="btn-sel">Spectator</div>
+                  <div class="btn-sel active" data-i18n="gmSurvival">Survival</div>
+                  <div class="btn-sel" data-i18n="gmCreative">Creative</div>
+                  <div class="btn-sel" data-i18n="gmAdventure">Adventure</div>
+                  <div class="btn-sel" data-i18n="gmSpectator">Spectator</div>
                 </div>
-                <div class="w-label">Zorluk Derecesi</div>
+                <div class="w-label" data-i18n="lblDifficulty">Zorluk Derecesi</div>
                 <div class="btn-group">
-                  <div class="btn-sel">Peaceful</div>
-                  <div class="btn-sel">Easy</div>
-                  <div class="btn-sel active">Normal</div>
-                  <div class="btn-sel">Hard</div>
+                  <div class="btn-sel" data-i18n="dfPeaceful">Peaceful</div>
+                  <div class="btn-sel" data-i18n="dfEasy">Easy</div>
+                  <div class="btn-sel active" data-i18n="dfNormal">Normal</div>
+                  <div class="btn-sel" data-i18n="dfHard">Hard</div>
                 </div>
               </div>
 
@@ -291,8 +285,8 @@
                 <div class="player-item"><div class="skin-head" style="background:#f59e0b;"></div> Alex</div>
               </div>
               <div class="w-input-row">
-                <input type="text" class="w-input" placeholder="Oyuncu adı..." style="margin-bottom: 0;">
-                <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnAddWl">Ekle</button>
+                <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
+                <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnAddWl">Whitelist Ekle</button>
               </div>
             </div>
             <div class="w-card">
@@ -301,7 +295,7 @@
                 <div class="player-item"><div class="skin-head" style="background:#ef4444;"></div> Steve (Level 4 OP)</div>
               </div>
               <div class="w-input-row">
-                <input type="text" class="w-input" placeholder="Oyuncu adı..." style="margin-bottom: 0;">
+                <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
                 <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnOpAdd">OP Ver</button>
               </div>
             </div>
@@ -311,8 +305,8 @@
         <!-- PAGE 4: BACKUPS -->
         <div class="tab-page" id="page-backups">
           <div class="w-card">
-            <div class="w-card-title">DÜNYA YEDEKLEME SİSTEMİ (BACKUPS\)</div>
-            <p style="font-size: 0.85rem; color: var(--w-muted); margin-bottom: 1rem;">
+            <div class="w-card-title" data-i18n="cardBackups">DÜNYA YEDEKLEME SİSTEMİ (BACKUPS\)</div>
+            <p style="font-size: 0.85rem; color: var(--w-muted); margin-bottom: 1rem;" data-i18n="descBackups">
               Yerel Windows tar.exe ile dünya klasörleri (.zip) olarak anında sıkıştırılır. Sunucu açıksa önce otomatik "save-all flush" gönderilir.
             </p>
             <div class="player-list" style="height: 140px;">
@@ -320,9 +314,9 @@
               <div class="player-item">📦 backup_2026-11-09_18-00-12_auto.zip (139 MB)</div>
             </div>
             <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
-              <button class="w-btn w-btn-start">⚡ Yeni Yedek Oluştur</button>
-              <button class="w-btn">Geri Yükle</button>
-              <button class="w-btn">Yedeği Sil</button>
+              <button class="w-btn w-btn-start" data-i18n="btnNewBackup">⚡ Yeni Yedek Oluştur</button>
+              <button class="w-btn" data-i18n="btnRestoreBackup">Geri Yükle</button>
+              <button class="w-btn" data-i18n="btnDeleteBackup">Yedeği Sil</button>
             </div>
           </div>
         </div>
@@ -331,22 +325,22 @@
         <div class="tab-page" id="page-plugins">
           <div class="prop-grid">
             <div class="w-card">
-              <div class="w-card-title">EKLENTİLER (PLUGINS\)</div>
+              <div class="w-card-title" data-i18n="cardPlugins">EKLENTİLER (PLUGINS\)</div>
               <div class="player-list" style="height: 160px;">
-                <div class="player-item">🧩 EssentialsX.jar <span style="margin-left:auto; color:var(--w-green);">Aktif</span></div>
-                <div class="player-item">🧩 Vault.jar <span style="margin-left:auto; color:var(--w-green);">Aktif</span></div>
-                <div class="player-item" style="opacity: 0.6;">🧩 Dynmap.jar.disabled <span style="margin-left:auto; color:var(--w-red);">Devre Dışı</span></div>
+                <div class="player-item">🧩 EssentialsX.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
+                <div class="player-item">🧩 Vault.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
+                <div class="player-item" style="opacity: 0.6;">🧩 Dynmap.jar.disabled <span style="margin-left:auto; color:var(--w-red);" class="badge-status-disabled" data-i18n="badgeDisabled">Devre Dışı</span></div>
               </div>
-              <button class="w-btn" style="width: 100%; margin-top: 0.5rem;">Aktif / Devre Dışı Bırak</button>
+              <button class="w-btn" style="width: 100%; margin-top: 0.5rem;" data-i18n="btnTogglePlugin">Aktif / Devre Dışı Bırak</button>
             </div>
             <div class="w-card">
-              <div class="w-card-title">MODLAR (MODS\)</div>
+              <div class="w-card-title" data-i18n="cardMods">MODLAR (MODS\)</div>
               <div class="player-list" style="height: 160px;">
-                <div class="player-item">⚙️ Fabric-API.jar <span style="margin-left:auto; color:var(--w-green);">Aktif</span></div>
-                <div class="player-item">⚙️ Sodium.jar <span style="margin-left:auto; color:var(--w-green);">Aktif</span></div>
-                <div class="player-item">⚙️ Lithium.jar <span style="margin-left:auto; color:var(--w-green);">Aktif</span></div>
+                <div class="player-item">⚙️ Fabric-API.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
+                <div class="player-item">⚙️ Sodium.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
+                <div class="player-item">⚙️ Lithium.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
               </div>
-              <button class="w-btn" style="width: 100%; margin-top: 0.5rem;">Aktif / Devre Dışı Bırak</button>
+              <button class="w-btn" style="width: 100%; margin-top: 0.5rem;" data-i18n="btnTogglePlugin">Aktif / Devre Dışı Bırak</button>
             </div>
           </div>
         </div>
@@ -354,14 +348,14 @@
         <!-- PAGE 6: PROFILES -->
         <div class="tab-page" id="page-profiles">
           <div class="w-card">
-            <div class="w-card-title">KAYITLI SUNUCU PROFİLLERİ</div>
+            <div class="w-card-title" data-i18n="cardProfiles">KAYITLI SUNUCU PROFİLLERİ</div>
             <div class="player-list" style="height: 140px;">
               <div class="player-item selected">📂 26.3 Survival   •   5G   •   :25565</div>
               <div class="player-item">📂 Modlu Forge Sunucu   •   8G   •   :25566</div>
             </div>
             <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
-              <button class="w-btn w-btn-start">Seçili Profili Yükle</button>
-              <button class="w-btn">Profili Sil</button>
+              <button class="w-btn w-btn-start" data-i18n="btnLoadProfile">Seçili Profili Yükle</button>
+              <button class="w-btn" data-i18n="btnDeleteProfile">Profili Sil</button>
             </div>
           </div>
         </div>
@@ -377,7 +371,7 @@
               </div>
               
               <div style="margin-top: 1rem;">
-                <div class="w-label">DİL SEÇİMİ (LANGUAGE)</div>
+                <div class="w-label" data-i18n="cardLang">DİL SEÇİMİ (LANGUAGE)</div>
                 <div class="btn-group">
                   <div class="btn-sel lang-btn active" data-lang="tr">Türkçe</div>
                   <div class="btn-sel lang-btn" data-lang="en">English</div>
@@ -405,55 +399,55 @@
   <!-- Features Section -->
   <section class="features-section" id="features">
     <div class="section-head">
-      <div class="section-tag">Neden Redstone Server Panel?</div>
-      <h2 class="section-title">Saf Win32 Mimarisi ve Üstün Performans</h2>
+      <div class="section-tag" data-i18n="featTag">Neden Redstone Server Panel?</div>
+      <h2 class="section-title" data-i18n="featMainTitle">Saf Win32 Mimarisi ve Üstün Performans</h2>
     </div>
 
     <div class="features-grid">
       <div class="feat-card">
         <div class="feat-icon">⚡</div>
-        <h3 class="feat-title">Sıfır Hantallık, ~10 MB RAM</h3>
-        <p class="feat-desc">
+        <h3 class="feat-title" data-i18n="feat1Title">Sıfır Hantallık, ~10 MB RAM</h3>
+        <p class="feat-desc" data-i18n="feat1Desc">
           Electron, Node.js veya WebView2 kütüphanelerine ihtiyaç duymaz. Tek dosyalık saf C++17 kodu sayesinde anında açılır ve minimum bellek tüketir.
         </p>
       </div>
 
       <div class="feat-card">
         <div class="feat-icon">🎮</div>
-        <h3 class="feat-title">Razer Tarzı 7 Modern Sekme</h3>
-        <p class="feat-desc">
+        <h3 class="feat-title" data-i18n="feat2Title">Razer Tarzı 7 Modern Sekme</h3>
+        <p class="feat-desc" data-i18n="feat2Desc">
           Dashboard, server.properties düzenleyici, Whitelist & Ops, otomatik yedekleme, eklenti/mod yöneticisi, çoklu sunucu profilleri ve ayarlar.
         </p>
       </div>
 
       <div class="feat-card">
         <div class="feat-icon">🎨</div>
-        <h3 class="feat-title">Dört Özelleştirilmiş Tema</h3>
-        <p class="feat-desc">
+        <h3 class="feat-title" data-i18n="feat3Title">Dört Özelleştirilmiş Tema</h3>
+        <p class="feat-desc" data-i18n="feat3Desc">
           Koyu (Dark), Açık (Light), Netherite kırmızısı Redstone ve zümrüt yeşili Minecraft temaları tek tıkla canlı olarak değişir.
         </p>
       </div>
 
       <div class="feat-card">
         <div class="feat-icon">📦</div>
-        <h3 class="feat-title">Yerel Dünya Yedekleme</h3>
-        <p class="feat-desc">
+        <h3 class="feat-title" data-i18n="feat4Title">Yerel Dünya Yedekleme</h3>
+        <p class="feat-desc" data-i18n="feat4Desc">
           Windows'un dahili tar.exe aracı ile dünya klasörlerini .zip olarak sıkıştırır, otomatik "save-all" göndererek veri kaybını önler.
         </p>
       </div>
 
       <div class="feat-card">
         <div class="feat-icon">🤖</div>
-        <h3 class="feat-title">Akıllı Otomasyon & Çökme Koruması</h3>
-        <p class="feat-desc">
+        <h3 class="feat-title" data-i18n="feat5Title">Akıllı Otomasyon & Çökme Koruması</h3>
+        <p class="feat-desc" data-i18n="feat5Desc">
           Sunucu çökerse 10 saniye içinde otomatik yeniden başlatılır. Günlük planlı yeniden başlatmalarda oyun içine 5 ve 1 dakika kala geri sayım anonsu geçer.
         </p>
       </div>
 
       <div class="feat-card">
         <div class="feat-icon">🖥️</div>
-        <h3 class="feat-title">Yüksek DPI & Sistem Tepsisi</h3>
-        <p class="feat-desc">
+        <h3 class="feat-title" data-i18n="feat6Title">Yüksek DPI & Sistem Tepsisi</h3>
+        <p class="feat-desc" data-i18n="feat6Desc">
           4K ve yüksek ölçeklendirmeli monitörlerde bulanıklaşmaz. Arka planda çalışırken sistem tepsisine (Tray) küçülür ve durum balonu gösterir.
         </p>
       </div>
@@ -463,8 +457,8 @@
   <!-- Other Projects by @qu3zel -->
   <section class="projects-section" id="projects">
     <div class="section-head">
-      <div class="section-tag">Geliştiriciden Diğer Projeler</div>
-      <h2 class="section-title">@qu3zel Tarafından Geliştirilen Diğer Araçlar</h2>
+      <div class="section-tag" data-i18n="projTag">Geliştiriciden Diğer Projeler</div>
+      <h2 class="section-title" data-i18n="projMainTitle">@qu3zel Tarafından Geliştirilen Diğer Araçlar</h2>
     </div>
 
     <div class="projects-grid">
@@ -475,13 +469,13 @@
             <div class="proj-icon-box">🌙</div>
             <div class="proj-title">MoriaS</div>
           </div>
-          <p class="proj-desc">
+          <p class="proj-desc" data-i18n="projMoriaSDesc">
             Doors of Durin temalı, Windows sistem tepsisinde çalışan şık ve minimalist uyku / kapatma zamanlayıcısı.
           </p>
         </div>
         <div class="proj-footer">
           <span>qu3zel / MoriaS</span>
-          <span>GitHub'da Gör →</span>
+          <span data-i18n="projViewGithub">GitHub'da Gör →</span>
         </div>
       </a>
 
@@ -492,13 +486,13 @@
             <div class="proj-icon-box">🤖</div>
             <div class="proj-title">scopybot</div>
           </div>
-          <p class="proj-desc">
+          <p class="proj-desc" data-i18n="projScopyDesc">
             Discord sunucuları ve otomasyon süreçleri için geliştirilmiş çok amaçlı bot projesi.
           </p>
         </div>
         <div class="proj-footer">
           <span>qu3zel / scopybot</span>
-          <span>GitHub'da Gör →</span>
+          <span data-i18n="projViewGithub">GitHub'da Gör →</span>
         </div>
       </a>
 
@@ -507,15 +501,15 @@
         <div>
           <div class="proj-top">
             <div class="proj-icon-box" style="background: rgba(56, 189, 248, 0.25);">👤</div>
-            <div class="proj-title">Tüm Depolar & Profil</div>
+            <div class="proj-title" data-i18n="projProfileTitle">Tüm Depolar & Profil</div>
           </div>
-          <p class="proj-desc">
-            GitHub üzerindeki açık kaynak projelerimi, açık kaynak araçları ve gelecekteki geliştirmeleri takip edin.
+          <p class="proj-desc" data-i18n="projProfileDesc">
+            GitHub üzerindeki açık kaynak projelerimi, geliştirici araçlarını ve gelecekteki geliştirmeleri takip edin.
           </p>
         </div>
         <div class="proj-footer" style="color: var(--accent);">
           <span>github.com/qu3zel</span>
-          <span>Profili Ziyaret Et →</span>
+          <span data-i18n="projVisitProfile">Profili Ziyaret Et →</span>
         </div>
       </a>
     </div>
@@ -524,10 +518,10 @@
   <!-- Footer -->
   <footer class="footer">
     <p>
-      <strong>Redstone Server Panel</strong> — Açık kaynaklı <a href="https://github.com/qu3zel/redstonesp/blob/main/LICENSE" target="_blank">MIT Lisansı</a> ile korunmaktadır.
+      <strong>Redstone Server Panel</strong> — <span data-i18n="footerLicensed">Açık kaynaklı</span> <a href="https://github.com/qu3zel/redstonesp/blob/main/LICENSE" target="_blank" data-i18n="footerLicenseLink">MIT Lisansı</a> <span data-i18n="footerLicensedEnd">ile korunmaktadır.</span>
     </p>
     <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-      Geliştirici: <a href="https://github.com/qu3zel" target="_blank">@qu3zel</a> • <a href="https://github.com/qu3zel/redstonesp" target="_blank">GitHub Deposu</a> • <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank">Son Sürümü İndir</a>
+      <span data-i18n="footerDev">Geliştirici:</span> <a href="https://github.com/qu3zel" target="_blank">@qu3zel</a> • <a href="https://github.com/qu3zel/redstonesp" target="_blank" data-i18n="footerRepo">GitHub Deposu</a> • <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" data-i18n="footerDownloadLatest">Son Sürümü İndir</a>
     </p>
   </footer>
 
