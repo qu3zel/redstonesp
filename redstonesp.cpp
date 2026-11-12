@@ -323,7 +323,7 @@ struct Strings {
 };
 
 static const Strings STR_TR = {
-    L"Redstone Server Panel — Minecraft Sunucu Yöneticisi",
+    L"Redstone Server Panel",
     L"SUNUCU AYARLARI",
     L"OYUNCULAR",
     L"KONSOL",
@@ -415,7 +415,7 @@ static const Strings STR_TR = {
 };
 
 static const Strings STR_EN = {
-    L"Redstone Server Panel — Minecraft Server Manager",
+    L"Redstone Server Panel",
     L"SERVER SETTINGS",
     L"PLAYERS",
     L"CONSOLE",
@@ -543,8 +543,9 @@ static float g_ramPct = 0.0f, g_cpuPct = 0.0f;
 static int g_maxPlayersProp = 20;
 static std::vector<float> g_ramHist(TELEM_HIST, 0.0f);
 static std::vector<float> g_cpuHist(TELEM_HIST, 0.0f);
-static DWORD g_cpuLastPid = 0;
-static ULONGLONG g_cpuPrevProc = 0, g_cpuPrevWall = 0;
+static std::map<DWORD, ULONGLONG> g_srvCpuPrev;
+static ULONGLONG g_srvCpuPrevWall = 0;
+static ULONGLONG g_sysCpuPrevIdle = 0, g_sysCpuPrevKernel = 0, g_sysCpuPrevUser = 0;
 static DWORD g_numCpus = 0;
 static std::vector<std::wstring> g_hist;
 static int g_histPos = 0;
@@ -1245,25 +1246,10 @@ static SIZE_T GetProcessWorkingSetBytes(HANDLE hProcess) {
     return 0;
 }
 
-// Calculates total Working Set Size (bytes) across:
-// 1. The panel application itself (GetCurrentProcess)
-// 2. The active Minecraft/Java child process (g_hProc) and any descendant processes it spawned
-static SIZE_T GetTotalTelemetryWorkingSetBytes() {
-    SIZE_T totalBytes = GetProcessWorkingSetBytes(GetCurrentProcess());
-
-    DWORD selfPid = GetCurrentProcessId();
-    std::set<DWORD> measuredPids;
-    if (selfPid != 0) measuredPids.insert(selfPid);
-
-    if (g_hProc && g_state != SrvState::Stopped) {
-        if (WaitForSingleObject(g_hProc, 0) == WAIT_TIMEOUT) {
-            totalBytes += GetProcessWorkingSetBytes(g_hProc);
-            DWORD srvPid = GetProcessId(g_hProc);
-            if (srvPid != 0) {
-                measuredPids.insert(srvPid);
-            }
-        }
-    }
+// Collects all PIDs rooted at `roots` plus any descendant child processes spawned by them.
+static std::set<DWORD> CollectDescendantPids(const std::set<DWORD>& roots) {
+    std::set<DWORD> treePids = roots;
+    if (treePids.empty()) return treePids;
 
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnap != INVALID_HANDLE_VALUE) {
@@ -1279,8 +1265,6 @@ static SIZE_T GetTotalTelemetryWorkingSetBytes() {
         }
         CloseHandle(hSnap);
 
-        // Iteratively collect all child/descendant PIDs rooted at selfPid or srvPid
-        std::set<DWORD> treePids = measuredPids;
         bool expanded = true;
         while (expanded) {
             expanded = false;
@@ -1293,23 +1277,45 @@ static SIZE_T GetTotalTelemetryWorkingSetBytes() {
                 }
             }
         }
+    }
+    return treePids;
+}
 
-        // Query WorkingSetSize for each child/descendant process not yet measured
-        for (DWORD pid : treePids) {
-            if (measuredPids.find(pid) != measuredPids.end()) continue;
-            measuredPids.insert(pid);
+// Calculates total Working Set Size (bytes) across:
+// 1. The panel application itself (GetCurrentProcess)
+// 2. The active Minecraft/Java child process (g_hProc) and any descendant processes it spawned
+static SIZE_T GetTotalTelemetryWorkingSetBytes() {
+    SIZE_T totalBytes = GetProcessWorkingSetBytes(GetCurrentProcess());
 
-            HANDLE hChild = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-            if (!hChild) {
-                hChild = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-            }
-            if (!hChild) {
-                hChild = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-            }
-            if (hChild) {
-                totalBytes += GetProcessWorkingSetBytes(hChild);
-                CloseHandle(hChild);
-            }
+    DWORD selfPid = GetCurrentProcessId();
+    DWORD srvPid = 0;
+    std::set<DWORD> roots;
+    std::set<DWORD> measuredPids;
+    if (selfPid != 0) {
+        roots.insert(selfPid);
+        measuredPids.insert(selfPid);
+    }
+
+    if (g_hProc && g_state != SrvState::Stopped && WaitForSingleObject(g_hProc, 0) == WAIT_TIMEOUT) {
+        totalBytes += GetProcessWorkingSetBytes(g_hProc);
+        srvPid = GetProcessId(g_hProc);
+        if (srvPid != 0) {
+            roots.insert(srvPid);
+            measuredPids.insert(srvPid);
+        }
+    }
+
+    std::set<DWORD> treePids = CollectDescendantPids(roots);
+    for (DWORD pid : treePids) {
+        if (measuredPids.find(pid) != measuredPids.end()) continue;
+        measuredPids.insert(pid);
+
+        HANDLE hChild = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+        if (!hChild) hChild = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!hChild) hChild = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+        if (hChild) {
+            totalBytes += GetProcessWorkingSetBytes(hChild);
+            CloseHandle(hChild);
         }
     }
 
@@ -1337,41 +1343,92 @@ static ULONGLONG FileTimeToU64(const FILETIME& ft) {
     return ui.QuadPart;
 }
 
-// Measures real normalized CPU usage (%) of the active server process (or idle panel when offline).
-static float MeasureProcessCpuPct() {
+// Measures overall Windows system CPU usage (%) via GetSystemTimes when the server is stopped.
+static float MeasureSystemCpuPct() {
+    FILETIME ftIdle = {}, ftKernel = {}, ftUser = {};
+    if (!GetSystemTimes(&ftIdle, &ftKernel, &ftUser)) return 0.0f;
+    ULONGLONG idle = FileTimeToU64(ftIdle);
+    ULONGLONG kern = FileTimeToU64(ftKernel);
+    ULONGLONG user = FileTimeToU64(ftUser);
+
+    if (g_sysCpuPrevKernel == 0 && g_sysCpuPrevUser == 0) {
+        g_sysCpuPrevIdle = idle;
+        g_sysCpuPrevKernel = kern;
+        g_sysCpuPrevUser = user;
+        return 0.0f;
+    }
+    if (idle < g_sysCpuPrevIdle || kern < g_sysCpuPrevKernel || user < g_sysCpuPrevUser) {
+        g_sysCpuPrevIdle = idle;
+        g_sysCpuPrevKernel = kern;
+        g_sysCpuPrevUser = user;
+        return 0.0f;
+    }
+
+    ULONGLONG dIdle = idle - g_sysCpuPrevIdle;
+    ULONGLONG dKern = kern - g_sysCpuPrevKernel;
+    ULONGLONG dUser = user - g_sysCpuPrevUser;
+    g_sysCpuPrevIdle = idle;
+    g_sysCpuPrevKernel = kern;
+    g_sysCpuPrevUser = user;
+
+    ULONGLONG total = dKern + dUser;
+    if (total == 0 || dIdle > total) return 0.0f;
+    double pct = ((double)(total - dIdle) / (double)total) * 100.0;
+    if (pct < 0.0) pct = 0.0;
+    if (pct > 100.0) pct = 100.0;
+    return (float)pct;
+}
+
+// Measures normalized CPU usage (%) across the active server process and all of its child PIDs.
+static float MeasureServerTreeCpuPct() {
     if (g_numCpus == 0) {
         SYSTEM_INFO si = {};
         GetSystemInfo(&si);
         g_numCpus = si.dwNumberOfProcessors > 0 ? si.dwNumberOfProcessors : 1;
     }
-    HANDLE hTarget = NULL;
-    DWORD pid = 0;
-    if (g_state != SrvState::Stopped && g_hProc && WaitForSingleObject(g_hProc, 0) == WAIT_TIMEOUT) {
-        hTarget = g_hProc;
-        pid = GetProcessId(g_hProc);
-    } else {
-        hTarget = GetCurrentProcess();
-        pid = GetCurrentProcessId();
-    }
-    FILETIME ftCreate = {}, ftExit = {}, ftKernel = {}, ftUser = {}, ftNow = {};
+    DWORD srvPid = (g_hProc && WaitForSingleObject(g_hProc, 0) == WAIT_TIMEOUT) ? GetProcessId(g_hProc) : 0;
+    if (srvPid == 0) return 0.0f;
+
+    FILETIME ftNow = {};
     GetSystemTimeAsFileTime(&ftNow);
-    if (!hTarget || pid == 0 || !GetProcessTimes(hTarget, &ftCreate, &ftExit, &ftKernel, &ftUser)) {
+    ULONGLONG wallNow = FileTimeToU64(ftNow);
+
+    std::set<DWORD> treePids = CollectDescendantPids({ srvPid });
+    std::map<DWORD, ULONGLONG> curTimes;
+    for (DWORD pid : treePids) {
+        FILETIME fc = {}, fe = {}, fk = {}, fu = {};
+        bool ok = false;
+        if (pid == srvPid) {
+            ok = GetProcessTimes(g_hProc, &fc, &fe, &fk, &fu) != 0;
+        } else {
+            HANDLE hChild = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+            if (!hChild) hChild = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+            if (hChild) {
+                ok = GetProcessTimes(hChild, &fc, &fe, &fk, &fu) != 0;
+                CloseHandle(hChild);
+            }
+        }
+        if (ok) curTimes[pid] = FileTimeToU64(fk) + FileTimeToU64(fu);
+    }
+
+    if (g_srvCpuPrevWall == 0 || wallNow <= g_srvCpuPrevWall) {
+        g_srvCpuPrev.swap(curTimes);
+        g_srvCpuPrevWall = wallNow;
         return 0.0f;
     }
-    ULONGLONG procTime = FileTimeToU64(ftKernel) + FileTimeToU64(ftUser);
-    ULONGLONG wallTime = FileTimeToU64(ftNow);
-    // Reset delta baseline whenever the monitored PID changes (e.g. server start/stop).
-    if (pid != g_cpuLastPid || g_cpuPrevWall == 0 || wallTime <= g_cpuPrevWall || procTime < g_cpuPrevProc) {
-        g_cpuLastPid = pid;
-        g_cpuPrevProc = procTime;
-        g_cpuPrevWall = wallTime;
-        return 0.0f;
+
+    ULONGLONG deltaProc = 0;
+    for (const auto& kv : curTimes) {
+        auto it = g_srvCpuPrev.find(kv.first);
+        if (it != g_srvCpuPrev.end() && kv.second >= it->second) {
+            deltaProc += (kv.second - it->second);
+        }
     }
-    double deltaProc = (double)(procTime - g_cpuPrevProc);
-    double deltaWall = (double)(wallTime - g_cpuPrevWall);
-    g_cpuPrevProc = procTime;
-    g_cpuPrevWall = wallTime;
-    double pct = (deltaProc / (deltaWall * (double)g_numCpus)) * 100.0;
+    ULONGLONG deltaWall = wallNow - g_srvCpuPrevWall;
+    g_srvCpuPrev.swap(curTimes);
+    g_srvCpuPrevWall = wallNow;
+
+    double pct = ((double)deltaProc / ((double)deltaWall * (double)g_numCpus)) * 100.0;
     if (pct < 0.0) pct = 0.0;
     if (pct > 100.0) pct = 100.0;
     return (float)pct;
@@ -1391,10 +1448,13 @@ static void UpdateTelemetryStats(bool pushHist = true) {
     int rpctInt = (int)(g_ramPct + 0.5f);
     g_ramDetailText = std::to_wstring(mb) + L" MB  •  " + std::to_wstring(rpctInt) + L"%";
 
-    g_cpuPct = MeasureProcessCpuPct();
-    wchar_t cpuBuf[32];
-    swprintf(cpuBuf, 32, L"%.1f%%", (double)g_cpuPct);
-    g_cpuText = cpuBuf;
+    if (g_state != SrvState::Stopped && g_hProc && WaitForSingleObject(g_hProc, 0) == WAIT_TIMEOUT) {
+        g_cpuPct = MeasureServerTreeCpuPct();
+    } else {
+        g_cpuPct = MeasureSystemCpuPct();
+    }
+    int cpuTenths = (int)(g_cpuPct * 10.0f + 0.5f);
+    g_cpuText = std::to_wstring(cpuTenths / 10) + L"." + std::to_wstring(cpuTenths % 10) + L"%";
 
     if (pushHist) {
         if ((int)g_ramHist.size() >= TELEM_HIST) g_ramHist.erase(g_ramHist.begin());
@@ -3298,7 +3358,7 @@ static void StartServer() {
     g_igTime = L"--:--"; g_upText = L"00:00:00";
     std::fill(g_ramHist.begin(), g_ramHist.end(), 0.0f);
     std::fill(g_cpuHist.begin(), g_cpuHist.end(), 0.0f);
-    g_cpuLastPid = 0; g_cpuPrevProc = 0; g_cpuPrevWall = 0;
+    g_srvCpuPrev.clear(); g_srvCpuPrevWall = 0;
     RefreshMaxPlayersFromProps();
     UpdateTelemetryStats(false);
     SendMessageW(g_hList, LB_RESETCONTENT, 0, 0);
@@ -3345,7 +3405,9 @@ static void OnServerExited() {
     g_state = SrvState::Stopped;
     SendMessageW(g_hList, LB_RESETCONTENT, 0, 0);
     g_igTime = L"--:--"; g_upText = L"00:00:00";
-    g_cpuLastPid = 0; g_cpuPrevProc = 0; g_cpuPrevWall = 0;
+    std::fill(g_cpuHist.begin(), g_cpuHist.end(), 0.0f);
+    g_srvCpuPrev.clear(); g_srvCpuPrevWall = 0;
+    g_sysCpuPrevIdle = 0; g_sysCpuPrevKernel = 0; g_sysCpuPrevUser = 0;
     UpdateTelemetryStats(false);
 
     if (!expected && code != 0) {
@@ -3839,7 +3901,7 @@ static void DrawTelemetryDot(Gdiplus::Graphics& g, float cx, float cy, float r, 
 }
 
 static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, const std::wstring& valStr,
-                              const std::vector<float>& hist, float curPct, COLORREF col) {
+                              const std::vector<float>& hist, float curPct, COLORREF col, bool autoScale = false) {
     if (rc.right <= rc.left || rc.bottom <= rc.top) return;
     FillRound(mem, rc, P.card, P.border, S(12));
 
@@ -3871,6 +3933,12 @@ static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, con
 
             if (hist.size() >= 2) {
                 int n = (int)hist.size();
+                float yMax = 100.0f;
+                if (autoScale) {
+                    float peak = 0.0f;
+                    for (float hv : hist) if (hv > peak) peak = hv;
+                    yMax = std::min(100.0f, std::max(15.0f, peak * 1.3f));
+                }
                 float padY = (float)S(3);
                 float usableH = std::max(4.0f, ph - 2.0f * padY);
                 float baseBottom = py + ph - padY;
@@ -3878,9 +3946,9 @@ static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, con
                 std::vector<Gdiplus::PointF> pts(n);
                 std::vector<Gdiplus::PointF> poly(n + 2);
                 for (int i = 0; i < n; i++) {
-                    float v = std::max(0.0f, std::min(100.0f, hist[i]));
+                    float v = std::max(0.0f, std::min(yMax, hist[i]));
                     float x = px + ((float)i / (float)(n - 1)) * pw;
-                    float y = baseBottom - (v / 100.0f) * usableH;
+                    float y = baseBottom - (v / yMax) * usableH;
                     pts[i] = Gdiplus::PointF(x, y);
                     poly[i] = pts[i];
                 }
@@ -3909,7 +3977,7 @@ static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, con
                          (float)(rc.right - rc.left - S(24)), (float)S(4), curPct, trackCol, col);
     }
 
-    RECT rtTitle = { rc.left + S(25), rc.top + S(8), std::max(rc.left + S(40), rc.right - S(115)), rc.top + S(26) };
+    RECT rtTitle = { rc.left + S(25), rc.top + S(8), std::max(rc.left + S(40), rc.right - S(105)), rc.top + S(26) };
     RECT rtVal   = { rc.left + S(90), rc.top + S(7), rc.right - S(12), rc.top + S(26) };
     DrawTxt(mem, title, rtTitle, g_fCap, P.muted, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     DrawTxt(mem, valStr, rtVal, g_fSemi, P.text, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
@@ -4257,8 +4325,11 @@ static void PaintMain(HWND hwnd) {
         : ((g_theme == Theme::Light) ? RGB(2, 132, 199) : RGB(56, 189, 248)));
     COLORREF cpuCol = (g_cpuPct >= 90.0f) ? P.red : (g_cpuPct >= 75.0f ? P.amber : P.green);
 
-    DrawSparklineCard(mem, g_rcChart[0], Tx(L"BELLEK (RAM)", L"MEMORY (RAM)"), g_ramDetailText, g_ramHist, g_ramPct, ramCol);
-    DrawSparklineCard(mem, g_rcChart[1], Tx(L"İŞLEMCİ (CPU)", L"CPU LOAD"), g_cpuText, g_cpuHist, g_cpuPct, cpuCol);
+    const wchar_t* cpuTitle = (g_state != SrvState::Stopped && g_hProc)
+        ? Tx(L"İŞLEMCİ (SUNUCU CPU)", L"SERVER CPU")
+        : Tx(L"İŞLEMCİ (SİSTEM CPU)", L"SYSTEM CPU");
+    DrawSparklineCard(mem, g_rcChart[0], Tx(L"BELLEK (RAM)", L"MEMORY (RAM)"), g_ramDetailText, g_ramHist, g_ramPct, ramCol, false);
+    DrawSparklineCard(mem, g_rcChart[1], cpuTitle, g_cpuText, g_cpuHist, g_cpuPct, cpuCol, true);
 
     BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
            mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);

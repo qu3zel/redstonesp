@@ -91,7 +91,7 @@ const i18n = {
     statLang: "Çift Dil",
 
     // Desktop Window Title & Tabs
-    wndTitle: "Redstone Server Panel — Minecraft Sunucu Yöneticisi",
+    wndTitle: "Redstone Server Panel",
     tabDashboard: "Panel",
     tabProperties: "Özellikler",
     tabAccess: "Yetkiler",
@@ -317,7 +317,7 @@ const i18n = {
     statLang: "Bilingual",
 
     // Desktop Window Title & Tabs
-    wndTitle: "Redstone Server Panel — Minecraft Server Manager",
+    wndTitle: "Redstone Server Panel",
     tabDashboard: "Dashboard",
     tabProperties: "Properties",
     tabAccess: "Access",
@@ -589,7 +589,7 @@ function getTelemetryColor(pct, kind) {
   return isLight ? '#16a34a' : '#4ade80';
 }
 
-function renderSparklineSvg(prefix, hist, color) {
+function renderSparklineSvg(prefix, hist, color, autoScale = false) {
   const svg = document.getElementById(`svg${prefix}Chart`);
   const line = document.getElementById(`${prefix.toLowerCase()}LinePath`);
   const area = document.getElementById(`${prefix.toLowerCase()}AreaPath`);
@@ -603,14 +603,15 @@ function renderSparklineSvg(prefix, hist, color) {
   if (stopTop) stopTop.setAttribute('stop-color', color);
   if (stopBot) stopBot.setAttribute('stop-color', color);
 
+  const yMax = autoScale ? Math.min(100, Math.max(20, Math.max(...hist) * 1.25)) : 100;
   const W = 260, H = 54, padX = 4, padY = 5;
   const usableW = W - padX * 2;
   const usableH = H - padY * 2;
   const n = hist.length;
   const pts = hist.map((val, i) => {
-    const clamped = Math.max(0, Math.min(100, val));
+    const clamped = Math.max(0, Math.min(yMax, val));
     const x = padX + (i / (n - 1)) * usableW;
-    const y = (H - padY) - (clamped / 100) * usableH;
+    const y = (H - padY) - (clamped / yMax) * usableH;
     return [x, y];
   });
 
@@ -666,8 +667,8 @@ function updateTelemetryVisuals(pushSample = false) {
     barCpu.style.backgroundColor = cpuColor;
   }
 
-  renderSparklineSvg('Ram', state.ramHist, ramColor);
-  renderSparklineSvg('Cpu', state.cpuHist, cpuColor);
+  renderSparklineSvg('Ram', state.ramHist, ramColor, false);
+  renderSparklineSvg('Cpu', state.cpuHist, cpuColor, true);
 
   // KPI 1: Status
   const dotStatus = document.getElementById('dotStatus');
