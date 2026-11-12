@@ -1,7 +1,15 @@
 # Redstone Server Panel
 
 <p align="center">
-  <img src="assets/preview.png" alt="Redstone Server Panel Preview" width="800">
+  <a href="https://qu3zel.github.io/redstonesp/">
+    <img src="assets/preview.png" alt="Redstone Server Panel Preview" width="800">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://qu3zel.github.io/redstonesp/"><strong>🌐 Live Interactive Web Demo / Canlı Web Demosu</strong></a> &nbsp;•&nbsp;
+  <a href="https://github.com/qu3zel/redstonesp/releases"><strong>⬇️ Download Executable / İndir (.exe)</strong></a> &nbsp;•&nbsp;
+  <a href="https://github.com/qu3zel"><strong>👤 Developer / Geliştirici</strong></a>
 </p>
 
 **Redstone Server Panel** is a modern, lightweight, single-file, zero-dependency Minecraft Java Edition Server Manager for Windows, built with pure Win32 API and GDI/GDI+.
