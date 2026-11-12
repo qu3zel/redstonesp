@@ -436,7 +436,7 @@ body {
   background: var(--w-border);
 }
 
-/* Razer-Style Tab Bar */
+/* Connected Tab Bar */
 .win-tabbar {
   display: flex;
   background-color: var(--w-tabBar);

@@ -903,9 +903,12 @@ static bool IsAutoStart() {
 static void SetAutoStart(bool on) {
     HKEY k; if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
     if (on) {
-        wchar_t exe[MAX_PATH]; GetModuleFileNameW(NULL, exe, MAX_PATH);
-        std::wstring v = L"\"" + std::wstring(exe) + L"\" --tray";
-        RegSetValueExW(k, L"RedstoneServerPanel", 0, REG_SZ, (const BYTE*)v.c_str(), (DWORD)((v.size() + 1) * sizeof(wchar_t)));
+        wchar_t exe[MAX_PATH];
+        DWORD n = GetModuleFileNameW(NULL, exe, MAX_PATH);
+        if (n > 0 && n < MAX_PATH) {
+            std::wstring v = L"\"" + std::wstring(exe, n) + L"\" --tray";
+            RegSetValueExW(k, L"RedstoneServerPanel", 0, REG_SZ, (const BYTE*)v.c_str(), (DWORD)((v.size() + 1) * sizeof(wchar_t)));
+        }
     } else RegDeleteValueW(k, L"RedstoneServerPanel");
     RegCloseKey(k);
 }
@@ -1717,8 +1720,9 @@ static std::string ExtractLogPayload(const std::string& line) {
 
 // Extracts player name from join/leave suffix lines ("<Player> joined the game" / "<Player> (formerly <Old>) joined the game")
 static bool ExtractJoinLeaveName(std::string prefixPart, std::string& out) {
-    // Reject chat messages (e.g. "<Player> someone joined the game")
-    if (prefixPart.find('<') != std::string::npos || prefixPart.find('>') != std::string::npos)
+    // Reject chat or colon-prefixed lines (e.g. "<Player> someone joined the game" or "[G] Steve: Alex joined the game")
+    if (prefixPart.find('<') != std::string::npos || prefixPart.find('>') != std::string::npos ||
+        prefixPart.find(':') != std::string::npos)
         return false;
 
     prefixPart = TrimA(prefixPart);
@@ -1866,7 +1870,7 @@ static DWORD WINAPI ReaderThread(LPVOID p) {
         }
         if (!chunk.empty()) PostEv(a.hwnd, a.gen, EV_LOG, chunk);
     }
-    if (!line.empty()) { std::wstring chunk; HandleLine(a, line, chunk); PostEv(a.hwnd, a.gen, EV_LOG, chunk); }
+    if (!line.empty()) { std::wstring chunk; HandleLine(a, line, chunk); if (!chunk.empty()) PostEv(a.hwnd, a.gen, EV_LOG, chunk); }
     CloseHandle(a.rd);
     PostEv(a.hwnd, a.gen, EV_EXITED);
     return 0;
@@ -1994,7 +1998,15 @@ static void UpdateProperties(const std::wstring& dir, const std::vector<std::pai
     }
     for (auto& pr : kv) {
         bool found = false;
-        for (auto& l : lines) if (StartsWith(l, pr.first + "=")) { l = pr.first + "=" + pr.second; found = true; }
+        for (auto& l : lines) {
+            std::string t = TrimA(l);
+            if (!t.empty() && t[0] == '#') continue;
+            size_t eq = t.find('=');
+            if (eq != std::string::npos && TrimA(t.substr(0, eq)) == pr.first) {
+                l = pr.first + "=" + pr.second;
+                found = true;
+            }
+        }
         if (!found) lines.push_back(pr.first + "=" + pr.second);
     }
     std::string out;
@@ -2002,13 +2014,24 @@ static void UpdateProperties(const std::wstring& dir, const std::vector<std::pai
     WriteAll(path, out);
 }
 
+static std::wstring TrimQuotes(std::wstring s) {
+    s = Trim(s);
+    while (s.size() >= 2 && s.front() == L'"' && s.back() == L'"') {
+        s = Trim(s.substr(1, s.size() - 2));
+    }
+    return s;
+}
+
+static std::wstring GetJarPath() {
+    return g_hJar ? TrimQuotes(GetText(g_hJar)) : L"";
+}
+
 static bool HasServerJar() {
-    return g_hJar && !Trim(GetText(g_hJar)).empty();
+    return !GetJarPath().empty();
 }
 
 static std::wstring GetServerDir() {
-    if (!g_hJar) return L".";
-    std::wstring jar = Trim(GetText(g_hJar));
+    std::wstring jar = GetJarPath();
     if (jar.empty()) return L".";
     size_t sl = jar.find_last_of(L"\\/");
     return sl == std::wstring::npos ? L"." : jar.substr(0, sl);
@@ -2035,7 +2058,8 @@ static std::map<std::string, std::string> ReadPropertiesMap(const std::wstring& 
 
 static void LoadServerPropertiesToUi() {
     if (!g_hMotd) return;
-    auto mp = ReadPropertiesMap(GetServerDir());
+    std::map<std::string, std::string> mp;
+    if (HasServerJar()) mp = ReadPropertiesMap(GetServerDir());
     auto get = [&](const char* k, const char* def) -> std::string {
         auto it = mp.find(k);
         return (it != mp.end() && !it->second.empty()) ? it->second : std::string(def);
@@ -2074,8 +2098,7 @@ static void LoadServerPropertiesToUi() {
 }
 
 static void SaveServerPropertiesFromUi() {
-    std::wstring jar = Trim(GetText(g_hJar));
-    if (jar.empty()) {
+    if (!HasServerJar()) {
         Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
         return;
     }
@@ -2267,6 +2290,10 @@ static void ModifyAccessList(bool isOp, bool add) {
             name = Trim(GetText(hEdit));
         }
     }
+    if (!add && name.empty()) {
+        AppLog(L().logSelectPlayer);
+        return;
+    }
     if (!ValidPlayerName(name)) {
         AppLog(L().logInvalidPlayer);
         return;
@@ -2329,8 +2356,7 @@ static void LoadBackupsListToUi() {
     SendMessageW(g_hListBk, LB_RESETCONTENT, 0, 0);
     g_backupFiles.clear();
 
-    std::wstring jar = Trim(GetText(g_hJar));
-    if (jar.empty()) {
+    if (!HasServerJar()) {
         if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
         return;
     }
@@ -2381,7 +2407,7 @@ static DWORD WINAPI BackupWorkerThread(LPVOID param) {
 
     std::wstring cmd;
     if (!a->restore) {
-        cmd = L"tar.exe -a -c -f \"" + a->zipPath + L"\"";
+        cmd = L"tar.exe -a -c --exclude=session.lock --exclude=*/session.lock -f \"" + a->zipPath + L"\"";
         for (const auto& wf : a->worldFolders) cmd += L" \"" + wf + L"\"";
     } else {
         cmd = L"tar.exe -x -f \"" + a->zipPath + L"\"";
@@ -2425,8 +2451,7 @@ static void StartCreateBackup(bool silent = false) {
         if (!silent) AppLog(Tx(L"Şu anda başka bir yedekleme işlemi devam ediyor.", L"A backup operation is already in progress."));
         return;
     }
-    std::wstring jar = Trim(GetText(g_hJar));
-    if (jar.empty()) {
+    if (!HasServerJar()) {
         if (silent) AppLog(Tx(L"[Yedekleme] Hata: Sunucu JAR dosyası seçilmedi.", L"[Backup] Error: Server JAR not specified."));
         else Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
         return;
@@ -2475,6 +2500,7 @@ static void StartCreateBackup(bool silent = false) {
 
 static void RestoreSelectedBackup() {
     if (g_backupBusy.load()) return;
+    if (!HasServerJar()) { Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING); return; }
     if (g_state != SrvState::Stopped) {
         Msg(Tx(L"Yedeği geri yüklemeden önce sunucuyu durdurmalısınız.", L"Please stop the server before restoring a backup."),
             Tx(L"Sunucu Açık", L"Server Running"), MB_OK | MB_ICONWARNING);
@@ -2504,8 +2530,12 @@ static void RestoreSelectedBackup() {
 }
 
 static void DeleteSelectedBackup() {
+    if (!HasServerJar()) { Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING); return; }
     int idx = (int)SendMessageW(g_hListBk, LB_GETCURSEL, 0, 0);
-    if (idx == LB_ERR || idx < 0 || idx >= (int)g_backupFiles.size()) return;
+    if (idx == LB_ERR || idx < 0 || idx >= (int)g_backupFiles.size()) {
+        AppLog(Tx(L"Önce listeden bir yedek seçin.", L"Please select a backup from the list first."));
+        return;
+    }
     std::wstring file = g_backupFiles[idx];
     std::wstring q = (g_lang == Lang::TR)
         ? (L"\"" + file + L"\" yedeği kalıcı olarak silinsin mi?")
@@ -2568,7 +2598,7 @@ static void SaveCurrentAsProfile() {
         return;
     }
     std::wstring sec = L"Profile|" + name, path = SettingsPath();
-    WritePrivateProfileStringW(sec.c_str(), L"Jar",  Trim(GetText(g_hJar)).c_str(),  path.c_str());
+    WritePrivateProfileStringW(sec.c_str(), L"Jar",  GetJarPath().c_str(),           path.c_str());
     WritePrivateProfileStringW(sec.c_str(), L"Ip",   Trim(GetText(g_hIp)).c_str(),   path.c_str());
     WritePrivateProfileStringW(sec.c_str(), L"Port", Trim(GetText(g_hPort)).c_str(), path.c_str());
     WritePrivateProfileStringW(sec.c_str(), L"Ram",  Trim(GetText(g_hRam)).c_str(),  path.c_str());
@@ -2604,7 +2634,10 @@ static void LoadSelectedProfile() {
 
 static void DeleteSelectedProfile() {
     int idx = (int)SendMessageW(g_hListProf, LB_GETCURSEL, 0, 0);
-    if (idx == LB_ERR || idx < 0 || idx >= (int)g_profiles.size()) return;
+    if (idx == LB_ERR || idx < 0 || idx >= (int)g_profiles.size()) {
+        AppLog(Tx(L"Önce listeden bir profil seçin.", L"Please select a profile from the list first."));
+        return;
+    }
     std::wstring name = g_profiles[idx].name;
     std::wstring q = (g_lang == Lang::TR)
         ? (L"\"" + name + L"\" profili silinsin mi?")
@@ -2690,6 +2723,13 @@ static void ToggleModItem(bool isPlugin) {
         else return;
     }
 
+    if (FileExists(newPath)) {
+        size_t sl = newPath.find_last_of(L"\\/");
+        std::wstring targetName = (sl == std::wstring::npos) ? newPath : newPath.substr(sl + 1);
+        AppLog(Tx(L"Hedef dosya zaten mevcut: ", L"Target file already exists: ") + targetName);
+        return;
+    }
+
     if (_wrename(it.fullPath.c_str(), newPath.c_str()) == 0) {
         std::wstring m = it.enabled
             ? (Tx(L"Devre dışı bırakıldı: ", L"Disabled: ") + it.displayName)
@@ -2748,7 +2788,10 @@ static void DeleteModItem(bool isPlugin) {
     HWND hLb = isPlugin ? g_hListPlugins : g_hListMods;
     auto& list = isPlugin ? g_pluginsList : g_modsList;
     int idx = (int)SendMessageW(hLb, LB_GETCURSEL, 0, 0);
-    if (idx < 0 || idx >= (int)list.size()) return;
+    if (idx < 0 || idx >= (int)list.size()) {
+        AppLog(Tx(L"Lütfen önce listeden bir öğe seçin.", L"Please select an item from the list first."));
+        return;
+    }
     const ModItem& it = list[idx];
 
     std::wstring q = (g_lang == Lang::TR)
@@ -2970,7 +3013,7 @@ static std::wstring OpenJarDialog() {
 static void StartServer() {
     if (g_state != SrvState::Stopped) { Msg(L().msgAlreadyRunning, L"Redstone Server Panel"); return; }
 
-    std::wstring jar = Trim(GetText(g_hJar)), ip = Trim(GetText(g_hIp));
+    std::wstring jar = GetJarPath(), ip = Trim(GetText(g_hIp));
     std::wstring port = Trim(GetText(g_hPort)), ram = Trim(GetText(g_hRam));
 
     if (jar.empty())        { Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING); return; }
@@ -3055,6 +3098,11 @@ static void StartServer() {
     if (g_hStdinWr) { CloseHandle(g_hStdinWr); g_hStdinWr = NULL; }
     g_hProc = pi.hProcess; g_hStdinWr = inWr;
     ++g_gen; g_pendingTime = 0; g_useTimelineCmd = false; g_suppressErrLines = 0;
+    KillTimer(g_hwnd, TID_RESTART);
+    g_schedRestartPending = false;
+    g_scheduledRestartTrigger = false;
+    g_lastAutoBackupTime = 0;
+    g_restartWarningStep = 0;
     g_startTick = GetTickCount64();
     g_state = SrvState::Starting;
     g_igTime = L"--:--"; g_upText = L"00:00:00";
@@ -3648,7 +3696,7 @@ static void PaintHeader(HDC mem, int W) {
         }
     }
 
-    // 3. Razer-style active tab: rounded top corners, open bottom merging directly into the subBar
+    // 3. Connected active tab: rounded top corners, open bottom merging directly into the subBar
     if (ax >= 0 && aw > 0) {
         int tabTop = S(8);
         int rad = S(8);
@@ -3932,7 +3980,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
     RECT rr = r; InflateRect(&rr, -1, -1);
     FillRound(dc, rr, fill, focus && !dis ? P.accent : ((isSel && selActive) ? P.accent : (id == ID_BTN_BROWSE || id == ID_BTN_UNBAN || isSel ? P.border : fill)), S(10));
 
-    wchar_t txt[64]; GetWindowTextW(di->hwndItem, txt, 64);
+    wchar_t txt[128]; GetWindowTextW(di->hwndItem, txt, 128);
     if (press && !dis) OffsetRect(&r, 0, 1);
     DrawTxt(dc, txt, r, g_fSemi, dis ? P.btnDisTxt : txtCol, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
@@ -5118,12 +5166,14 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                             int diff = targetMinutes - curMinutes;
                             if (diff < -720) diff += 1440;
 
+                            if (diff != 0) g_lastRestartMinute = -1;
+
                             if (diff == 5 && g_restartWarningStep == 0) {
                                 g_restartWarningStep = 1;
                                 WriteToConsole(Tx(L"say §c[Duyuru] Sunucu 5 dakika içinde planlı olarak yeniden başlatılacak!",
                                                   L"say §c[Notice] Server will perform a scheduled restart in 5 minutes!"));
                                 AppLog(Tx(L"[Otomasyon] 5 dakika uyarısı verildi.", L"[Automation] 5-minute warning sent."));
-                            } else if (diff == 1 && g_restartWarningStep == 1) {
+                            } else if (diff == 1 && g_restartWarningStep < 2) {
                                 g_restartWarningStep = 2;
                                 WriteToConsole(Tx(L"say §c[Duyuru] Sunucu 1 dakika içinde yeniden başlatılıyor!",
                                                   L"say §c[Notice] Server is restarting in 1 minute!"));
