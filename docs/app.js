@@ -8,8 +8,10 @@ const state = {
   isRunning: false,
   uptimeSeconds: 0,
   uptimeInterval: null,
+  simTimeouts: [],
   memoryMB: 13,
-  players: ['Alex', 'Steve'],
+  onlinePlayers: [],
+  selectedPlayer: null,
   gamemode: 'survival',
   difficulty: 'normal',
   properties: {
@@ -20,6 +22,46 @@ const state = {
     cmdblock: false
   }
 };
+
+const chatSequence = [
+  {
+    delay: 2400,
+    player: 'Alex',
+    tr: 'selam steve, madene inelim mi?',
+    en: 'hey steve, ready to go mining?'
+  },
+  {
+    delay: 2800,
+    player: 'Steve',
+    tr: 'olur, elmas kazmayı alıp geliyorum hemen',
+    en: 'yeah, grabbing my diamond pickaxe right now'
+  },
+  {
+    delay: 3600,
+    type: 'advancement',
+    player: 'Steve',
+    tr: 'Steve has made the advancement [Diamonds!]',
+    en: 'Steve has made the advancement [Diamonds!]'
+  },
+  {
+    delay: 2200,
+    player: 'Steve',
+    tr: 'oh be sonunda elmas buldum :D',
+    en: 'lets go finally found diamonds :D'
+  },
+  {
+    delay: 3000,
+    player: 'Alex',
+    tr: 'helal! bana da 3 tane versene zırh basayım',
+    en: 'nice! share some so I can craft a chestplate'
+  },
+  {
+    delay: 3200,
+    player: 'Steve',
+    tr: 'tamamdır sandığa bıraktım kanka',
+    en: 'sure thing, left some in the spawn chest'
+  }
+];
 
 const i18n = {
   tr: {
@@ -59,6 +101,7 @@ const i18n = {
     btnStart: "Başlat",
     btnStop: "Güvenle Durdur",
     cardPlayers: "OYUNCULAR • ",
+    lblNoPlayers: "Çevrim içi oyuncu yok",
     btnKick: "At (Kick)",
     btnBan: "Banla",
     lblUnban: "Banı kaldır (oyuncu adı)",
@@ -255,6 +298,7 @@ const i18n = {
     btnStart: "Start",
     btnStop: "Stop Safely",
     cardPlayers: "PLAYERS • ",
+    lblNoPlayers: "No players online",
     btnKick: "Kick",
     btnBan: "Ban",
     lblUnban: "Unban player (player name)",
@@ -429,6 +473,21 @@ const tileMemory = document.getElementById('tileMemory');
 const tilePlayers = document.getElementById('tilePlayers');
 const langPillLabel = document.getElementById('langPillLabel');
 
+// Simulation timers
+function clearSimTimeouts() {
+  state.simTimeouts.forEach(id => clearTimeout(id));
+  state.simTimeouts = [];
+}
+
+function scheduleSim(fn, delay) {
+  const id = setTimeout(() => {
+    if (!state.isRunning) return;
+    fn();
+  }, delay);
+  state.simTimeouts.push(id);
+  return id;
+}
+
 // Append log line
 function appendLog(line, type = '') {
   const div = document.createElement('div');
@@ -512,6 +571,43 @@ function toggleLanguage() {
 }
 window.toggleLanguage = toggleLanguage;
 
+// Dashboard Player List Rendering
+function renderDashboardPlayers() {
+  const container = document.getElementById('dashboardPlayerList');
+  const countEl = document.getElementById('playerCount');
+  if (!container) return;
+
+  const count = state.onlinePlayers.length;
+  if (countEl) countEl.textContent = String(count);
+  if (tilePlayers) tilePlayers.textContent = String(count);
+
+  if (count === 0) {
+    const t = i18n[state.lang];
+    container.innerHTML = `<div class="player-empty" data-i18n="lblNoPlayers">${t.lblNoPlayers || 'Çevrim içi oyuncu yok'}</div>`;
+    state.selectedPlayer = null;
+    return;
+  }
+
+  container.innerHTML = '';
+  state.onlinePlayers.forEach((p, idx) => {
+    const div = document.createElement('div');
+    const isSel = (state.selectedPlayer === p.name) || (!state.selectedPlayer && idx === 0);
+    if (isSel) state.selectedPlayer = p.name;
+    div.className = `player-item${isSel ? ' selected' : ''}`;
+    div.dataset.player = p.name;
+    div.innerHTML = `
+      <div class="skin-head" style="background: ${p.color || '#4ade80'};"></div>
+      <strong>${p.name}</strong>
+    `;
+    div.addEventListener('click', () => {
+      container.querySelectorAll('.player-item').forEach(it => it.classList.remove('selected'));
+      div.classList.add('selected');
+      state.selectedPlayer = p.name;
+    });
+    container.appendChild(div);
+  });
+}
+
 // Language change
 function setLanguage(langCode) {
   state.lang = langCode;
@@ -553,6 +649,7 @@ function setLanguage(langCode) {
     initialMsg.textContent = t.consoleReady;
   }
 
+  renderDashboardPlayers();
   setPage(state.page);
 }
 window.setLanguage = setLanguage;
@@ -567,7 +664,12 @@ btnStartStop.addEventListener('click', () => {
 });
 
 function startServer() {
+  clearSimTimeouts();
   state.isRunning = true;
+  state.onlinePlayers = [];
+  state.selectedPlayer = null;
+  renderDashboardPlayers();
+
   const t = i18n[state.lang];
   tileStatus.textContent = t.statusStarting;
   tileStatus.className = 'tile-val tile-status';
@@ -576,13 +678,16 @@ function startServer() {
 
   appendLog(t.consoleStarting, 'sys');
   appendLog(`[${now()}] [Server thread/INFO]: Loading libraries, please wait...`, 'info');
-  
-  setTimeout(() => {
+
+  scheduleSim(() => {
     appendLog(`[${now()}] [Server thread/INFO]: Starting minecraft server version 1.20.4`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Loading properties`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Default game type: SURVIVAL`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Generating keypair`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Starting Minecraft server on *:25565`, 'info');
+  }, 600);
+
+  scheduleSim(() => {
     appendLog(`[${now()}] [Server thread/INFO]: Preparing level "world"`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Time elapsed: 1420 ms`, 'info');
@@ -592,28 +697,80 @@ function startServer() {
     tileStatus.className = 'tile-val tile-status active';
     state.memoryMB = 3719;
     tileMemory.textContent = `${state.memoryMB} MB`;
-    tilePlayers.textContent = '2';
 
     state.uptimeSeconds = 0;
     state.uptimeInterval = setInterval(() => {
       state.uptimeSeconds++;
       tileUptime.textContent = formatUptime(state.uptimeSeconds);
     }, 1000);
-  }, 1000);
+  }, 1500);
+
+  // Player 1 joins (Alex)
+  scheduleSim(() => {
+    appendLog(`[${now()}] [User Authenticator #1/INFO]: UUID of player Alex is c06f8906-4c3e-4b47-a4dd-24d1a55eb19e`, 'info');
+    appendLog(`[${now()}] [Server thread/INFO]: Alex[local] logged in with entity id 142 at (-42.5, 68.0, 112.3)`, 'info');
+    appendLog(`[${now()}] [Server thread/INFO]: Alex joined the game`, 'sys');
+
+    state.onlinePlayers.push({ name: 'Alex', color: '#4ade80' });
+    renderDashboardPlayers();
+  }, 3200);
+
+  // Player 2 joins (Steve)
+  scheduleSim(() => {
+    appendLog(`[${now()}] [User Authenticator #2/INFO]: UUID of player Steve is 853c80ef-3c37-49fd-aa49-938b674adae6`, 'info');
+    appendLog(`[${now()}] [Server thread/INFO]: Steve[local] logged in with entity id 189 at (-38.2, 69.0, 105.1)`, 'info');
+    appendLog(`[${now()}] [Server thread/INFO]: Steve joined the game`, 'sys');
+
+    state.onlinePlayers.push({ name: 'Steve', color: '#38bdf8' });
+    renderDashboardPlayers();
+
+    // Start in-game chat conversation
+    startChatConversation();
+  }, 5200);
+}
+
+function startChatConversation() {
+  let accumDelay = 0;
+  chatSequence.forEach((step, idx) => {
+    accumDelay += step.delay;
+    scheduleSim(() => {
+      // Check if player is still online
+      const isOnline = state.onlinePlayers.some(p => p.name === step.player);
+      if (!isOnline && step.type !== 'advancement') return;
+
+      if (step.type === 'advancement') {
+        appendLog(`[${now()}] [Server thread/INFO]: ${step[state.lang] || step.en}`, 'sys');
+      } else {
+        const text = step[state.lang] || step.en;
+        appendLog(`[${now()}] [Async Chat Thread - #${idx % 2}/INFO]: <${step.player}> ${text}`, 'chat');
+      }
+    }, accumDelay);
+  });
 }
 
 function stopServer() {
   state.isRunning = false;
-  const t = i18n[state.lang];
+  clearSimTimeouts();
   clearInterval(state.uptimeInterval);
+
+  const t = i18n[state.lang];
   btnStartStop.textContent = t.btnStart;
   btnStartStop.className = 'w-btn w-btn-start';
   tileStatus.textContent = t.statusOffline;
   tileStatus.className = 'tile-val tile-status';
   state.memoryMB = 13;
   tileMemory.textContent = `${state.memoryMB} MB`;
-  tilePlayers.textContent = '0';
   tileUptime.textContent = '00:00:00';
+
+  if (state.onlinePlayers.length > 0) {
+    state.onlinePlayers.forEach(p => {
+      appendLog(`[${now()}] [Server thread/INFO]: ${p.name} lost connection: Server closed`, 'warn');
+      appendLog(`[${now()}] [Server thread/INFO]: ${p.name} left the game`, 'warn');
+    });
+  }
+  state.onlinePlayers = [];
+  state.selectedPlayer = null;
+  renderDashboardPlayers();
 
   appendLog(`[${now()}] [Server thread/INFO]: Stopping the server`, 'warn');
   appendLog(`[${now()}] [Server thread/INFO]: Saving players`, 'info');
@@ -647,7 +804,8 @@ function sendCommand() {
         appendLog(`[${now()}] [Server thread/INFO]: /help, /list, /say <message>, /stop, /op <player>, /time set <day|night>`, 'info');
         break;
       case 'list':
-        appendLog(`[${now()}] [Server thread/INFO]: There are 2 of a max of 20 players online: Alex, Steve`, 'info');
+        const names = state.onlinePlayers.map(p => p.name).join(', ');
+        appendLog(`[${now()}] [Server thread/INFO]: There are ${state.onlinePlayers.length} of a max of 20 players online${names ? ': ' + names : ''}`, 'info');
         break;
       case 'say':
         const msg = parts.slice(1).join(' ') || 'Hello from Server!';
@@ -685,24 +843,37 @@ if (btnUnban && inputUnban) {
   btnUnban.addEventListener('click', () => {
     const val = inputUnban.value.trim() || 'Alex';
     const t = i18n[state.lang];
-    appendLog(`${t.logUnban}${val}`, 'sys');
+    appendLog(`[${now()}] [Server thread/INFO]: Unbanned player ${val}`, 'sys');
     inputUnban.value = '';
   });
 }
 
 // Kick & Ban simulator
-document.querySelectorAll('[data-i18n="btnKick"]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const t = i18n[state.lang];
-    appendLog(`${t.logKick}Alex`, 'warn');
+const btnKickPlayer = document.getElementById('btnKickPlayer');
+if (btnKickPlayer) {
+  btnKickPlayer.addEventListener('click', () => {
+    if (!state.isRunning || state.onlinePlayers.length === 0) return;
+    const target = state.selectedPlayer || state.onlinePlayers[0].name;
+    state.onlinePlayers = state.onlinePlayers.filter(p => p.name !== target);
+    appendLog(`[${now()}] [Server thread/INFO]: Kicked ${target} from the game: "Kicked by an operator"`, 'warn');
+    appendLog(`[${now()}] [Server thread/INFO]: ${target} left the game`, 'warn');
+    state.selectedPlayer = state.onlinePlayers.length ? state.onlinePlayers[0].name : null;
+    renderDashboardPlayers();
   });
-});
-document.querySelectorAll('[data-i18n="btnBan"]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const t = i18n[state.lang];
-    appendLog(`${t.logBan}Alex`, 'sys');
+}
+
+const btnBanPlayer = document.getElementById('btnBanPlayer');
+if (btnBanPlayer) {
+  btnBanPlayer.addEventListener('click', () => {
+    if (!state.isRunning || state.onlinePlayers.length === 0) return;
+    const target = state.selectedPlayer || state.onlinePlayers[0].name;
+    state.onlinePlayers = state.onlinePlayers.filter(p => p.name !== target);
+    appendLog(`[${now()}] [Server thread/INFO]: Banned ${target}: "Banned by an operator"`, 'sys');
+    appendLog(`[${now()}] [Server thread/INFO]: ${target} left the game`, 'warn');
+    state.selectedPlayer = state.onlinePlayers.length ? state.onlinePlayers[0].name : null;
+    renderDashboardPlayers();
   });
-});
+}
 
 // Whitelist & Ops actions
 document.querySelectorAll('[data-i18n="btnAddWl"]').forEach(btn => {
@@ -710,13 +881,13 @@ document.querySelectorAll('[data-i18n="btnAddWl"]').forEach(btn => {
     const card = btn.closest('.w-card');
     const input = card ? card.querySelector('input') : null;
     const name = (input && input.value.trim()) ? input.value.trim() : 'NewPlayer';
-    appendLog(`» [WHITELIST] + ${name}`, 'sys');
+    appendLog(`[${now()}] [Server thread/INFO]: Added ${name} to the whitelist`, 'sys');
     if (input) input.value = '';
   });
 });
 document.querySelectorAll('[data-i18n="btnRemWl"]').forEach(btn => {
   btn.addEventListener('click', () => {
-    appendLog(`» [WHITELIST] - Alex`, 'warn');
+    appendLog(`[${now()}] [Server thread/INFO]: Removed Steve from the whitelist`, 'warn');
   });
 });
 document.querySelectorAll('[data-i18n="btnOpAdd"]').forEach(btn => {
@@ -724,13 +895,13 @@ document.querySelectorAll('[data-i18n="btnOpAdd"]').forEach(btn => {
     const card = btn.closest('.w-card');
     const input = card ? card.querySelector('input') : null;
     const name = (input && input.value.trim()) ? input.value.trim() : 'Player';
-    appendLog(`» [OPERATÖR/OP] + ${name} (Level 4)`, 'sys');
+    appendLog(`[${now()}] [Server thread/INFO]: Made ${name} a server operator`, 'sys');
     if (input) input.value = '';
   });
 });
 document.querySelectorAll('[data-i18n="btnOpRem"]').forEach(btn => {
   btn.addEventListener('click', () => {
-    appendLog(`» [OPERATÖR/OP] - Steve (Deop)`, 'warn');
+    appendLog(`[${now()}] [Server thread/INFO]: Made Steve no longer a server operator`, 'warn');
   });
 });
 
@@ -760,8 +931,8 @@ document.querySelectorAll('.chk-row').forEach(row => {
   });
 });
 
-// Generic List Item selection
-document.querySelectorAll('.player-list').forEach(list => {
+// Generic List Item selection (outside dashboard player list)
+document.querySelectorAll('.tab-page:not(#page-panel) .player-list').forEach(list => {
   list.addEventListener('click', (e) => {
     const item = e.target.closest('.player-item');
     if (item && list.contains(item)) {
@@ -863,3 +1034,4 @@ setLanguage('tr');
 setTheme('dark');
 setPage('panel');
 setSettingsSubTab('gen');
+renderDashboardPlayers();

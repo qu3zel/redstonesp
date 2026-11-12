@@ -716,6 +716,17 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.player-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 0.78rem;
+  color: var(--w-muted);
+  font-style: italic;
+  user-select: none;
+}
+
 .player-item {
   display: flex;
   align-items: center;

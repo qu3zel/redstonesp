@@ -137,20 +137,13 @@
 
               <!-- Players Card -->
               <div class="w-card">
-                <div class="w-card-title"><span data-i18n="cardPlayers">OYUNCULAR • </span><span id="playerCount">2</span></div>
-                <div class="player-list">
-                  <div class="player-item selected">
-                    <div class="skin-head"></div>
-                    <strong>Alex</strong>
-                  </div>
-                  <div class="player-item">
-                    <div class="skin-head" style="background: #38bdf8;"></div>
-                    <strong>Steve</strong>
-                  </div>
+                <div class="w-card-title"><span data-i18n="cardPlayers">OYUNCULAR • </span><span id="playerCount">0</span></div>
+                <div class="player-list" id="dashboardPlayerList">
+                  <div class="player-empty" id="dashboardPlayerEmpty" data-i18n="lblNoPlayers">Çevrim içi oyuncu yok</div>
                 </div>
                 <div style="display: flex; gap: 0.5rem;">
-                  <button class="w-btn" data-i18n="btnKick" style="flex: 1;">At (Kick)</button>
-                  <button class="w-btn" data-i18n="btnBan" style="flex: 1;">Banla</button>
+                  <button class="w-btn" data-i18n="btnKick" id="btnKickPlayer" style="flex: 1;">At (Kick)</button>
+                  <button class="w-btn" data-i18n="btnBan" id="btnBanPlayer" style="flex: 1;">Banla</button>
                 </div>
 
                 <!-- Unban Section -->
