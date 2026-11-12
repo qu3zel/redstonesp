@@ -10,6 +10,10 @@ const state = {
   uptimeInterval: null,
   simTimeouts: [],
   memoryMB: 13,
+  cpuPct: 0.0,
+  maxPlayers: 20,
+  ramHist: Array(40).fill(0.3),
+  cpuHist: Array(40).fill(0.2),
   worldTimeTick: 6000,
   onlinePlayers: [],
   selectedPlayer: null,
@@ -119,6 +123,8 @@ const i18n = {
     tileStatus: "DURUM",
     tileUptime: "ÇALIŞMA SÜRESİ",
     tileMemory: "BELLEK",
+    tileMemoryChart: "BELLEK (RAM)",
+    tileCpuChart: "İŞLEMCİ (CPU)",
     tilePlayers: "OYUNCU",
     tileTime: "OYUN SAATİ",
     statusOffline: "KAPALI",
@@ -343,6 +349,8 @@ const i18n = {
     tileStatus: "STATUS",
     tileUptime: "UPTIME",
     tileMemory: "MEMORY",
+    tileMemoryChart: "MEMORY (RAM)",
+    tileCpuChart: "CPU LOAD",
     tilePlayers: "PLAYERS",
     tileTime: "WORLD TIME",
     statusOffline: "OFFLINE",
@@ -529,12 +537,14 @@ const btnStartStop = document.getElementById('btnStartStop');
 const tileStatus = document.getElementById('tileStatus');
 const tileUptime = document.getElementById('tileUptime');
 const tileMemory = document.getElementById('tileMemory');
+const tileCpu = document.getElementById('tileCpu');
 const tilePlayers = document.getElementById('tilePlayers');
 const tileTime = document.getElementById('tileTime');
 const inputJar = document.getElementById('inputJar');
 const btnBrowse = document.getElementById('btnBrowse');
 const inputPort = document.getElementById('inputPort');
 const inputRam = document.getElementById('inputRam');
+const inputMaxPlayers = document.getElementById('inputMaxPlayers');
 const simToast = document.getElementById('simToast');
 const langPillLabel = document.getElementById('langPillLabel');
 
@@ -554,6 +564,168 @@ function formatWorldTime(ticks) {
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function parseRamLimitMb() {
+  const raw = (inputRam && inputRam.value) ? inputRam.value.trim().toUpperCase() : '4G';
+  const m = raw.match(/^(\d+)\s*([GM])$/);
+  if (!m) return 4096;
+  const v = parseInt(m[1], 10);
+  if (!Number.isFinite(v) || v <= 0) return 4096;
+  return m[2] === 'G' ? v * 1024 : v;
+}
+
+function parseMaxPlayers() {
+  const raw = (inputMaxPlayers && inputMaxPlayers.value) ? inputMaxPlayers.value.trim() : '20';
+  const v = parseInt(raw, 10);
+  return (Number.isFinite(v) && v >= 1 && v <= 99999) ? v : 20;
+}
+
+function getTelemetryColor(pct, kind) {
+  const isLight = state.theme === 'light';
+  if (pct >= 90) return isLight ? '#dc2626' : '#ef4444';
+  if (pct >= 75) return isLight ? '#d97706' : '#f59e0b';
+  if (kind === 'ram') return isLight ? '#0284c7' : '#38bdf8';
+  return isLight ? '#16a34a' : '#4ade80';
+}
+
+function renderSparklineSvg(prefix, hist, color) {
+  const svg = document.getElementById(`svg${prefix}Chart`);
+  const line = document.getElementById(`${prefix.toLowerCase()}LinePath`);
+  const area = document.getElementById(`${prefix.toLowerCase()}AreaPath`);
+  const dot = document.getElementById(`${prefix.toLowerCase()}LiveDot`);
+  const halo = document.getElementById(`${prefix.toLowerCase()}LiveHalo`);
+  const stopTop = document.getElementById(`grad${prefix}Top`);
+  const stopBot = document.getElementById(`grad${prefix}Bot`);
+  if (!svg || !line || !area || !hist || hist.length < 2) return;
+
+  svg.style.color = color;
+  if (stopTop) stopTop.setAttribute('stop-color', color);
+  if (stopBot) stopBot.setAttribute('stop-color', color);
+
+  const W = 260, H = 54, padX = 4, padY = 5;
+  const usableW = W - padX * 2;
+  const usableH = H - padY * 2;
+  const n = hist.length;
+  const pts = hist.map((val, i) => {
+    const clamped = Math.max(0, Math.min(100, val));
+    const x = padX + (i / (n - 1)) * usableW;
+    const y = (H - padY) - (clamped / 100) * usableH;
+    return [x, y];
+  });
+
+  const lineD = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+  const last = pts[pts.length - 1];
+  const first = pts[0];
+  const areaD = `${lineD} L ${last[0].toFixed(1)} ${H} L ${first[0].toFixed(1)} ${H} Z`;
+
+  line.setAttribute('d', lineD);
+  area.setAttribute('d', areaD);
+  if (dot) {
+    dot.setAttribute('cx', last[0].toFixed(1));
+    dot.setAttribute('cy', last[1].toFixed(1));
+  }
+  if (halo) {
+    halo.setAttribute('cx', last[0].toFixed(1));
+    halo.setAttribute('cy', last[1].toFixed(1));
+  }
+}
+
+function updateTelemetryVisuals(pushSample = false) {
+  const isLight = state.theme === 'light';
+  const maxMb = parseRamLimitMb();
+  const ramPct = Math.max(0, Math.min(100, (state.memoryMB / maxMb) * 100));
+  const cpuPct = Math.max(0, Math.min(100, state.cpuPct));
+
+  if (pushSample) {
+    state.ramHist.push(ramPct);
+    if (state.ramHist.length > 40) state.ramHist.shift();
+    state.cpuHist.push(cpuPct);
+    if (state.cpuHist.length > 40) state.cpuHist.shift();
+  }
+
+  const ramColor = getTelemetryColor(ramPct, 'ram');
+  const cpuColor = getTelemetryColor(cpuPct, 'cpu');
+
+  if (tileMemory) tileMemory.textContent = `${Math.round(state.memoryMB)} MB • ${Math.round(ramPct)}%`;
+  if (tileCpu) tileCpu.textContent = `${cpuPct.toFixed(1)}%`;
+
+  const dotRam = document.getElementById('dotRam');
+  const barRam = document.getElementById('barRam');
+  if (dotRam) dotRam.style.backgroundColor = ramColor;
+  if (barRam) {
+    barRam.style.width = `${Math.max(ramPct > 0 ? 1.5 : 0, ramPct).toFixed(1)}%`;
+    barRam.style.backgroundColor = ramColor;
+  }
+
+  const dotCpu = document.getElementById('dotCpu');
+  const barCpu = document.getElementById('barCpu');
+  if (dotCpu) dotCpu.style.backgroundColor = cpuColor;
+  if (barCpu) {
+    barCpu.style.width = `${Math.max(cpuPct > 0 ? 1.5 : 0, cpuPct).toFixed(1)}%`;
+    barCpu.style.backgroundColor = cpuColor;
+  }
+
+  renderSparklineSvg('Ram', state.ramHist, ramColor);
+  renderSparklineSvg('Cpu', state.cpuHist, cpuColor);
+
+  // KPI 1: Status
+  const dotStatus = document.getElementById('dotStatus');
+  const barStatus = document.getElementById('barStatus');
+  const statusCol = state.isRunning
+    ? (state.uptimeSeconds > 0 ? 'var(--w-green)' : 'var(--w-amber)')
+    : 'var(--w-red)';
+  if (dotStatus) dotStatus.style.backgroundColor = statusCol;
+  if (barStatus) {
+    barStatus.style.backgroundColor = statusCol;
+    barStatus.style.width = state.isRunning ? (state.uptimeSeconds > 0 ? '100%' : '62%') : '35%';
+  }
+
+  // KPI 2: Uptime
+  const dotUptime = document.getElementById('dotUptime');
+  const barUptime = document.getElementById('barUptime');
+  if (dotUptime) dotUptime.style.backgroundColor = state.isRunning ? 'var(--w-green)' : 'var(--w-muted)';
+  if (barUptime) {
+    barUptime.style.backgroundColor = 'var(--w-accent)';
+    barUptime.style.width = state.isRunning ? '100%' : '0%';
+  }
+
+  // KPI 3: Players (online / max)
+  state.maxPlayers = parseMaxPlayers();
+  const plCount = state.onlinePlayers.length;
+  const plPct = Math.min(100, (plCount / Math.max(1, state.maxPlayers)) * 100);
+  const plCol = plPct >= 95 ? 'var(--w-red)' : (plPct >= 75 ? 'var(--w-amber)' : 'var(--w-green)');
+  if (tilePlayers) tilePlayers.textContent = `${plCount} / ${state.maxPlayers}`;
+  const dotPlayers = document.getElementById('dotPlayers');
+  const barPlayers = document.getElementById('barPlayers');
+  if (dotPlayers) dotPlayers.style.backgroundColor = plCount > 0 ? plCol : 'var(--w-muted)';
+  if (barPlayers) {
+    barPlayers.style.backgroundColor = plCol;
+    barPlayers.style.width = `${plPct.toFixed(1)}%`;
+  }
+
+  // KPI 4: World Time (day gold sun / night indigo moon + 24h cycle bar)
+  const dotTime = document.getElementById('dotTime');
+  const barTime = document.getElementById('barTime');
+  const hasWorld = state.isRunning && state.uptimeSeconds > 0;
+  if (hasWorld) {
+    const normTick = ((state.worldTimeTick % 24000) + 24000) % 24000;
+    const totalMinutes = Math.floor((normTick / 1000) * 60 + 360) % 1440;
+    const hour = Math.floor(totalMinutes / 60);
+    const isDay = hour >= 6 && hour < 18;
+    const wtCol = isDay
+      ? (isLight ? '#d97706' : '#fbbf24')
+      : (isLight ? '#4f46e5' : '#818cf8');
+    const cyclePct = (totalMinutes / 1440) * 100;
+    if (dotTime) dotTime.style.backgroundColor = wtCol;
+    if (barTime) {
+      barTime.style.backgroundColor = wtCol;
+      barTime.style.width = `${cyclePct.toFixed(1)}%`;
+    }
+  } else {
+    if (dotTime) dotTime.style.backgroundColor = 'var(--w-muted)';
+    if (barTime) barTime.style.width = '0%';
+  }
 }
 
 function selectListItem(list, item) {
@@ -651,6 +823,7 @@ function setTheme(themeName) {
   document.querySelectorAll('.sim-btn-pill[data-theme]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.theme === themeName);
   });
+  updateTelemetryVisuals(false);
 }
 window.setTheme = setTheme;
 
@@ -668,7 +841,7 @@ function renderDashboardPlayers() {
 
   const count = state.onlinePlayers.length;
   if (countEl) countEl.textContent = String(count);
-  if (tilePlayers) tilePlayers.textContent = String(count);
+  updateTelemetryVisuals(false);
 
   if (count === 0) {
     const t = i18n[state.lang];
@@ -728,10 +901,12 @@ function setLanguage(langCode) {
   if (state.isRunning) {
     btnStartStop.textContent = t.btnStop;
     tileStatus.textContent = state.uptimeSeconds > 0 ? t.statusOnline : t.statusStarting;
+    tileStatus.className = state.uptimeSeconds > 0 ? 'tile-val tile-status active' : 'tile-val tile-status starting';
     if (tileTime && state.uptimeSeconds > 0) tileTime.textContent = formatWorldTime(state.worldTimeTick);
   } else {
     btnStartStop.textContent = t.btnStart;
     tileStatus.textContent = t.statusOffline;
+    tileStatus.className = 'tile-val tile-status';
     if (tileTime) tileTime.textContent = '--:--';
   }
 
@@ -767,16 +942,25 @@ function startServer() {
   const t = i18n[state.lang];
   const ramVal = (inputRam && inputRam.value.trim()) ? inputRam.value.trim() : '4G';
   const portVal = (inputPort && inputPort.value.trim()) ? inputPort.value.trim() : '25565';
+  const maxMb = parseRamLimitMb();
+  state.ramHist = Array(40).fill(0.3);
+  state.cpuHist = Array(40).fill(0.2);
   tileStatus.textContent = t.statusStarting;
-  tileStatus.className = 'tile-val tile-status';
+  tileStatus.className = 'tile-val tile-status starting';
   btnStartStop.textContent = t.btnStop;
   btnStartStop.className = 'w-btn w-btn-stop';
   if (tileTime) tileTime.textContent = '--:--';
+  state.memoryMB = Math.round(Math.min(maxMb * 0.42, 1680));
+  state.cpuPct = 52.4;
+  updateTelemetryVisuals(true);
 
   appendLog(t.consoleStarting.replace('4G', ramVal), 'sys');
   appendLog(`[${now()}] [Server thread/INFO]: Loading libraries, please wait...`, 'info');
 
   scheduleSim(() => {
+    state.memoryMB = Math.round(Math.min(maxMb * 0.62, 2480));
+    state.cpuPct = 74.8;
+    updateTelemetryVisuals(true);
     appendLog(`[${now()}] [Server thread/INFO]: Starting minecraft server version 1.20.4`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Loading properties`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Default game type: ${(state.gamemode || 'survival').toUpperCase()}`, 'info');
@@ -792,10 +976,12 @@ function startServer() {
     
     tileStatus.textContent = t.statusOnline;
     tileStatus.className = 'tile-val tile-status active';
-    state.memoryMB = 3719;
-    tileMemory.textContent = `${state.memoryMB} MB`;
+    const baseRamMb = Math.min(Math.round(maxMb * 0.68), 2820);
+    state.memoryMB = baseRamMb;
+    state.cpuPct = 18.6;
     state.worldTimeTick = 6000;
     if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
+    updateTelemetryVisuals(true);
 
     state.uptimeSeconds = 0;
     state.uptimeInterval = setInterval(() => {
@@ -805,6 +991,21 @@ function startServer() {
         state.worldTimeTick = (state.worldTimeTick + 200) % 24000;
         tileTime.textContent = formatWorldTime(state.worldTimeTick);
       }
+
+      // Realistic JVM heap sawtooth + live CPU fluctuation based on online players
+      const curMaxMb = parseRamLimitMb();
+      const targetLow = Math.round(curMaxMb * 0.60);
+      const targetHigh = Math.round(curMaxMb * 0.78);
+      if (state.memoryMB >= targetHigh) {
+        state.memoryMB = targetLow + Math.round(Math.random() * 90);
+      } else {
+        state.memoryMB = Math.min(targetHigh, state.memoryMB + 10 + Math.round(Math.random() * 14));
+      }
+
+      const playerLoad = state.onlinePlayers.length * 5.2;
+      const baseCpu = 11.5 + playerLoad + (Math.random() * 7.5 - 3.2);
+      state.cpuPct = Math.max(3.2, Math.min(96.0, baseCpu));
+      updateTelemetryVisuals(true);
     }, 1000);
   }, 1500);
 
@@ -815,6 +1016,7 @@ function startServer() {
     appendLog(`[${now()}] [Server thread/INFO]: Alex joined the game`, 'sys');
 
     state.onlinePlayers.push({ name: 'Alex', color: '#4ade80' });
+    state.cpuPct = Math.min(95, state.cpuPct + 12.5);
     renderDashboardPlayers();
   }, 3200);
 
@@ -825,6 +1027,7 @@ function startServer() {
     appendLog(`[${now()}] [Server thread/INFO]: Steve joined the game`, 'sys');
 
     state.onlinePlayers.push({ name: 'Steve', color: '#38bdf8' });
+    state.cpuPct = Math.min(95, state.cpuPct + 11.0);
     renderDashboardPlayers();
 
     // Start in-game chat conversation
@@ -863,9 +1066,10 @@ function stopServer() {
   tileStatus.textContent = t.statusOffline;
   tileStatus.className = 'tile-val tile-status';
   state.memoryMB = 13;
-  tileMemory.textContent = `${state.memoryMB} MB`;
+  state.cpuPct = 0.0;
   tileUptime.textContent = '00:00:00';
   if (tileTime) tileTime.textContent = '--:--';
+  updateTelemetryVisuals(true);
 
   if (state.onlinePlayers.length > 0) {
     state.onlinePlayers.forEach(p => {
@@ -938,6 +1142,7 @@ function sendCommand() {
         const arg = (parts[2] || 'day').toLowerCase();
         state.worldTimeTick = (arg === 'night') ? 13000 : 1000;
         if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
+        updateTelemetryVisuals(false);
         appendLog(`[${now()}] [Server thread/INFO]: Set the time to ${state.worldTimeTick}`, 'info');
         break;
       }
@@ -1338,6 +1543,7 @@ document.querySelectorAll('[data-i18n="btnDeleteProfile"]').forEach(btn => {
 document.querySelectorAll('[data-i18n="btnSaveProps"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const t = i18n[state.lang];
+    updateTelemetryVisuals(false);
     appendLog(t.logPropsSaved, 'sys');
     showToast(t.toastSaved);
   });
@@ -1396,9 +1602,13 @@ function now() {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
 }
 
+if (inputRam) inputRam.addEventListener('input', () => updateTelemetryVisuals(false));
+if (inputMaxPlayers) inputMaxPlayers.addEventListener('input', () => updateTelemetryVisuals(false));
+
 // Initial state
 setLanguage('tr');
 setTheme('dark');
 setPage('panel');
 setSettingsSubTab('gen');
 renderDashboardPlayers();
+updateTelemetryVisuals(false);

@@ -107,7 +107,7 @@
           <div class="panel-grid">
             
             <!-- Left Column: Settings & Players -->
-            <div>
+            <div class="panel-col-left">
               <div class="w-card">
                 <div class="w-card-title" data-i18n="cardSettings">SUNUCU AYARLARI</div>
                 <label class="w-label" data-i18n="lblJar">Sunucu .jar dosyası</label>
@@ -136,7 +136,7 @@
               </div>
 
               <!-- Players Card -->
-              <div class="w-card">
+              <div class="w-card players-card">
                 <div class="w-card-title"><span data-i18n="cardPlayers">OYUNCULAR • </span><span id="playerCount">0</span></div>
                 <div class="player-list" id="dashboardPlayerList">
                   <div class="player-empty" id="dashboardPlayerEmpty" data-i18n="lblNoPlayers">Çevrim içi oyuncu yok</div>
@@ -158,33 +158,103 @@
             </div>
 
             <!-- Right Column: Telemetry & Console -->
-            <div>
-              <!-- Live Telemetry -->
-              <div class="telemetry-row">
-                <div class="tile">
-                  <div class="tile-cap" data-i18n="tileStatus">DURUM</div>
-                  <div class="tile-val tile-status" id="tileStatus">KAPALI</div>
+            <div class="panel-col-right">
+              <!-- Live Bento Telemetry -->
+              <div class="telemetry-bento">
+                <div class="telemetry-kpi-row">
+                  <div class="tile" id="kpiStatus">
+                    <div class="tile-head">
+                      <span class="kpi-dot" id="dotStatus"></span>
+                      <span class="tile-cap" data-i18n="tileStatus">DURUM</span>
+                    </div>
+                    <div class="tile-val tile-status" id="tileStatus">KAPALI</div>
+                    <div class="kpi-bar-track"><div class="kpi-bar-fill" id="barStatus" style="width: 35%;"></div></div>
+                  </div>
+                  <div class="tile" id="kpiUptime">
+                    <div class="tile-head">
+                      <span class="kpi-dot" id="dotUptime"></span>
+                      <span class="tile-cap" data-i18n="tileUptime">ÇALIŞMA SÜRESİ</span>
+                    </div>
+                    <div class="tile-val" id="tileUptime">00:00:00</div>
+                    <div class="kpi-bar-track"><div class="kpi-bar-fill" id="barUptime" style="width: 0%;"></div></div>
+                  </div>
+                  <div class="tile" id="kpiPlayers">
+                    <div class="tile-head">
+                      <span class="kpi-dot" id="dotPlayers"></span>
+                      <span class="tile-cap" data-i18n="tilePlayers">OYUNCU</span>
+                    </div>
+                    <div class="tile-val" id="tilePlayers">0 / 20</div>
+                    <div class="kpi-bar-track"><div class="kpi-bar-fill" id="barPlayers" style="width: 0%;"></div></div>
+                  </div>
+                  <div class="tile" id="kpiTime">
+                    <div class="tile-head">
+                      <span class="kpi-dot" id="dotTime"></span>
+                      <span class="tile-cap" data-i18n="tileTime">OYUN SAATİ</span>
+                    </div>
+                    <div class="tile-val" id="tileTime">--:--</div>
+                    <div class="kpi-bar-track"><div class="kpi-bar-fill" id="barTime" style="width: 0%;"></div></div>
+                  </div>
                 </div>
-                <div class="tile">
-                  <div class="tile-cap" data-i18n="tileUptime">ÇALIŞMA SÜRESİ</div>
-                  <div class="tile-val" id="tileUptime">00:00:00</div>
-                </div>
-                <div class="tile">
-                  <div class="tile-cap" data-i18n="tileMemory">BELLEK</div>
-                  <div class="tile-val" id="tileMemory">13 MB</div>
-                </div>
-                <div class="tile">
-                  <div class="tile-cap" data-i18n="tilePlayers">OYUNCU</div>
-                  <div class="tile-val" id="tilePlayers">0</div>
-                </div>
-                <div class="tile">
-                  <div class="tile-cap" data-i18n="tileTime">OYUN SAATİ</div>
-                  <div class="tile-val" id="tileTime">--:--</div>
+
+                <div class="telemetry-chart-row">
+                  <div class="chart-card" id="chartCardRam">
+                    <div class="chart-card-head">
+                      <div class="chart-card-title-wrap">
+                        <span class="kpi-dot" id="dotRam"></span>
+                        <span class="chart-title" data-i18n="tileMemoryChart">BELLEK (RAM)</span>
+                      </div>
+                      <span class="chart-val" id="tileMemory">13 MB • 0%</span>
+                    </div>
+                    <div class="spark-box">
+                      <svg id="svgRamChart" class="spark-svg" viewBox="0 0 260 54" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id="gradRam" x1="0" y1="0" x2="0" y2="1">
+                            <stop id="gradRamTop" offset="0%" stop-color="#38bdf8" stop-opacity="0.38"/>
+                            <stop id="gradRamBot" offset="100%" stop-color="#38bdf8" stop-opacity="0.02"/>
+                          </linearGradient>
+                        </defs>
+                        <line class="spark-grid" x1="0" y1="18" x2="260" y2="18"/>
+                        <line class="spark-grid" x1="0" y1="36" x2="260" y2="36"/>
+                        <path id="ramAreaPath" fill="url(#gradRam)" d=""/>
+                        <path id="ramLinePath" class="spark-line" d=""/>
+                        <circle id="ramLiveHalo" class="spark-halo" r="5" cx="256" cy="50"/>
+                        <circle id="ramLiveDot" class="spark-dot" r="2.5" cx="256" cy="50"/>
+                      </svg>
+                    </div>
+                    <div class="kpi-bar-track"><div class="kpi-bar-fill" id="barRam" style="width: 1%;"></div></div>
+                  </div>
+
+                  <div class="chart-card" id="chartCardCpu">
+                    <div class="chart-card-head">
+                      <div class="chart-card-title-wrap">
+                        <span class="kpi-dot" id="dotCpu"></span>
+                        <span class="chart-title" data-i18n="tileCpuChart">İŞLEMCİ (CPU)</span>
+                      </div>
+                      <span class="chart-val" id="tileCpu">0.0%</span>
+                    </div>
+                    <div class="spark-box">
+                      <svg id="svgCpuChart" class="spark-svg" viewBox="0 0 260 54" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id="gradCpu" x1="0" y1="0" x2="0" y2="1">
+                            <stop id="gradCpuTop" offset="0%" stop-color="#4ade80" stop-opacity="0.38"/>
+                            <stop id="gradCpuBot" offset="100%" stop-color="#4ade80" stop-opacity="0.02"/>
+                          </linearGradient>
+                        </defs>
+                        <line class="spark-grid" x1="0" y1="18" x2="260" y2="18"/>
+                        <line class="spark-grid" x1="0" y1="36" x2="260" y2="36"/>
+                        <path id="cpuAreaPath" fill="url(#gradCpu)" d=""/>
+                        <path id="cpuLinePath" class="spark-line" d=""/>
+                        <circle id="cpuLiveHalo" class="spark-halo" r="5" cx="256" cy="50"/>
+                        <circle id="cpuLiveDot" class="spark-dot" r="2.5" cx="256" cy="50"/>
+                      </svg>
+                    </div>
+                    <div class="kpi-bar-track"><div class="kpi-bar-fill" id="barCpu" style="width: 1%;"></div></div>
+                  </div>
                 </div>
               </div>
 
               <!-- Interactive Console -->
-              <div class="w-card" style="padding: 0.75rem;">
+              <div class="w-card console-card">
                 <div class="w-card-title" data-i18n="cardConsole" style="margin-left: 0.25rem;">KONSOL</div>
                 <div class="console-wrapper">
                   <div class="console-body" id="consoleBody">
@@ -214,7 +284,7 @@
                 <div class="w-input-row">
                   <div style="flex: 1;">
                     <label class="w-label" data-i18n="lblMaxPlayers">Maks. Oyuncu (max-players)</label>
-                    <input type="text" class="w-input" value="20">
+                    <input type="text" class="w-input" id="inputMaxPlayers" value="20">
                   </div>
                   <div style="flex: 1;">
                     <label class="w-label" data-i18n="lblSpawnProt">Başlangıç Koruması (blok)</label>

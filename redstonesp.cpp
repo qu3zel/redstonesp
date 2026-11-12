@@ -536,7 +536,16 @@ static ULONGLONG g_startTick = 0;
 static bool g_quitPending = false;
 static bool g_trayHintShown = false;
 
-static std::wstring g_igTime = L"--:--", g_ramText = L"0 MB", g_upText = L"00:00:00";
+static constexpr int TELEM_HIST = 48;
+static std::wstring g_igTime = L"--:--", g_ramText = L"0 MB", g_ramDetailText = L"0 MB / 4096 MB", g_cpuText = L"0.0%", g_upText = L"00:00:00";
+static unsigned long long g_ramUsedMb = 0, g_ramLimitMb = 4096;
+static float g_ramPct = 0.0f, g_cpuPct = 0.0f;
+static int g_maxPlayersProp = 20;
+static std::vector<float> g_ramHist(TELEM_HIST, 0.0f);
+static std::vector<float> g_cpuHist(TELEM_HIST, 0.0f);
+static DWORD g_cpuLastPid = 0;
+static ULONGLONG g_cpuPrevProc = 0, g_cpuPrevWall = 0;
+static DWORD g_numCpus = 0;
 static std::vector<std::wstring> g_hist;
 static int g_histPos = 0;
 
@@ -558,7 +567,7 @@ static int g_lastTrayIcon = -1;
 enum { F_JAR, F_IP, F_PORT, F_RAM, F_UNBAN, F_CMD, F_JVM, F_MOTD, F_MAXPL, F_VIEWDIST, F_SIMDIST, F_SPAWNPROT, F_LEVELNAME, F_LEVELSEED, F_WL, F_OP, F_BK_TAG, F_PROF_NAME, F_BK_HOURS, F_RESTART_TIME, F_COUNT };
 struct Field { HWND h; RECT rc; const wchar_t* caption; };
 static Field g_f[F_COUNT];
-static RECT g_rcSet, g_rcPl, g_rcCon, g_rcStats, g_rcTile[5], g_rcListBg, g_rcLogBg;
+static RECT g_rcSet, g_rcPl, g_rcCon, g_rcStats, g_rcTile[4], g_rcChart[2], g_rcListBg, g_rcLogBg;
 static RECT g_rcWlBg, g_rcOpBg, g_rcBkBg, g_rcProfBg, g_rcPlugBg, g_rcModBg;
 
 // Window / page navigation (tab bar + title bar + sub-tabs + card pages)
@@ -1307,11 +1316,92 @@ static SIZE_T GetTotalTelemetryWorkingSetBytes() {
     return totalBytes;
 }
 
-static void UpdateTelemetryStats() {
+static unsigned long long ParseRamLimitMb() {
+    if (!g_hRam) return 4096;
+    std::wstring r = Trim(GetText(g_hRam));
+    if (r.size() < 2) return 4096;
+    wchar_t u = (wchar_t)towupper(r.back());
+    if (u != L'G' && u != L'M') return 4096;
+    for (size_t i = 0; i + 1 < r.size(); i++) {
+        if (!iswdigit(r[i])) return 4096;
+    }
+    unsigned long long val = _wcstoui64(r.substr(0, r.size() - 1).c_str(), NULL, 10);
+    if (val == 0) return 4096;
+    return (u == L'G') ? val * 1024ULL : val;
+}
+
+static ULONGLONG FileTimeToU64(const FILETIME& ft) {
+    ULARGE_INTEGER ui;
+    ui.LowPart = ft.dwLowDateTime;
+    ui.HighPart = ft.dwHighDateTime;
+    return ui.QuadPart;
+}
+
+// Measures real normalized CPU usage (%) of the active server process (or idle panel when offline).
+static float MeasureProcessCpuPct() {
+    if (g_numCpus == 0) {
+        SYSTEM_INFO si = {};
+        GetSystemInfo(&si);
+        g_numCpus = si.dwNumberOfProcessors > 0 ? si.dwNumberOfProcessors : 1;
+    }
+    HANDLE hTarget = NULL;
+    DWORD pid = 0;
+    if (g_state != SrvState::Stopped && g_hProc && WaitForSingleObject(g_hProc, 0) == WAIT_TIMEOUT) {
+        hTarget = g_hProc;
+        pid = GetProcessId(g_hProc);
+    } else {
+        hTarget = GetCurrentProcess();
+        pid = GetCurrentProcessId();
+    }
+    FILETIME ftCreate = {}, ftExit = {}, ftKernel = {}, ftUser = {}, ftNow = {};
+    GetSystemTimeAsFileTime(&ftNow);
+    if (!hTarget || pid == 0 || !GetProcessTimes(hTarget, &ftCreate, &ftExit, &ftKernel, &ftUser)) {
+        return 0.0f;
+    }
+    ULONGLONG procTime = FileTimeToU64(ftKernel) + FileTimeToU64(ftUser);
+    ULONGLONG wallTime = FileTimeToU64(ftNow);
+    // Reset delta baseline whenever the monitored PID changes (e.g. server start/stop).
+    if (pid != g_cpuLastPid || g_cpuPrevWall == 0 || wallTime <= g_cpuPrevWall || procTime < g_cpuPrevProc) {
+        g_cpuLastPid = pid;
+        g_cpuPrevProc = procTime;
+        g_cpuPrevWall = wallTime;
+        return 0.0f;
+    }
+    double deltaProc = (double)(procTime - g_cpuPrevProc);
+    double deltaWall = (double)(wallTime - g_cpuPrevWall);
+    g_cpuPrevProc = procTime;
+    g_cpuPrevWall = wallTime;
+    double pct = (deltaProc / (deltaWall * (double)g_numCpus)) * 100.0;
+    if (pct < 0.0) pct = 0.0;
+    if (pct > 100.0) pct = 100.0;
+    return (float)pct;
+}
+
+static void UpdateTelemetryStats(bool pushHist = true) {
     SIZE_T totalBytes = GetTotalTelemetryWorkingSetBytes();
     unsigned long long mb = (unsigned long long)(totalBytes / (1024ULL * 1024ULL));
     if (mb == 0 && totalBytes > 0) mb = 1;
+    g_ramUsedMb = mb;
+    g_ramLimitMb = ParseRamLimitMb();
+    double rpct = g_ramLimitMb > 0 ? ((double)mb / (double)g_ramLimitMb) * 100.0 : 0.0;
+    if (rpct < 0.0) rpct = 0.0;
+    if (rpct > 100.0) rpct = 100.0;
+    g_ramPct = (float)rpct;
     g_ramText = std::to_wstring(mb) + L" MB";
+    int rpctInt = (int)(g_ramPct + 0.5f);
+    g_ramDetailText = std::to_wstring(mb) + L" MB  •  " + std::to_wstring(rpctInt) + L"%";
+
+    g_cpuPct = MeasureProcessCpuPct();
+    wchar_t cpuBuf[32];
+    swprintf(cpuBuf, 32, L"%.1f%%", (double)g_cpuPct);
+    g_cpuText = cpuBuf;
+
+    if (pushHist) {
+        if ((int)g_ramHist.size() >= TELEM_HIST) g_ramHist.erase(g_ramHist.begin());
+        g_ramHist.push_back(g_ramPct);
+        if ((int)g_cpuHist.size() >= TELEM_HIST) g_cpuHist.erase(g_cpuHist.begin());
+        g_cpuHist.push_back(g_cpuPct);
+    }
 
     if (g_state != SrvState::Stopped && g_hProc) {
         ULONGLONG s = (GetTickCount64() - g_startTick) / 1000;
@@ -2069,6 +2159,19 @@ static std::map<std::string, std::string> ReadPropertiesMap(const std::wstring& 
     return mp;
 }
 
+static void RefreshMaxPlayersFromProps() {
+    int mpVal = 20;
+    if (HasServerJar()) {
+        auto mp = ReadPropertiesMap(GetServerDir());
+        auto it = mp.find("max-players");
+        if (it != mp.end() && !it->second.empty()) {
+            int parsed = atoi(it->second.c_str());
+            if (parsed >= 1 && parsed <= 99999) mpVal = parsed;
+        }
+    }
+    g_maxPlayersProp = mpVal;
+}
+
 static void LoadServerPropertiesToUi() {
     if (!g_hMotd) return;
     std::map<std::string, std::string> mp;
@@ -2085,7 +2188,10 @@ static void LoadServerPropertiesToUi() {
     };
 
     SetWindowTextW(g_hMotd,      FromUtf8(get("motd", "A Minecraft Server")).c_str());
-    SetWindowTextW(g_hMaxPl,     FromUtf8(get("max-players", "20")).c_str());
+    std::string maxPlayersStr = get("max-players", "20");
+    SetWindowTextW(g_hMaxPl,     FromUtf8(maxPlayersStr).c_str());
+    int parsedMax = atoi(maxPlayersStr.c_str());
+    g_maxPlayersProp = (parsedMax >= 1 && parsedMax <= 99999) ? parsedMax : 20;
     SetWindowTextW(g_hViewDist,  FromUtf8(get("view-distance", "10")).c_str());
     SetWindowTextW(g_hSimDist,   FromUtf8(get("simulation-distance", "10")).c_str());
     SetWindowTextW(g_hSpawnProt, FromUtf8(get("spawn-protection", "16")).c_str());
@@ -2194,6 +2300,7 @@ static void SaveServerPropertiesFromUi() {
         { "spawn-npcs",             g_propNpcs        ? "true" : "false" }
     };
     UpdateProperties(dir, kv);
+    g_maxPlayersProp = std::max(1, _wtoi(maxp.c_str()));
     g_propRawLvlType = lvlTypeVal;
     g_propLoadedLvlType = g_propLvlType;
 
@@ -3189,7 +3296,11 @@ static void StartServer() {
     g_startTick = GetTickCount64();
     g_state = SrvState::Starting;
     g_igTime = L"--:--"; g_upText = L"00:00:00";
-    UpdateTelemetryStats();
+    std::fill(g_ramHist.begin(), g_ramHist.end(), 0.0f);
+    std::fill(g_cpuHist.begin(), g_cpuHist.end(), 0.0f);
+    g_cpuLastPid = 0; g_cpuPrevProc = 0; g_cpuPrevWall = 0;
+    RefreshMaxPlayersFromProps();
+    UpdateTelemetryStats(false);
     SendMessageW(g_hList, LB_RESETCONTENT, 0, 0);
 
     ReaderArgs* ra = new (std::nothrow) ReaderArgs{ g_hwnd, outRd, g_gen };
@@ -3234,7 +3345,8 @@ static void OnServerExited() {
     g_state = SrvState::Stopped;
     SendMessageW(g_hList, LB_RESETCONTENT, 0, 0);
     g_igTime = L"--:--"; g_upText = L"00:00:00";
-    UpdateTelemetryStats();
+    g_cpuLastPid = 0; g_cpuPrevProc = 0; g_cpuPrevWall = 0;
+    UpdateTelemetryStats(false);
 
     if (!expected && code != 0) {
         g_schedRestartPending = false;
@@ -3672,6 +3784,137 @@ static void FillRc(HDC dc, const RECT& r, COLORREF c) {
     if (b) { FillRect(dc, &r, b); DeleteObject(b); }
 }
 
+static inline Gdiplus::Color GpCol(COLORREF c, BYTE a = 255) {
+    return Gdiplus::Color(a, GetRValue(c), GetGValue(c), GetBValue(c));
+}
+
+static COLORREF BlendCol(COLORREF a, COLORREF b, float t) {
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    int r = (int)(GetRValue(a) + (GetRValue(b) - GetRValue(a)) * t + 0.5f);
+    int g = (int)(GetGValue(a) + (GetGValue(b) - GetGValue(a)) * t + 0.5f);
+    int bl = (int)(GetBValue(a) + (GetBValue(b) - GetBValue(a)) * t + 0.5f);
+    return RGB(r, g, bl);
+}
+
+static void AddRoundPath(Gdiplus::GraphicsPath& path, float x, float y, float w, float h, float r) {
+    if (w <= 0.0f || h <= 0.0f) return;
+    float d = std::min(r * 2.0f, std::min(w, h));
+    if (d <= 0.5f) {
+        path.AddRectangle(Gdiplus::RectF(x, y, w, h));
+        return;
+    }
+    path.AddArc(x, y, d, d, 180.0f, 90.0f);
+    path.AddArc(x + w - d, y, d, d, 270.0f, 90.0f);
+    path.AddArc(x + w - d, y + h - d, d, d, 0.0f, 90.0f);
+    path.AddArc(x, y + h - d, d, d, 90.0f, 90.0f);
+    path.CloseFigure();
+}
+
+static void DrawTelemetryBar(Gdiplus::Graphics& g, float x, float y, float w, float h, float pct, COLORREF trackCol, COLORREF fillCol) {
+    if (w <= 2.0f || h <= 0.5f) return;
+    Gdiplus::GraphicsPath tp;
+    AddRoundPath(tp, x, y, w, h, h * 0.5f);
+    Gdiplus::SolidBrush tbr(GpCol(trackCol));
+    g.FillPath(&tbr, &tp);
+
+    float clamped = std::max(0.0f, std::min(100.0f, pct));
+    if (clamped > 0.2f) {
+        float fw = std::max(h, w * (clamped / 100.0f));
+        if (fw > w) fw = w;
+        Gdiplus::GraphicsPath fp;
+        AddRoundPath(fp, x, y, fw, h, h * 0.5f);
+        Gdiplus::SolidBrush fbr(GpCol(fillCol));
+        g.FillPath(&fbr, &fp);
+    }
+}
+
+static void DrawTelemetryDot(Gdiplus::Graphics& g, float cx, float cy, float r, COLORREF col, bool halo = false) {
+    if (halo) {
+        Gdiplus::SolidBrush hb(GpCol(col, 65));
+        g.FillEllipse(&hb, cx - r * 1.9f, cy - r * 1.9f, r * 3.8f, r * 3.8f);
+    }
+    Gdiplus::SolidBrush cb(GpCol(col, 255));
+    g.FillEllipse(&cb, cx - r, cy - r, r * 2.0f, r * 2.0f);
+}
+
+static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, const std::wstring& valStr,
+                              const std::vector<float>& hist, float curPct, COLORREF col) {
+    if (rc.right <= rc.left || rc.bottom <= rc.top) return;
+    FillRound(mem, rc, P.card, P.border, S(12));
+
+    RECT plotRc = { rc.left + S(12), rc.top + S(29), rc.right - S(12), rc.bottom - S(13) };
+    if (plotRc.right > plotRc.left + 8 && plotRc.bottom > plotRc.top + 8) {
+        FillRound(mem, plotRc, P.logBg, P.border, S(8));
+    }
+
+    {
+        Gdiplus::Graphics g(mem);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+
+        DrawTelemetryDot(g, (float)rc.left + S(16), (float)rc.top + S(17), (float)S(32) / 10.0f, col, true);
+
+        if (plotRc.right > plotRc.left + 8 && plotRc.bottom > plotRc.top + 8) {
+            float px = (float)plotRc.left + 2.0f;
+            float py = (float)plotRc.top + 2.0f;
+            float pw = (float)(plotRc.right - plotRc.left) - 4.0f;
+            float ph = (float)(plotRc.bottom - plotRc.top) - 4.0f;
+
+            Gdiplus::GraphicsPath clipPath;
+            AddRoundPath(clipPath, px, py, pw, ph, (float)S(6));
+            g.SetClip(&clipPath);
+
+            Gdiplus::Pen gridPen(GpCol(P.border, g_theme == Theme::Light ? 115 : 80), 1.0f);
+            gridPen.SetDashStyle(Gdiplus::DashStyleDash);
+            g.DrawLine(&gridPen, px, py + ph * 0.33f, px + pw, py + ph * 0.33f);
+            g.DrawLine(&gridPen, px, py + ph * 0.66f, px + pw, py + ph * 0.66f);
+
+            if (hist.size() >= 2) {
+                int n = (int)hist.size();
+                float padY = (float)S(3);
+                float usableH = std::max(4.0f, ph - 2.0f * padY);
+                float baseBottom = py + ph - padY;
+
+                std::vector<Gdiplus::PointF> pts(n);
+                std::vector<Gdiplus::PointF> poly(n + 2);
+                for (int i = 0; i < n; i++) {
+                    float v = std::max(0.0f, std::min(100.0f, hist[i]));
+                    float x = px + ((float)i / (float)(n - 1)) * pw;
+                    float y = baseBottom - (v / 100.0f) * usableH;
+                    pts[i] = Gdiplus::PointF(x, y);
+                    poly[i] = pts[i];
+                }
+                poly[n]     = Gdiplus::PointF(px + pw, py + ph);
+                poly[n + 1] = Gdiplus::PointF(px, py + ph);
+
+                Gdiplus::LinearGradientBrush grad(
+                    Gdiplus::PointF(px, py),
+                    Gdiplus::PointF(px, py + ph),
+                    GpCol(col, g_theme == Theme::Light ? 72 : 90),
+                    GpCol(col, 6));
+                grad.SetWrapMode(Gdiplus::WrapModeTileFlipXY);
+                g.FillPolygon(&grad, poly.data(), n + 2);
+
+                Gdiplus::Pen linePen(GpCol(col, 240), std::max(1.5f, (float)S(18) / 10.0f));
+                linePen.SetLineJoin(Gdiplus::LineJoinRound);
+                g.DrawLines(&linePen, pts.data(), n);
+
+                DrawTelemetryDot(g, pts.back().X, pts.back().Y, (float)S(23) / 10.0f, col, true);
+            }
+            g.ResetClip();
+        }
+
+        COLORREF trackCol = BlendCol(P.card, P.border, 0.58f);
+        DrawTelemetryBar(g, (float)rc.left + S(12), (float)rc.bottom - S(8),
+                         (float)(rc.right - rc.left - S(24)), (float)S(4), curPct, trackCol, col);
+    }
+
+    RECT rtTitle = { rc.left + S(25), rc.top + S(8), std::max(rc.left + S(40), rc.right - S(115)), rc.top + S(26) };
+    RECT rtVal   = { rc.left + S(90), rc.top + S(7), rc.right - S(12), rc.top + S(26) };
+    DrawTxt(mem, title, rtTitle, g_fCap, P.muted, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    DrawTxt(mem, valStr, rtVal, g_fSemi, P.text, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+}
+
 static int GetMonitorRefreshRate(HWND hwnd) {
     if (hwnd) {
         HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
@@ -3954,16 +4197,68 @@ static void PaintMain(HWND hwnd) {
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
 
-    // Stat tiles
-    const wchar_t* caps[5] = { L().stStatus, L().stUptime, L().stMemory, L().stPlayers, L().stWorldTime };
-    std::wstring vals[5] = { StateText(), g_upText, g_ramText, std::to_wstring(PlayerCount()), g_igTime };
-    for (int i = 0; i < 5; i++) {
-        FillRound(mem, g_rcTile[i], P.card, P.border, S(12));
-        RECT r1 = { g_rcTile[i].left + S(14), g_rcTile[i].top + S(12), g_rcTile[i].right - S(8), g_rcTile[i].top + S(28) };
-        RECT r2 = { g_rcTile[i].left + S(14), g_rcTile[i].top + S(32), g_rcTile[i].right - S(8), g_rcTile[i].bottom - S(8) };
-        DrawTxt(mem, caps[i], r1, g_fCap, P.muted, DT_LEFT | DT_SINGLELINE);
-        DrawTxt(mem, vals[i], r2, g_fVal, i == 0 ? StateColor() : P.text, DT_LEFT | DT_SINGLELINE);
+    // Row 1: 4 Bento KPI Tiles (Status, Uptime, Players, World Time)
+    int pl = PlayerCount();
+    int maxPl = std::max(1, g_maxPlayersProp);
+    float plPct = std::min(100.0f, ((float)pl / (float)maxPl) * 100.0f);
+    COLORREF plCol = (plPct >= 95.0f) ? P.red : (plPct >= 75.0f ? P.amber : P.green);
+
+    COLORREF timeCol = P.muted;
+    float timePct = 0.0f;
+    int wtH = 0, wtM = 0;
+    if (swscanf(g_igTime.c_str(), L"%d:%d", &wtH, &wtM) == 2 && wtH >= 0 && wtH <= 23 && wtM >= 0 && wtM <= 59) {
+        bool isDay = (wtH >= 6 && wtH < 18);
+        if (isDay) timeCol = (g_theme == Theme::Light) ? RGB(217, 119, 6) : RGB(251, 191, 36);
+        else       timeCol = (g_theme == Theme::Light) ? RGB(79, 70, 229) : RGB(129, 140, 248);
+        timePct = ((float)(wtH * 60 + wtM) / 1440.0f) * 100.0f;
     }
+
+    const wchar_t* caps[4] = { L().stStatus, L().stUptime, L().stPlayers, L().stWorldTime };
+    std::wstring vals[4] = {
+        StateText(),
+        g_upText,
+        std::to_wstring(pl) + L" / " + std::to_wstring(maxPl),
+        g_igTime
+    };
+    COLORREF dotCols[4] = {
+        StateColor(),
+        (g_state != SrvState::Stopped) ? P.accent : P.muted,
+        (pl > 0) ? plCol : P.muted,
+        timeCol
+    };
+    COLORREF barCols[4] = { StateColor(), P.accent, plCol, timeCol };
+    float barPcts[4] = {
+        (g_state == SrvState::Running) ? 100.0f : ((g_state == SrvState::Stopped) ? 35.0f : 65.0f),
+        (g_state != SrvState::Stopped) ? 100.0f : 0.0f,
+        plPct,
+        timePct
+    };
+    COLORREF trackCol = BlendCol(P.card, P.border, 0.58f);
+
+    for (int i = 0; i < 4; i++) {
+        FillRound(mem, g_rcTile[i], P.card, P.border, S(12));
+        {
+            Gdiplus::Graphics g(mem);
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            DrawTelemetryDot(g, (float)g_rcTile[i].left + S(16), (float)g_rcTile[i].top + S(18),
+                             (float)S(32) / 10.0f, dotCols[i], i == 0 && g_state != SrvState::Stopped);
+            DrawTelemetryBar(g, (float)g_rcTile[i].left + S(14), (float)g_rcTile[i].bottom - S(9),
+                             (float)(g_rcTile[i].right - g_rcTile[i].left - S(28)), (float)S(4),
+                             barPcts[i], trackCol, barCols[i]);
+        }
+        RECT r1 = { g_rcTile[i].left + S(24), g_rcTile[i].top + S(10), g_rcTile[i].right - S(10), g_rcTile[i].top + S(26) };
+        RECT r2 = { g_rcTile[i].left + S(14), g_rcTile[i].top + S(28), g_rcTile[i].right - S(10), g_rcTile[i].top + S(53) };
+        DrawTxt(mem, caps[i], r1, g_fCap, P.muted, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        DrawTxt(mem, vals[i], r2, g_fVal, i == 0 ? StateColor() : P.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    // Row 2: 2 Live Sparkline Chart Cards (Memory RAM + CPU Load)
+    COLORREF ramCol = (g_ramPct >= 90.0f) ? P.red : (g_ramPct >= 75.0f ? P.amber
+        : ((g_theme == Theme::Light) ? RGB(2, 132, 199) : RGB(56, 189, 248)));
+    COLORREF cpuCol = (g_cpuPct >= 90.0f) ? P.red : (g_cpuPct >= 75.0f ? P.amber : P.green);
+
+    DrawSparklineCard(mem, g_rcChart[0], Tx(L"BELLEK (RAM)", L"MEMORY (RAM)"), g_ramDetailText, g_ramHist, g_ramPct, ramCol);
+    DrawSparklineCard(mem, g_rcChart[1], Tx(L"İŞLEMCİ (CPU)", L"CPU LOAD"), g_cpuText, g_cpuHist, g_cpuPct, cpuCol);
 
     BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
            mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
@@ -4199,19 +4494,23 @@ static void Layout(int W, int H) {
     fieldRect(F_UNBAN, x, unbanTop, iw - S(104));
     put(g_hBtnUnban, x + iw - S(94), unbanTop, S(94), fh);
 
-    // --- Top-Right: Stat Tiles
-    int rx = m + lw + g, tg = S(10), th = S(72);
+    // --- Top-Right: Bento Telemetry (Row 1: 4 KPI Tiles, Row 2: 2 Live Sparkline Charts)
+    int rx = m + lw + g, tg = S(10), kpiH = S(66), chartH = S(92);
     int statsRight = W - m;
     int rw = statsRight - rx;
-    int tw = (rw - 4 * tg) / 5;
-    for (int i = 0; i < 5; i++) {
+    int tw = (rw - 3 * tg) / 4;
+    for (int i = 0; i < 4; i++) {
         int tx = rx + i * (tw + tg);
-        g_rcTile[i] = { tx, oy + m, (i == 4) ? statsRight : tx + tw, oy + m + th };
+        g_rcTile[i] = { tx, oy + m, (i == 3) ? statsRight : tx + tw, oy + m + kpiH };
     }
-    g_rcStats = { rx, oy + m, statsRight, oy + m + th };
+    int row2Top = oy + m + kpiH + tg;
+    int cw = (rw - tg) / 2;
+    g_rcChart[0] = { rx, row2Top, rx + cw, row2Top + chartH };
+    g_rcChart[1] = { rx + cw + tg, row2Top, statsRight, row2Top + chartH };
+    g_rcStats = { rx, oy + m, statsRight, row2Top + chartH };
 
     // --- Console Card
-    g_rcCon = { rx, oy + m + th + g, W - m, H - m };
+    g_rcCon = { rx, g_rcStats.bottom + g, W - m, H - m };
     int cx = g_rcCon.left + p, ciw = g_rcCon.right - g_rcCon.left - 2 * p;
     int cmdTop = g_rcCon.bottom - p - fh;
     g_rcLogBg = { cx, g_rcCon.top + S(40), cx + ciw, cmdTop - S(10) };
@@ -4875,7 +5174,8 @@ static bool OnCreate(HWND hwnd) {
     if (g_animPerfFreq.QuadPart == 0) QueryPerformanceFrequency(&g_animPerfFreq);
 
     LoadSettings();
-    UpdateTelemetryStats();
+    RefreshMaxPlayersFromProps();
+    UpdateTelemetryStats(false);
     SetTimer(hwnd, TID_STATS, 1000, NULL);
     TrayAdd();
     UpdateUi();
