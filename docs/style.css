@@ -986,6 +986,68 @@ body {
   text-decoration: underline;
 }
 
+.settings-subtabs {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.subtab-btn {
+  padding: 0.4rem 1.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  border: 1px solid var(--w-border);
+  background: var(--w-card);
+  color: var(--w-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: uppercase;
+}
+
+.subtab-btn:hover {
+  color: var(--w-text);
+  border-color: var(--w-accent);
+}
+
+.subtab-btn.active {
+  background: var(--w-accent);
+  color: #0b1522;
+  border-color: var(--w-accent);
+  box-shadow: 0 0 12px var(--w-accent);
+}
+
+.settings-subpage {
+  display: none;
+}
+
+.settings-subpage.active {
+  display: block;
+}
+
+.w-desc-text {
+  font-size: 0.78rem;
+  color: var(--w-muted);
+  line-height: 1.45;
+  margin-bottom: 0.85rem;
+}
+
+.btn-row-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.btn-row-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .hero-title { font-size: 2.35rem; }

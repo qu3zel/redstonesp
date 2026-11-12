@@ -152,6 +152,15 @@
                   <button class="w-btn" data-i18n="btnKick" style="flex: 1;">At (Kick)</button>
                   <button class="w-btn" data-i18n="btnBan" style="flex: 1;">Banla</button>
                 </div>
+
+                <!-- Unban Section -->
+                <div style="margin-top: 0.75rem;">
+                  <label class="w-label" data-i18n="lblUnban">Banı kaldır (oyuncu adı)</label>
+                  <div class="w-input-row">
+                    <input type="text" class="w-input" placeholder="oyuncu_adi" id="inputUnban" style="margin-bottom: 0;">
+                    <button class="w-btn" data-i18n="btnUnban" id="btnUnban" style="height: 32px; white-space: nowrap;">Banı Kaldır</button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -227,6 +236,8 @@
                 <button class="w-btn w-btn-start" style="flex: 1;" data-i18n="btnSaveProps">Özellikleri Kaydet</button>
                 <button class="w-btn" data-i18n="btnReload">Yenile</button>
               </div>
+
+              <p class="w-desc-text" style="margin-top: 0.75rem;" data-i18n="descPropsNote">Not: Bazı ayarların tam geçerli olması için sunucuyu yeniden başlatmanız gerekir.</p>
             </div>
 
             <div>
@@ -278,25 +289,36 @@
         <!-- PAGE 3: ACCESS -->
         <div class="tab-page" id="page-access">
           <div class="prop-grid">
+            <!-- Whitelist Card -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardWl">WHITELIST (WHITELIST.JSON)</div>
               <div class="player-list" style="height: 180px;">
-                <div class="player-item"><div class="skin-head"></div> Steve</div>
+                <div class="player-item selected"><div class="skin-head"></div> Steve</div>
                 <div class="player-item"><div class="skin-head" style="background:#f59e0b;"></div> Alex</div>
               </div>
-              <div class="w-input-row">
+              <div class="w-input-row" style="margin-bottom: 0.5rem;">
                 <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
-                <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnAddWl">Whitelist Ekle</button>
+                <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnAddWl">Ekle</button>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button class="w-btn" style="flex: 1;" data-i18n="btnRemWl">Seçileni Çıkar</button>
+                <button class="w-btn" data-i18n="btnReload">Yenile</button>
               </div>
             </div>
+
+            <!-- Operators Card -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardOps">OPERATÖRLER (OPS.JSON)</div>
               <div class="player-list" style="height: 180px;">
-                <div class="player-item"><div class="skin-head" style="background:#ef4444;"></div> Steve (Level 4 OP)</div>
+                <div class="player-item selected"><div class="skin-head" style="background:#ef4444;"></div> Steve (Level 4 OP)</div>
               </div>
-              <div class="w-input-row">
+              <div class="w-input-row" style="margin-bottom: 0.5rem;">
                 <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
                 <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnOpAdd">OP Ver</button>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button class="w-btn" style="flex: 1;" data-i18n="btnOpRem">OP Al (Deop)</button>
+                <button class="w-btn" data-i18n="btnReload">Yenile</button>
               </div>
             </div>
           </div>
@@ -304,19 +326,31 @@
 
         <!-- PAGE 4: BACKUPS -->
         <div class="tab-page" id="page-backups">
-          <div class="w-card">
-            <div class="w-card-title" data-i18n="cardBackups">DÜNYA YEDEKLEME SİSTEMİ (BACKUPS\)</div>
-            <p style="font-size: 0.85rem; color: var(--w-muted); margin-bottom: 1rem;" data-i18n="descBackups">
-              Yerel Windows tar.exe ile dünya klasörleri (.zip) olarak anında sıkıştırılır. Sunucu açıksa önce otomatik "save-all flush" gönderilir.
-            </p>
-            <div class="player-list" style="height: 140px;">
-              <div class="player-item">📦 backup_2026-11-10_20-15-00_survival.zip (142 MB)</div>
-              <div class="player-item">📦 backup_2026-11-09_18-00-12_auto.zip (139 MB)</div>
+          <div class="prop-grid">
+            <!-- Left Card: Create Backup -->
+            <div class="w-card">
+              <div class="w-card-title" data-i18n="cardBackupCreate">DÜNYA YEDEKLEME</div>
+              <p class="w-desc-text" data-i18n="descBackups">
+                Dünya klasörlerini (world, nether, end) .zip olarak sunucu klasöründeki 'backups' dizinine yedekler. Sunucu açıksa önce otomatik "save-all" gönderilir.
+              </p>
+              <label class="w-label" data-i18n="lblBackupTag">İsteğe bağlı etiket (ör: nether-oncesi)</label>
+              <input type="text" class="w-input" placeholder="survival_nether">
+              <button class="w-btn w-btn-start" style="width: 100%; margin-bottom: 0.5rem;" data-i18n="btnNewBackup">⚡ Dünyayı Yedekle (.zip)</button>
+              <button class="w-btn" style="width: 100%;" data-i18n="btnOpenBkFolder">📁 Yedek Klasörünü Aç</button>
             </div>
-            <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
-              <button class="w-btn w-btn-start" data-i18n="btnNewBackup">⚡ Yeni Yedek Oluştur</button>
-              <button class="w-btn" data-i18n="btnRestoreBackup">Geri Yükle</button>
-              <button class="w-btn" data-i18n="btnDeleteBackup">Yedeği Sil</button>
+
+            <!-- Right Card: Saved Backups List -->
+            <div class="w-card">
+              <div class="w-card-title" data-i18n="cardBackups">KAYITLI YEDEKLER (BACKUPS\)</div>
+              <div class="player-list" style="height: 150px;">
+                <div class="player-item selected">📦 backup_2026-11-10_20-15-00_survival.zip   •   142 MB</div>
+                <div class="player-item">📦 backup_2026-11-09_18-00-12_auto.zip   •   139 MB</div>
+              </div>
+              <div class="btn-row-3">
+                <button class="w-btn" data-i18n="btnRestoreBackup">Geri Yükle</button>
+                <button class="w-btn" data-i18n="btnDeleteBackup">Yedeği Sil</button>
+                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+              </div>
             </div>
           </div>
         </div>
@@ -324,68 +358,180 @@
         <!-- PAGE 5: PLUGINS & MODS -->
         <div class="tab-page" id="page-plugins">
           <div class="prop-grid">
+            <!-- Plugins Card -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardPlugins">EKLENTİLER (PLUGINS\)</div>
               <div class="player-list" style="height: 160px;">
-                <div class="player-item">🧩 EssentialsX.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
+                <div class="player-item selected">🧩 EssentialsX.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
                 <div class="player-item">🧩 Vault.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
                 <div class="player-item" style="opacity: 0.6;">🧩 Dynmap.jar.disabled <span style="margin-left:auto; color:var(--w-red);" class="badge-status-disabled" data-i18n="badgeDisabled">Devre Dışı</span></div>
               </div>
               <button class="w-btn" style="width: 100%; margin-top: 0.5rem;" data-i18n="btnTogglePlugin">Aktif / Devre Dışı Bırak</button>
+              <div class="btn-row-4">
+                <button class="w-btn" data-i18n="btnAddItem">Ekle</button>
+                <button class="w-btn" data-i18n="btnDelItem">Sil</button>
+                <button class="w-btn" data-i18n="btnOpenFolder">Aç</button>
+                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+              </div>
             </div>
+
+            <!-- Mods Card -->
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardMods">MODLAR (MODS\)</div>
               <div class="player-list" style="height: 160px;">
-                <div class="player-item">⚙️ Fabric-API.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
+                <div class="player-item selected">⚙️ Fabric-API.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
                 <div class="player-item">⚙️ Sodium.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
                 <div class="player-item">⚙️ Lithium.jar <span style="margin-left:auto; color:var(--w-green);" class="badge-status-active" data-i18n="badgeEnabled">Aktif</span></div>
               </div>
               <button class="w-btn" style="width: 100%; margin-top: 0.5rem;" data-i18n="btnTogglePlugin">Aktif / Devre Dışı Bırak</button>
+              <div class="btn-row-4">
+                <button class="w-btn" data-i18n="btnAddItem">Ekle</button>
+                <button class="w-btn" data-i18n="btnDelItem">Sil</button>
+                <button class="w-btn" data-i18n="btnOpenFolder">Aç</button>
+                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- PAGE 6: PROFILES -->
         <div class="tab-page" id="page-profiles">
-          <div class="w-card">
-            <div class="w-card-title" data-i18n="cardProfiles">KAYITLI SUNUCU PROFİLLERİ</div>
-            <div class="player-list" style="height: 140px;">
-              <div class="player-item selected">📂 26.3 Survival   •   5G   •   :25565</div>
-              <div class="player-item">📂 Modlu Forge Sunucu   •   8G   •   :25566</div>
+          <div class="prop-grid">
+            <!-- Left Card: Save Profile -->
+            <div class="w-card">
+              <div class="w-card-title" data-i18n="cardSaveProfile">YENİ PROFİL KAYDET</div>
+              <p class="w-desc-text" data-i18n="descProfileNote">
+                Panel'deki .jar yolu, IP, port, RAM ve JVM argümanlarını bir profil olarak saklar. Farklı sunucular arasında tek tıkla geçiş yapabilirsiniz.
+              </p>
+              <label class="w-label" data-i18n="lblProfileName">Profil Adı (ör: 1.20 Survival)</label>
+              <input type="text" class="w-input" placeholder="Hardcore Survival">
+              <button class="w-btn w-btn-start" style="width: 100%;" data-i18n="btnSaveProfile">💾 Yeni Profil Olarak Kaydet</button>
             </div>
-            <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
-              <button class="w-btn w-btn-start" data-i18n="btnLoadProfile">Seçili Profili Yükle</button>
-              <button class="w-btn" data-i18n="btnDeleteProfile">Profili Sil</button>
+
+            <!-- Right Card: Profiles List -->
+            <div class="w-card">
+              <div class="w-card-title" data-i18n="cardProfiles">KAYITLI SUNUCU PROFİLLERİ</div>
+              <div class="player-list" style="height: 150px;">
+                <div class="player-item selected">📂 26.3 Survival   •   5G   •   :25565</div>
+                <div class="player-item">📂 Modlu Forge Sunucu   •   8G   •   :25566</div>
+                <div class="player-item">📂 Test Paper Server   •   2G   •   :25567</div>
+              </div>
+              <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                <button class="w-btn w-btn-start" style="flex: 1;" data-i18n="btnLoadProfile">Seçili Profili Yükle</button>
+                <button class="w-btn" data-i18n="btnDeleteProfile">Profili Sil</button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- PAGE 7: SETTINGS -->
+        <!-- PAGE 7: SETTINGS (WITH TWO SUB-TABS: GENERAL & SERVER/AUTOMATION) -->
         <div class="tab-page" id="page-settings">
-          <div class="prop-grid">
-            <div class="w-card">
-              <div class="w-card-title" data-i18n="cardGeneral">GENEL AYARLAR</div>
-              <div class="chk-row">
-                <div class="chk-box"></div>
-                <span data-i18n="lblAutostart">Windows ile birlikte başlat</span>
+          <!-- Sub-Tab Header Buttons -->
+          <div class="settings-subtabs">
+            <button class="subtab-btn active" data-subtab="gen" onclick="setSettingsSubTab('gen')" data-i18n="subtabGen">GENEL</button>
+            <button class="subtab-btn" data-subtab="srv" onclick="setSettingsSubTab('srv')" data-i18n="subtabSrv">SUNUCU & OTOMASYON</button>
+          </div>
+
+          <!-- Sub-Tab 0: GENERAL -->
+          <div class="settings-subpage active" id="subpage-gen">
+            <div class="prop-grid">
+              <div>
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardStartup">BAŞLANGIÇ</div>
+                  <div class="chk-row">
+                    <div class="chk-box"></div>
+                    <span data-i18n="lblAutostart">Windows ile birlikte başlat</span>
+                  </div>
+                </div>
+
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardLang">DİL SEÇİMİ (LANGUAGE)</div>
+                  <div class="btn-group">
+                    <div class="btn-sel lang-btn active" data-lang="tr" onclick="setLanguage('tr')">Türkçe</div>
+                    <div class="btn-sel lang-btn" data-lang="en" onclick="setLanguage('en')">English</div>
+                  </div>
+                </div>
               </div>
-              
-              <div style="margin-top: 1rem;">
-                <div class="w-label" data-i18n="cardLang">DİL SEÇİMİ (LANGUAGE)</div>
-                <div class="btn-group">
-                  <div class="btn-sel lang-btn active" data-lang="tr">Türkçe</div>
-                  <div class="btn-sel lang-btn" data-lang="en">English</div>
+
+              <div class="w-card">
+                <div class="w-card-title" data-i18n="cardTheme">TEMA SEÇİMİ</div>
+                <div class="theme-picker-grid">
+                  <div class="theme-card-btn active" data-theme="dark" data-i18n="themeDark">Koyu Tema (Dark)</div>
+                  <div class="theme-card-btn" data-theme="light" data-i18n="themeLight">Açık Tema (White)</div>
+                  <div class="theme-card-btn" data-theme="redstone" data-i18n="themeRedstone">Redstone Teması</div>
+                  <div class="theme-card-btn" data-theme="minecraft" data-i18n="themeMinecraft">Minecraft Teması</div>
                 </div>
               </div>
             </div>
+          </div>
 
-            <div class="w-card">
-              <div class="w-card-title" data-i18n="cardTheme">TEMA SEÇİMİ</div>
-              <div class="theme-picker-grid">
-                <div class="theme-card-btn active" data-theme="dark" data-i18n="themeDark">Koyu Tema (Dark)</div>
-                <div class="theme-card-btn" data-theme="light" data-i18n="themeLight">Açık Tema (White)</div>
-                <div class="theme-card-btn" data-theme="redstone" data-i18n="themeRedstone">Redstone Teması</div>
-                <div class="theme-card-btn" data-theme="minecraft" data-i18n="themeMinecraft">Minecraft Teması</div>
+          <!-- Sub-Tab 1: SERVER & AUTOMATION -->
+          <div class="settings-subpage" id="subpage-srv" style="display: none;">
+            <div class="prop-grid">
+              <!-- Left Column: Auto-Restart, Daily Restart, Open Logs -->
+              <div>
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardAutoRestart">OTOMATİK YENİDEN BAŞLATMA</div>
+                  <div class="chk-row">
+                    <div class="chk-box checked">✓</div>
+                    <span data-i18n="lblCrashGuard">Çökme Koruması</span>
+                  </div>
+                  <p class="w-desc-text" data-i18n="descAutoRestart">
+                    Sunucu beklenmedik şekilde kapanırsa 10 saniye sonra yeniden başlatılır. Art arda 3 çökmeden sonra vazgeçilir.
+                  </p>
+                </div>
+
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardDailyRestart">GÜNLÜK YENİDEN BAŞLATMA</div>
+                  <div class="chk-row">
+                    <div class="chk-box"></div>
+                    <span data-i18n="lblDailyRestart">Planlı Yeniden Başlatma</span>
+                  </div>
+                  <p class="w-desc-text" data-i18n="descDailyRestart">
+                    Her gün belirtilen saatte (SS:DD) oyunculara 5 ve 1 dakika kala duyuru yaparak sunucuyu güvenle yeniden başlatır.
+                  </p>
+                  <div class="w-input-row">
+                    <input type="text" class="w-input" value="04:00" style="margin-bottom: 0;">
+                    <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
+                  </div>
+                </div>
+
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardLogs">LOGLAR</div>
+                  <button class="w-btn" style="width: 100%; margin-bottom: 0.5rem;" data-i18n="btnOpenLogs">📁 Log Klasörünü Aç</button>
+                  <p class="w-desc-text" style="margin-bottom: 0;" data-i18n="descLogs">
+                    Konsol çıktısı console.log dosyasına kaydedilir.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Right Column: JVM Arguments & Scheduled Backup -->
+              <div>
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardJvm">JVM ARGÜMANLARI</div>
+                  <p class="w-desc-text" data-i18n="descJvm">
+                    Sunucu başlatılırken kullanılacak ek Java argümanları. Değişiklik bir sonraki başlatmada geçerli olur.
+                  </p>
+                  <div class="w-input-row">
+                    <input type="text" class="w-input" value="-XX:+UseG1GC -XX:+ParallelRefProcEnabled" style="margin-bottom: 0;">
+                    <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
+                  </div>
+                </div>
+
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardSchedBk">OTOMATİK ZAMANLANMIŞ YEDEKLEME</div>
+                  <div class="chk-row">
+                    <div class="chk-box checked">✓</div>
+                    <span data-i18n="lblSchedBk">Otomatik Yedekleme</span>
+                  </div>
+                  <p class="w-desc-text" data-i18n="descSchedBk">
+                    Sunucu çalışırken belirlenen saat aralığında (saat cinsinden) arka planda otomatik olarak dünya yedeği alır.
+                  </p>
+                  <div class="w-input-row">
+                    <input type="number" class="w-input" value="2" min="1" max="72" style="margin-bottom: 0;">
+                    <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -4,6 +4,7 @@ const state = {
   lang: 'tr',
   theme: 'dark',
   page: 'panel',
+  settingsSubTab: 'gen',
   isRunning: false,
   uptimeSeconds: 0,
   uptimeInterval: null,
@@ -60,6 +61,7 @@ const i18n = {
     cardPlayers: "OYUNCULAR • ",
     btnKick: "At (Kick)",
     btnBan: "Banla",
+    lblUnban: "Banı kaldır (oyuncu adı)",
     btnUnban: "Banı Kaldır",
     cardConsole: "KONSOL",
     btnSend: "Gönder",
@@ -83,6 +85,7 @@ const i18n = {
     lblSpawnProt: "Spawn Koruması",
     btnSaveProps: "Özellikleri Kaydet",
     btnReload: "Yenile",
+    descPropsNote: "Not: Bazı ayarların tam geçerli olması için sunucuyu yeniden başlatmanız gerekir.",
     cardGmDiff: "OYUN MODU & ZORLUK",
     lblDefGamemode: "Varsayılan Oyun Modu",
     lblDifficulty: "Zorluk Derecesi",
@@ -105,15 +108,18 @@ const i18n = {
     cardWl: "WHITELIST (WHITELIST.JSON)",
     cardOps: "OPERATÖRLER (OPS.JSON)",
     phPlayerName: "Oyuncu adı...",
-    btnAddWl: "Whitelist Ekle",
+    btnAddWl: "Ekle",
     btnRemWl: "Seçileni Çıkar",
     btnOpAdd: "OP Ver",
     btnOpRem: "OP Al (Deop)",
 
     // Page 4: Backups
-    cardBackups: "DÜNYA YEDEKLEME SİSTEMİ (BACKUPS\\)",
-    descBackups: "Yerel Windows tar.exe ile dünya klasörleri (.zip) olarak anında sıkıştırılır. Sunucu açıksa önce otomatik \"save-all flush\" gönderilir.",
-    btnNewBackup: "⚡ Yeni Yedek Oluştur",
+    cardBackupCreate: "DÜNYA YEDEKLEME",
+    descBackups: "Dünya klasörlerini (world, nether, end) .zip olarak sunucu klasöründeki 'backups' dizinine yedekler. Sunucu açıksa önce otomatik \"save-all\" gönderilir.",
+    lblBackupTag: "İsteğe bağlı etiket (ör: nether-oncesi)",
+    btnNewBackup: "⚡ Dünyayı Yedekle (.zip)",
+    btnOpenBkFolder: "📁 Yedek Klasörünü Aç",
+    cardBackups: "KAYITLI YEDEKLER (BACKUPS\\)",
     btnRestoreBackup: "Geri Yükle",
     btnDeleteBackup: "Yedeği Sil",
 
@@ -123,13 +129,23 @@ const i18n = {
     badgeEnabled: "Aktif",
     badgeDisabled: "Devre Dışı",
     btnTogglePlugin: "Aktif / Devre Dışı Bırak",
+    btnAddItem: "Ekle",
+    btnDelItem: "Sil",
+    btnOpenFolder: "Aç",
 
     // Page 6: Profiles
+    cardSaveProfile: "YENİ PROFİL KAYDET",
+    descProfileNote: "Panel'deki .jar yolu, IP, port, RAM ve JVM argümanlarını bir profil olarak saklar. Farklı sunucular arasında tek tıkla geçiş yapabilirsiniz.",
+    lblProfileName: "Profil Adı (ör: 1.20 Survival)",
+    btnSaveProfile: "💾 Yeni Profil Olarak Kaydet",
     cardProfiles: "KAYITLI SUNUCU PROFİLLERİ",
     btnLoadProfile: "Seçili Profili Yükle",
     btnDeleteProfile: "Profili Sil",
 
     // Page 7: Settings
+    subtabGen: "GENEL",
+    subtabSrv: "SUNUCU & OTOMASYON",
+    cardStartup: "BAŞLANGIÇ",
     cardGeneral: "GENEL AYARLAR",
     cardTheme: "TEMA SEÇİMİ",
     lblAutostart: "Windows ile birlikte başlat",
@@ -138,12 +154,35 @@ const i18n = {
     themeLight: "Açık Tema (White)",
     themeRedstone: "Redstone Teması",
     themeMinecraft: "Minecraft Teması",
+    cardAutoRestart: "OTOMATİK YENİDEN BAŞLATMA",
+    lblCrashGuard: "Çökme Koruması",
+    descAutoRestart: "Sunucu beklenmedik şekilde kapanırsa 10 saniye sonra yeniden başlatılır. Art arda 3 çökmeden sonra vazgeçilir.",
+    cardDailyRestart: "GÜNLÜK YENİDEN BAŞLATMA",
+    lblDailyRestart: "Planlı Yeniden Başlatma",
+    descDailyRestart: "Her gün belirtilen saatte (SS:DD) oyunculara 5 ve 1 dakika kala duyuru yaparak sunucuyu güvenle yeniden başlatır.",
+    btnSave: "Kaydet",
+    cardLogs: "LOGLAR",
+    btnOpenLogs: "📁 Log Klasörünü Aç",
+    descLogs: "Konsol çıktısı console.log dosyasına kaydedilir.",
+    cardJvm: "JVM ARGÜMANLARI",
+    descJvm: "Sunucu başlatılırken kullanılacak ek Java argümanları. Değişiklik bir sonraki başlatmada geçerli olur.",
+    cardSchedBk: "OTOMATİK ZAMANLANMIŞ YEDEKLEME",
+    lblSchedBk: "Otomatik Yedekleme",
+    descSchedBk: "Sunucu çalışırken belirlenen saat aralığında (saat cinsinden) arka planda otomatik olarak dünya yedeği alır.",
 
-    // Console logs
+    // Console logs & Notifications
     consoleReady: "» Redstone Server Panel hazır. .jar dosyasını seçip \"Başlat\"a basın.",
     consoleNotRunning: "» Sunucu çalışmıyor. Komut göndermek için önce \"Başlat\"a basın.",
     consoleStarting: "» [SUNUCU] 4G RAM ile başlatılıyor...",
     consoleStopping: "» [SUNUCU] Sunucu güvenle durduruldu.",
+    logUnban: "» [GÜVENLİK] Oyuncunun banı kaldırıldı: ",
+    logKick: "» [YÖNETİM] Oyuncu sunucudan atıldı (Kick): ",
+    logBan: "» [YÖNETİM] Oyuncu sunucudan yasaklandı (Ban): ",
+    logBackupDone: "» [YEDEK] Dünya yedeği başarıyla oluşturuldu: backups/",
+    logProfileSaved: "» [PROFİL] Yeni profil başarıyla kaydedildi: ",
+    logProfileLoaded: "» [PROFİL] Sunucu profili yüklendi: ",
+    logPropsSaved: "» [AYAR] server.properties dosyası kaydedildi.",
+    logSettingsSaved: "» [AYAR] Otomasyon ve sunucu ayarları güncellendi.",
 
     // Features Section
     featTag: "Neden Redstone Server Panel?",
@@ -218,6 +257,7 @@ const i18n = {
     cardPlayers: "PLAYERS • ",
     btnKick: "Kick",
     btnBan: "Ban",
+    lblUnban: "Unban player (player name)",
     btnUnban: "Unban",
     cardConsole: "CONSOLE",
     btnSend: "Send",
@@ -241,6 +281,7 @@ const i18n = {
     lblSpawnProt: "Spawn Protection",
     btnSaveProps: "Save Properties",
     btnReload: "Reload",
+    descPropsNote: "Note: The server must be restarted for some settings to take full effect.",
     cardGmDiff: "GAMEMODE & DIFFICULTY",
     lblDefGamemode: "Default Game Mode",
     lblDifficulty: "World Difficulty",
@@ -263,15 +304,18 @@ const i18n = {
     cardWl: "WHITELIST (WHITELIST.JSON)",
     cardOps: "OPERATORS (OPS.JSON)",
     phPlayerName: "Player name...",
-    btnAddWl: "Add to Whitelist",
+    btnAddWl: "Add",
     btnRemWl: "Remove Selected",
     btnOpAdd: "Make OP",
     btnOpRem: "Remove OP (Deop)",
 
     // Page 4: Backups
-    cardBackups: "WORLD BACKUP SYSTEM (BACKUPS\\)",
-    descBackups: "Compresses world folders into .zip using native Windows tar.exe. Automatically sends 'save-all flush' if the server is running.",
-    btnNewBackup: "⚡ Create New Backup",
+    cardBackupCreate: "WORLD BACKUPS",
+    descBackups: "Compresses world folders (world, nether, end) into .zip inside 'backups' directory. Automatically sends 'save-all' beforehand if server is running.",
+    lblBackupTag: "Optional tag (e.g. pre-nether)",
+    btnNewBackup: "⚡ Backup World (.zip)",
+    btnOpenBkFolder: "📁 Open Backups Folder",
+    cardBackups: "SAVED BACKUPS (BACKUPS\\)",
     btnRestoreBackup: "Restore",
     btnDeleteBackup: "Delete Backup",
 
@@ -281,13 +325,23 @@ const i18n = {
     badgeEnabled: "Active",
     badgeDisabled: "Disabled",
     btnTogglePlugin: "Enable / Disable Selected",
+    btnAddItem: "Add",
+    btnDelItem: "Delete",
+    btnOpenFolder: "Open",
 
     // Page 6: Profiles
+    cardSaveProfile: "SAVE NEW PROFILE",
+    descProfileNote: "Saves current .jar path, IP, port, RAM, and JVM arguments as a named profile for instant switching.",
+    lblProfileName: "Profile Name (e.g. 1.20 Survival)",
+    btnSaveProfile: "💾 Save as New Profile",
     cardProfiles: "SAVED SERVER PROFILES",
     btnLoadProfile: "Load Selected Profile",
     btnDeleteProfile: "Delete Profile",
 
     // Page 7: Settings
+    subtabGen: "GENERAL",
+    subtabSrv: "SERVER & AUTOMATION",
+    cardStartup: "STARTUP",
     cardGeneral: "GENERAL SETTINGS",
     cardTheme: "THEME SELECTION",
     lblAutostart: "Start with Windows",
@@ -296,12 +350,35 @@ const i18n = {
     themeLight: "Light Theme (White)",
     themeRedstone: "Redstone Theme",
     themeMinecraft: "Minecraft Theme",
+    cardAutoRestart: "AUTOMATIC RESTART",
+    lblCrashGuard: "Crash Guard",
+    descAutoRestart: "Automatically restarts the server 10 seconds after an unexpected crash. Aborts after 3 consecutive crashes.",
+    cardDailyRestart: "SCHEDULED DAILY RESTART",
+    lblDailyRestart: "Daily Auto-Restart",
+    descDailyRestart: "Safely restarts the server daily at the specified time (HH:MM), broadcasting in-game 5m and 1m warnings.",
+    btnSave: "Save",
+    cardLogs: "LOGS",
+    btnOpenLogs: "📁 Open Logs Folder",
+    descLogs: "Console output is automatically saved to console.log.",
+    cardJvm: "JVM ARGUMENTS",
+    descJvm: "Additional Java arguments used when starting the server. Applied on next server launch.",
+    cardSchedBk: "SCHEDULED AUTO-BACKUP",
+    lblSchedBk: "Scheduled Backup",
+    descSchedBk: "Automatically takes background world backups at specified hour intervals while the server is running.",
 
-    // Console logs
+    // Console logs & Notifications
     consoleReady: "» Redstone Server Panel is ready. Select a .jar file and click \"Start\".",
     consoleNotRunning: "» Server is not running. Press \"Start\" first to send commands.",
     consoleStarting: "» [SERVER] Starting server with 4G RAM...",
     consoleStopping: "» [SERVER] Server stopped safely.",
+    logUnban: "» [SECURITY] Player was unbanned: ",
+    logKick: "» [MODERATION] Player kicked: ",
+    logBan: "» [MODERATION] Player banned: ",
+    logBackupDone: "» [BACKUP] World backup created successfully: backups/",
+    logProfileSaved: "» [PROFILE] Profile saved successfully: ",
+    logProfileLoaded: "» [PROFILE] Loaded profile: ",
+    logPropsSaved: "» [PROPERTIES] server.properties has been saved.",
+    logSettingsSaved: "» [SETTINGS] Automation and server settings updated.",
 
     // Features Section
     featTag: "Why Redstone Server Panel?",
@@ -398,6 +475,24 @@ function setPage(pageName) {
   subbarTitle.textContent = (tabNames[pageName] || pageName).toUpperCase();
 }
 
+// Settings Sub-Tabs
+function setSettingsSubTab(subtab) {
+  state.settingsSubTab = subtab;
+  document.querySelectorAll('.subtab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.subtab === subtab);
+  });
+  const subGen = document.getElementById('subpage-gen');
+  const subSrv = document.getElementById('subpage-srv');
+  if (subtab === 'srv') {
+    if (subGen) subGen.classList.remove('active');
+    if (subSrv) subSrv.classList.add('active');
+  } else {
+    if (subGen) subGen.classList.add('active');
+    if (subSrv) subSrv.classList.remove('active');
+  }
+}
+window.setSettingsSubTab = setSettingsSubTab;
+
 // Theme change
 function setTheme(themeName) {
   state.theme = themeName;
@@ -409,11 +504,13 @@ function setTheme(themeName) {
     btn.classList.toggle('active', btn.dataset.theme === themeName);
   });
 }
+window.setTheme = setTheme;
 
 // Toggle language
 function toggleLanguage() {
   setLanguage(state.lang === 'tr' ? 'en' : 'tr');
 }
+window.toggleLanguage = toggleLanguage;
 
 // Language change
 function setLanguage(langCode) {
@@ -458,6 +555,7 @@ function setLanguage(langCode) {
 
   setPage(state.page);
 }
+window.setLanguage = setLanguage;
 
 // Start / Stop Server Simulator
 btnStartStop.addEventListener('click', () => {
@@ -580,6 +678,69 @@ consoleInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendCommand();
 });
 
+// Unban button interaction
+const btnUnban = document.getElementById('btnUnban');
+const inputUnban = document.getElementById('inputUnban');
+if (btnUnban && inputUnban) {
+  btnUnban.addEventListener('click', () => {
+    const val = inputUnban.value.trim() || 'Alex';
+    const t = i18n[state.lang];
+    appendLog(`${t.logUnban}${val}`, 'sys');
+    inputUnban.value = '';
+  });
+}
+
+// Kick & Ban simulator
+document.querySelectorAll('[data-i18n="btnKick"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(`${t.logKick}Alex`, 'warn');
+  });
+});
+document.querySelectorAll('[data-i18n="btnBan"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(`${t.logBan}Alex`, 'sys');
+  });
+});
+
+// Whitelist & Ops actions
+document.querySelectorAll('[data-i18n="btnAddWl"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const card = btn.closest('.w-card');
+    const input = card ? card.querySelector('input') : null;
+    const name = (input && input.value.trim()) ? input.value.trim() : 'NewPlayer';
+    appendLog(`» [WHITELIST] + ${name}`, 'sys');
+    if (input) input.value = '';
+  });
+});
+document.querySelectorAll('[data-i18n="btnRemWl"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    appendLog(`» [WHITELIST] - Alex`, 'warn');
+  });
+});
+document.querySelectorAll('[data-i18n="btnOpAdd"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const card = btn.closest('.w-card');
+    const input = card ? card.querySelector('input') : null;
+    const name = (input && input.value.trim()) ? input.value.trim() : 'Player';
+    appendLog(`» [OPERATÖR/OP] + ${name} (Level 4)`, 'sys');
+    if (input) input.value = '';
+  });
+});
+document.querySelectorAll('[data-i18n="btnOpRem"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    appendLog(`» [OPERATÖR/OP] - Steve (Deop)`, 'warn');
+  });
+});
+
+// Reload buttons
+document.querySelectorAll('[data-i18n="btnReload"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    appendLog(`» [SİSTEM] Liste güncellendi.`, 'info');
+  });
+});
+
 // Gamemode / Difficulty toggles in Props page
 document.querySelectorAll('.btn-sel').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -593,8 +754,88 @@ document.querySelectorAll('.btn-sel').forEach(btn => {
 document.querySelectorAll('.chk-row').forEach(row => {
   row.addEventListener('click', () => {
     const box = row.querySelector('.chk-box');
+    if (!box) return;
     box.classList.toggle('checked');
     box.textContent = box.classList.contains('checked') ? '✓' : '';
+  });
+});
+
+// Generic List Item selection
+document.querySelectorAll('.player-list').forEach(list => {
+  list.addEventListener('click', (e) => {
+    const item = e.target.closest('.player-item');
+    if (item && list.contains(item)) {
+      list.querySelectorAll('.player-item').forEach(it => it.classList.remove('selected'));
+      item.classList.add('selected');
+    }
+  });
+});
+
+// Backup creation simulator
+document.querySelectorAll('[data-i18n="btnNewBackup"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    const ts = now().replace(/:/g, '-');
+    appendLog(`${t.logBackupDone}backup_${ts}_survival.zip`, 'sys');
+  });
+});
+
+// Save Profile simulator
+document.querySelectorAll('[data-i18n="btnSaveProfile"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    const input = btn.parentElement.querySelector('input');
+    const name = (input && input.value.trim()) ? input.value.trim() : 'Custom Server';
+    appendLog(`${t.logProfileSaved}"${name}"`, 'sys');
+  });
+});
+
+// Load Profile simulator
+document.querySelectorAll('[data-i18n="btnLoadProfile"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(`${t.logProfileLoaded}"26.3 Survival" (5G, :25565)`, 'info');
+  });
+});
+
+// Save server.properties simulator
+document.querySelectorAll('[data-i18n="btnSaveProps"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(t.logPropsSaved, 'sys');
+  });
+});
+
+// General Save buttons simulator
+document.querySelectorAll('.tab-page button[data-i18n="btnSave"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(t.logSettingsSaved, 'sys');
+  });
+});
+
+// Toggle Plugin/Mod Active-Disabled
+document.querySelectorAll('[data-i18n="btnTogglePlugin"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const card = btn.closest('.w-card');
+    if (!card) return;
+    const selected = card.querySelector('.player-item.selected') || card.querySelector('.player-item');
+    if (!selected) return;
+    const badge = selected.querySelector('span[class^="badge-status-"]');
+    if (!badge) return;
+    const t = i18n[state.lang];
+    const isNowActive = badge.classList.contains('badge-status-disabled');
+    if (isNowActive) {
+      badge.className = 'badge-status-active';
+      badge.textContent = t.badgeEnabled;
+      badge.style.color = 'var(--w-green)';
+      selected.style.opacity = '1';
+    } else {
+      badge.className = 'badge-status-disabled';
+      badge.textContent = t.badgeDisabled;
+      badge.style.color = 'var(--w-red)';
+      selected.style.opacity = '0.6';
+    }
   });
 });
 
@@ -621,3 +862,4 @@ function now() {
 setLanguage('tr');
 setTheme('dark');
 setPage('panel');
+setSettingsSubTab('gen');
