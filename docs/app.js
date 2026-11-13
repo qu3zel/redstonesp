@@ -6,7 +6,10 @@ const state = {
   page: 'panel',
   settingsSubTab: 'gen',
   isRunning: false,
+  serverPhase: 'stopped', // 'stopped' | 'starting' | 'running'
+  serverGen: 0,
   restartPending: false,
+  restartTimer: null,
   uptimeSeconds: 0,
   uptimeInterval: null,
   idleTimer: null,
@@ -19,6 +22,7 @@ const state = {
   cpuHist: Array.from({ length: 40 }, (_, i) => +(2.1 + Math.sin(i * 0.45) * 0.6).toFixed(1)),
   consoleFilter: 'all',
   worldTimeTick: 6000,
+  worldTimeUserSet: false,
   onlinePlayers: [],
   selectedPlayer: null,
   cmdHistory: [],
@@ -28,11 +32,39 @@ const state = {
   gamemode: 'survival',
   difficulty: 'normal',
   properties: {
+    motd: 'A Minecraft Server - Powered by Redstone SP',
+    maxPlayers: '20',
+    spawnProt: '16',
+    viewDist: '10',
+    simDist: '10',
+    gamemode: 'survival',
+    difficulty: 'normal',
+    hardcore: false,
+    forceGm: false,
     online: true,
     pvp: true,
     whitelist: false,
     flight: false,
-    cmdblock: false
+    cmdblock: false,
+    secureProf: true,
+    hidePlayers: false,
+    levelName: 'world',
+    levelSeed: '',
+    levelType: 'default',
+    nether: true,
+    monsters: true,
+    animals: true,
+    npcs: true
+  },
+  appSettings: {
+    autoStart: false,
+    splashAnim: true,
+    crashGuard: true,
+    dailyRestart: false,
+    dailyRestartTime: '04:00',
+    jvmArgs: '-XX:+UseG1GC -XX:+ParallelRefProcEnabled',
+    schedBk: true,
+    schedBkHours: '2'
   }
 };
 
@@ -89,7 +121,7 @@ const i18n = {
     heroDesc: "Electron veya hantal arayüzler yok. Tek dosyada derlenen ultra hafif saf Win32 mimarisi, modern sekmeli arayüz, gerçek zamanlı renkli konsol ve otomatik yedekleme sistemi.",
     heroBtnDownload: "⚡ Windows İçin İndir (.exe)",
     heroBtnGithub: "⭐ GitHub'da İncele",
-    statStartup: "Açılış Süresi",
+    statStartup: "Saf Win32",
     statRam: "RAM Tüketimi",
     statThemes: "Özel Tema",
     statLang: "Çift Dil",
@@ -127,6 +159,7 @@ const i18n = {
     btnKick: "At (Kick)",
     btnBan: "Banla",
     lblUnban: "Banı kaldır (oyuncu adı)",
+    phUnban: "oyuncu_adi",
     btnUnban: "Banı Kaldır",
     cardConsole: "KONSOL",
     btnSend: "Gönder",
@@ -153,6 +186,7 @@ const i18n = {
     lblSpawnProt: "Başlangıç Koruması (blok)",
     btnSaveProps: "Ayarları Kaydet",
     btnReload: "Yeniden Yükle",
+    btnRefresh: "Yenile",
     descPropsNote: "Not: Bazı ayarların tam geçerli olması için sunucuyu yeniden başlatmanız gerekir.",
     cardGmDiff: "OYUN MODU & ZORLUK",
     lblDefGamemode: "Varsayılan Oyun Modu (gamemode)",
@@ -233,6 +267,7 @@ const i18n = {
     cardGeneral: "GENEL AYARLAR",
     cardTheme: "TEMA SEÇİMİ",
     lblAutostart: "Windows ile birlikte başlat",
+    lblSplashAnim: "Açılış animasyonunu göster",
     cardLang: "DİL SEÇİMİ (LANGUAGE)",
     themeDark: "Koyu Tema (Dark)",
     themeLight: "Açık Tema (White)",
@@ -266,6 +301,7 @@ const i18n = {
     logProfileSaved: "» [PROFİL] Yeni profil başarıyla kaydedildi: ",
     logProfileLoaded: "» [PROFİL] Sunucu profili yüklendi: ",
     logPropsSaved: "» [AYAR] server.properties dosyası kaydedildi.",
+    logPropsReloaded: "» [AYAR] server.properties diskten yeniden yüklendi.",
     logSettingsSaved: "» [AYAR] Otomasyon ve sunucu ayarları güncellendi.",
     logListReloaded: "» [SİSTEM] Liste güncellendi.",
     logFolderOpened: "» [SİSTEM] Klasör dosya gezgininde açıldı.",
@@ -276,15 +312,26 @@ const i18n = {
     logBackupDeleted: "» [YEDEK] Yedek kalıcı olarak silindi.",
     logProfileDeleted: "» [PROFİL] Seçili profil silindi.",
     toastSaved: "Değişiklikler kaydedildi",
+    toastPropsReloaded: "server.properties yeniden yüklendi",
     toastUpdated: "Liste güncellendi",
     toastFolderOpened: "Klasör açıldı",
+    errInvalidRam: "Geçersiz bellek formatı (ör: 4G, 2048M)",
+    errInvalidPort: "Port 1-65535 arasında olmalıdır",
+    errInvalidTime: "Saat SS:DD formatında olmalıdır (ör: 04:00)",
+    errInvalidHours: "Yedekleme aralığı 1-72 saat olmalıdır",
+    errInvalidJvm: "JVM argümanlarında tırnak (\") kullanılamaz",
+    errServerMustStop: "Bu işlem için önce sunucuyu durdurun",
+    errEmptyName: "Lütfen geçerli bir oyuncu adı girin",
+    errEmptyProfile: "Lütfen bir profil adı girin",
+    errDuplicateItem: "Bu öğe zaten listede mevcut",
+    errEmptyList: "Listede seçili öğe yok",
     consoleRestarting: "» [SUNUCU] Sunucu yeniden başlatılıyor...",
 
     // Features Section
     featTag: "Neden Redstone Server Panel?",
     featMainTitle: "Saf Win32 Mimarisi ve Üstün Performans",
     feat1Title: "Sıfır Hantallık, ~10 MB RAM",
-    feat1Desc: "Electron, Node.js veya WebView2 kütüphanelerine ihtiyaç duymaz. Tek dosyalık saf C++17 kodu sayesinde anında açılır ve minimum bellek tüketir.",
+    feat1Desc: "Electron, Node.js veya WebView2 kütüphanelerine ihtiyaç duymaz. Tek dosyalık saf C++17 kodu ile hafif ve akıcı çalışır, minimum bellek tüketir.",
     feat2Title: "7 Modern Sekmeli Arayüz",
     feat2Desc: "Dashboard, server.properties düzenleyici, Whitelist & Ops, otomatik yedekleme, eklenti/mod yöneticisi, çoklu sunucu profilleri ve ayarlar.",
     feat3Title: "Dört Özelleştirilmiş Tema",
@@ -326,7 +373,7 @@ const i18n = {
     heroDesc: "No Electron, no webview bloat. Single-file ultra-lightweight native Win32 architecture, modern tabbed interface, real-time colorized console, and automated backups.",
     heroBtnDownload: "⚡ Download for Windows (.exe)",
     heroBtnGithub: "⭐ View on GitHub",
-    statStartup: "Startup Time",
+    statStartup: "Pure Win32",
     statRam: "RAM Usage",
     statThemes: "Custom Themes",
     statLang: "Bilingual",
@@ -364,6 +411,7 @@ const i18n = {
     btnKick: "Kick",
     btnBan: "Ban",
     lblUnban: "Unban player (player name)",
+    phUnban: "player_name",
     btnUnban: "Unban",
     cardConsole: "CONSOLE",
     btnSend: "Send",
@@ -390,6 +438,7 @@ const i18n = {
     lblSpawnProt: "Spawn Protection (blocks)",
     btnSaveProps: "Save Properties",
     btnReload: "Reload",
+    btnRefresh: "Refresh",
     descPropsNote: "Note: The server must be restarted for some settings to take full effect.",
     cardGmDiff: "GAMEMODE & DIFFICULTY",
     lblDefGamemode: "Default Game Mode (gamemode)",
@@ -470,6 +519,7 @@ const i18n = {
     cardGeneral: "GENERAL SETTINGS",
     cardTheme: "THEME SELECTION",
     lblAutostart: "Start with Windows",
+    lblSplashAnim: "Show startup splash animation",
     cardLang: "LANGUAGE SELECTION",
     themeDark: "Dark Theme (Default)",
     themeLight: "Light Theme (White)",
@@ -503,6 +553,7 @@ const i18n = {
     logProfileSaved: "» [PROFILE] Profile saved successfully: ",
     logProfileLoaded: "» [PROFILE] Loaded profile: ",
     logPropsSaved: "» [PROPERTIES] server.properties has been saved.",
+    logPropsReloaded: "» [PROPERTIES] server.properties reloaded from disk.",
     logSettingsSaved: "» [SETTINGS] Automation and server settings updated.",
     logListReloaded: "» [SYSTEM] List refreshed.",
     logFolderOpened: "» [SYSTEM] Opened folder in File Explorer.",
@@ -513,15 +564,26 @@ const i18n = {
     logBackupDeleted: "» [BACKUP] Backup permanently deleted.",
     logProfileDeleted: "» [PROFILE] Selected profile deleted.",
     toastSaved: "Changes saved",
+    toastPropsReloaded: "server.properties reloaded",
     toastUpdated: "List refreshed",
     toastFolderOpened: "Folder opened",
+    errInvalidRam: "Invalid memory format (e.g. 4G, 2048M)",
+    errInvalidPort: "Port must be between 1 and 65535",
+    errInvalidTime: "Time must be in HH:MM format (e.g. 04:00)",
+    errInvalidHours: "Backup interval must be 1-72 hours",
+    errInvalidJvm: "JVM arguments cannot contain quotes (\")",
+    errServerMustStop: "Stop the server before performing this action",
+    errEmptyName: "Please enter a valid player name",
+    errEmptyProfile: "Please enter a profile name",
+    errDuplicateItem: "This item is already in the list",
+    errEmptyList: "No item selected in list",
     consoleRestarting: "» [SERVER] Restarting server...",
 
     // Features Section
     featTag: "Why Redstone Server Panel?",
     featMainTitle: "Pure Win32 Architecture & Extreme Performance",
     feat1Title: "Zero Bloat, ~10 MB RAM",
-    feat1Desc: "No Electron, Node.js, or WebView2 required. Pure C++17 single-file code starts instantly in ~10ms with minimal memory footprint.",
+    feat1Desc: "No Electron, Node.js, or WebView2 required. Pure C++17 single-file architecture runs natively with minimal memory footprint.",
     feat2Title: "7 Modern Tabs",
     feat2Desc: "Dashboard, server.properties editor, Whitelist & Ops, world backups, plugin/mod manager, multi-server profiles, and settings.",
     feat3Title: "Four Hand-Crafted Themes",
@@ -578,11 +640,49 @@ const tilePlayers = document.getElementById('tilePlayers');
 const tileTime = document.getElementById('tileTime');
 const inputJar = document.getElementById('inputJar');
 const btnBrowse = document.getElementById('btnBrowse');
+const inputIp = document.getElementById('inputIp');
 const inputPort = document.getElementById('inputPort');
 const inputRam = document.getElementById('inputRam');
 const inputMaxPlayers = document.getElementById('inputMaxPlayers');
 const simToast = document.getElementById('simToast');
 const langPillLabel = document.getElementById('langPillLabel');
+
+function parseRamStrict(raw) {
+  const s = (raw || '').trim().toUpperCase();
+  const m = s.match(/^(\d+)\s*([GM])$/);
+  if (!m) return null;
+  const v = parseInt(m[1], 10);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  const mb = m[2] === 'G' ? v * 1024 : v;
+  return (mb >= 256 && mb <= 262144) ? mb : null;
+}
+
+function parsePortStrict(raw) {
+  const s = (raw || '').trim();
+  if (!/^\d+$/.test(s)) return null;
+  const v = parseInt(s, 10);
+  return (v >= 1 && v <= 65535) ? v : null;
+}
+
+function isValidPlayerName(name) {
+  return /^[a-zA-Z0-9_.*-]{1,32}$/.test((name || '').trim());
+}
+
+function isValidHHMM(raw) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test((raw || '').trim());
+}
+
+function syncDashboardControlLocks() {
+  const stopped = state.serverPhase === 'stopped' && !state.restartPending;
+  const running = state.serverPhase === 'running' && !state.restartPending;
+  if (btnBrowse) btnBrowse.disabled = !stopped;
+  if (inputIp) inputIp.disabled = !stopped;
+  if (inputPort) inputPort.disabled = !stopped;
+  if (inputRam) inputRam.disabled = !stopped;
+  if (btnConSave) btnConSave.disabled = !running;
+  if (btnStartStop) btnStartStop.disabled = state.restartPending;
+  if (btnRestartServer) btnRestartServer.disabled = !running;
+}
 
 function showToast(msg) {
   if (!simToast || !msg) return;
@@ -603,17 +703,12 @@ function formatWorldTime(ticks) {
 }
 
 function parseRamLimitMb() {
-  const raw = (inputRam && inputRam.value) ? inputRam.value.trim().toUpperCase() : '4G';
-  const m = raw.match(/^(\d+)\s*([GM])$/);
-  if (!m) return 4096;
-  const v = parseInt(m[1], 10);
-  if (!Number.isFinite(v) || v <= 0) return 4096;
-  return m[2] === 'G' ? v * 1024 : v;
+  const raw = (inputRam && inputRam.value) ? inputRam.value.trim() : '4G';
+  return parseRamStrict(raw) || 4096;
 }
 
 function parseMaxPlayers() {
-  const raw = (inputMaxPlayers && inputMaxPlayers.value) ? inputMaxPlayers.value.trim() : '20';
-  const v = parseInt(raw, 10);
+  const v = parseInt(state.properties.maxPlayers, 10);
   return (Number.isFinite(v) && v >= 1 && v <= 99999) ? v : 20;
 }
 
@@ -712,22 +807,23 @@ function updateTelemetryVisuals(pushSample = false) {
   // KPI 1: Status
   const dotStatus = document.getElementById('dotStatus');
   const barStatus = document.getElementById('barStatus');
+  const isLive = state.serverPhase === 'running';
   const statusCol = state.isRunning
-    ? (state.uptimeSeconds > 0 ? 'var(--w-green)' : 'var(--w-amber)')
+    ? (isLive ? 'var(--w-green)' : 'var(--w-amber)')
     : 'var(--w-red)';
   if (dotStatus) dotStatus.style.backgroundColor = statusCol;
   if (barStatus) {
     barStatus.style.backgroundColor = statusCol;
-    barStatus.style.width = state.isRunning ? (state.uptimeSeconds > 0 ? '100%' : '62%') : '35%';
+    barStatus.style.width = state.isRunning ? (isLive ? '100%' : '62%') : '35%';
   }
 
   // KPI 2: Uptime
   const dotUptime = document.getElementById('dotUptime');
   const barUptime = document.getElementById('barUptime');
-  if (dotUptime) dotUptime.style.backgroundColor = state.isRunning ? 'var(--w-green)' : 'var(--w-muted)';
+  if (dotUptime) dotUptime.style.backgroundColor = isLive ? 'var(--w-green)' : 'var(--w-muted)';
   if (barUptime) {
     barUptime.style.backgroundColor = 'var(--w-accent)';
-    barUptime.style.width = state.isRunning ? '100%' : '0%';
+    barUptime.style.width = isLive ? '100%' : '0%';
   }
 
   // KPI 3: Players (online / max)
@@ -747,7 +843,7 @@ function updateTelemetryVisuals(pushSample = false) {
   // KPI 4: World Time (day gold sun / night indigo moon + 24h cycle bar)
   const dotTime = document.getElementById('dotTime');
   const barTime = document.getElementById('barTime');
-  const hasWorld = state.isRunning && state.uptimeSeconds > 0;
+  const hasWorld = isLive;
   if (hasWorld) {
     const normTick = ((state.worldTimeTick % 24000) + 24000) % 24000;
     const totalMinutes = Math.floor((normTick / 1000) * 60 + 360) % 1440;
@@ -781,8 +877,10 @@ function clearSimTimeouts() {
 }
 
 function scheduleSim(fn, delay) {
+  const gen = state.serverGen;
   const id = setTimeout(() => {
-    if (!state.isRunning) return;
+    state.simTimeouts = state.simTimeouts.filter(tId => tId !== id);
+    if (!state.isRunning || state.serverGen !== gen) return;
     fn();
   }, delay);
   state.simTimeouts.push(id);
@@ -844,15 +942,32 @@ function formatUptime(sec) {
 }
 
 // Monitor-Hz VSync animation engine (requestAnimationFrame adapts automatically to 60/120/144/240Hz+)
+const reducedMotionMq = typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia('(prefers-reduced-motion: reduce)')
+  : null;
+
 const navAnim = {
   rafId: 0,
   lastTs: 0,
-  reducedMotion: typeof window !== 'undefined' && window.matchMedia
-    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    : false,
+  reducedMotion: reducedMotionMq ? reducedMotionMq.matches : false,
   tab: { curX: -1, curW: 0, targetX: 0, targetW: 0, active: false },
   sub: { curX: -1, curW: 0, targetX: 0, targetW: 0, y: 0, h: 0, active: false }
 };
+
+if (reducedMotionMq) {
+  const onMotionChange = (e) => {
+    navAnim.reducedMotion = e.matches;
+    if (e.matches) {
+      syncTabIndicator(false);
+      if (state.page === 'settings') syncSubtabIndicator(false);
+    }
+  };
+  if (typeof reducedMotionMq.addEventListener === 'function') {
+    reducedMotionMq.addEventListener('change', onMotionChange);
+  } else if (typeof reducedMotionMq.addListener === 'function') {
+    reducedMotionMq.addListener(onMotionChange);
+  }
+}
 
 function applyTabIndicatorDom() {
   if (!tabIndicator || navAnim.tab.curX < 0) return;
@@ -1018,6 +1133,8 @@ function setPage(pageName) {
   }
   if (pageName === 'settings') {
     syncSubtabIndicator(false);
+  } else {
+    navAnim.sub.active = false;
   }
 }
 
@@ -1044,16 +1161,31 @@ function setSettingsSubTab(subtab) {
 window.setSettingsSubTab = setSettingsSubTab;
 
 if (typeof ResizeObserver !== 'undefined') {
-  const navResizeObs = new ResizeObserver(() => {
-    syncTabIndicator(false);
-    if (state.page === 'settings') syncSubtabIndicator(false);
-  });
+  const handleNavResize = () => {
+    const activeTab = document.querySelector('.win-tab.active');
+    if (activeTab && activeTab.offsetWidth > 0 && !navAnim.tab.active) {
+      if (Math.abs(navAnim.tab.targetX - activeTab.offsetLeft) > 0.5 ||
+          Math.abs(navAnim.tab.targetW - activeTab.offsetWidth) > 0.5) {
+        syncTabIndicator(false);
+      }
+    }
+    if (state.page === 'settings') {
+      const activeSub = document.querySelector('.subtab-btn.active');
+      if (activeSub && activeSub.offsetWidth > 0 && !navAnim.sub.active) {
+        if (Math.abs(navAnim.sub.targetX - activeSub.offsetLeft) > 0.5 ||
+            Math.abs(navAnim.sub.targetW - activeSub.offsetWidth) > 0.5) {
+          syncSubtabIndicator(false);
+        }
+      }
+    }
+  };
+  const navResizeObs = new ResizeObserver(handleNavResize);
   if (winTabbar) navResizeObs.observe(winTabbar);
   if (settingsSubtabs) navResizeObs.observe(settingsSubtabs);
 } else if (typeof window !== 'undefined') {
   window.addEventListener('resize', () => {
-    syncTabIndicator(false);
-    if (state.page === 'settings') syncSubtabIndicator(false);
+    if (!navAnim.tab.active) syncTabIndicator(false);
+    if (state.page === 'settings' && !navAnim.sub.active) syncSubtabIndicator(false);
   });
 }
 
@@ -1158,23 +1290,24 @@ function setLanguage(langCode) {
   });
 
   // Update Start/Stop button & telemetry tiles
-  if (btnRestartServer) btnRestartServer.disabled = !state.isRunning;
   if (chartCpuTitle) {
     const cpuKey = state.isRunning ? 'tileCpuSrv' : 'tileCpuSys';
     chartCpuTitle.dataset.i18n = cpuKey;
     chartCpuTitle.textContent = t[cpuKey];
   }
+  const isLive = state.serverPhase === 'running';
   if (state.isRunning) {
     btnStartStop.textContent = t.btnStop;
-    tileStatus.textContent = state.uptimeSeconds > 0 ? t.statusOnline : t.statusStarting;
-    tileStatus.className = state.uptimeSeconds > 0 ? 'tile-val tile-status active' : 'tile-val tile-status starting';
-    if (tileTime && state.uptimeSeconds > 0) tileTime.textContent = formatWorldTime(state.worldTimeTick);
+    tileStatus.textContent = isLive ? t.statusOnline : t.statusStarting;
+    tileStatus.className = isLive ? 'tile-val tile-status active' : 'tile-val tile-status starting';
+    if (tileTime && isLive) tileTime.textContent = formatWorldTime(state.worldTimeTick);
   } else {
     btnStartStop.textContent = t.btnStart;
     tileStatus.textContent = t.statusOffline;
     tileStatus.className = 'tile-val tile-status';
     if (tileTime) tileTime.textContent = '--:--';
   }
+  syncDashboardControlLocks();
 
   // Update initial console greeting if only 1 line exists
   const initialMsg = document.getElementById('consoleInitialMsg');
@@ -1190,26 +1323,40 @@ function setLanguage(langCode) {
 window.setLanguage = setLanguage;
 
 function launchServerWithUi() {
-  if (state.restartPending) state.restartPending = false;
-  startServer();
-  if (btnStartStop) btnStartStop.disabled = false;
   const t = i18n[state.lang];
-  if (btnRestartServer) btnRestartServer.disabled = !state.isRunning;
+  if (inputRam && !parseRamStrict(inputRam.value)) {
+    showToast(t.errInvalidRam);
+    appendLog(`» ${t.errInvalidRam}`, 'err');
+    return false;
+  }
+  if (inputPort && !parsePortStrict(inputPort.value)) {
+    showToast(t.errInvalidPort);
+    appendLog(`» ${t.errInvalidPort}`, 'err');
+    return false;
+  }
+  if (state.restartTimer) {
+    clearTimeout(state.restartTimer);
+    state.restartTimer = null;
+  }
+  state.restartPending = false;
+  startServer();
+  syncDashboardControlLocks();
   if (chartCpuTitle && state.isRunning) {
     chartCpuTitle.dataset.i18n = 'tileCpuSrv';
     chartCpuTitle.textContent = t.tileCpuSrv;
   }
+  return true;
 }
 
 function restartServer() {
-  if (!state.isRunning || state.restartPending) return;
+  if (state.serverPhase !== 'running' || state.restartPending) return;
   const t = i18n[state.lang];
+  if (state.restartTimer) clearTimeout(state.restartTimer);
   state.restartPending = true;
-  if (btnRestartServer) btnRestartServer.disabled = true;
-  if (btnStartStop) btnStartStop.disabled = true;
   appendLog(t.consoleRestarting, 'warn');
-  stopServer();
-  setTimeout(() => {
+  stopServer(true);
+  state.restartTimer = setTimeout(() => {
+    state.restartTimer = null;
     state.restartPending = false;
     launchServerWithUi();
   }, 750);
@@ -1259,11 +1406,12 @@ if (btnConClear) {
 if (btnConSave) {
   btnConSave.addEventListener('click', () => {
     const t = i18n[state.lang];
-    appendLog('> save-all', 'cmd');
-    if (!state.isRunning) {
+    if (state.serverPhase !== 'running') {
       appendLog(t.consoleNotRunning, 'warn');
+      showToast(t.consoleNotRunning.replace('» ', ''));
       return;
     }
+    appendLog('> save-all', 'cmd');
     appendLog(`[${now()}] [Server thread/INFO]: Saved the game`, 'sys');
     showToast(t.toastSaved);
   });
@@ -1290,13 +1438,18 @@ setTimeout(() => {
 }, 0);
 
 function startServer() {
+  state.serverGen++;
   clearSimTimeouts();
   clearInterval(state.uptimeInterval);
   state.isRunning = true;
+  state.serverPhase = 'starting';
   state.uptimeSeconds = 0;
   state.onlinePlayers = [];
   state.selectedPlayer = null;
+  state.worldTimeTick = 6000;
+  state.worldTimeUserSet = false;
   renderDashboardPlayers();
+  syncDashboardControlLocks();
 
   const t = i18n[state.lang];
   const ramVal = (inputRam && inputRam.value.trim()) ? inputRam.value.trim() : '4G';
@@ -1322,23 +1475,26 @@ function startServer() {
     updateTelemetryVisuals(true);
     appendLog(`[${now()}] [Server thread/INFO]: Starting minecraft server version 1.20.4`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Loading properties`, 'info');
-    appendLog(`[${now()}] [Server thread/INFO]: Default game type: ${(state.gamemode || 'survival').toUpperCase()}`, 'info');
+    appendLog(`[${now()}] [Server thread/INFO]: Default game type: ${(state.properties.gamemode || 'survival').toUpperCase()}`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Generating keypair`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Starting Minecraft server on *:${portVal}`, 'info');
   }, 600);
 
   scheduleSim(() => {
-    appendLog(`[${now()}] [Server thread/INFO]: Preparing level "world"`, 'info');
+    state.serverPhase = 'running';
+    syncDashboardControlLocks();
+    const curLangT = i18n[state.lang];
+    appendLog(`[${now()}] [Server thread/INFO]: Preparing level "${state.properties.levelName || 'world'}"`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Time elapsed: 1420 ms`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Done (2.104s)! For help, type "help"`, 'sys');
-    
-    tileStatus.textContent = t.statusOnline;
+
+    tileStatus.textContent = curLangT.statusOnline;
     tileStatus.className = 'tile-val tile-status active';
     const baseRamMb = Math.min(Math.round(maxMb * 0.68), 2820);
     state.memoryMB = baseRamMb;
     state.cpuPct = 18.6;
-    state.worldTimeTick = 6000;
+    if (!state.worldTimeUserSet) state.worldTimeTick = 6000;
     if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
     updateTelemetryVisuals(true);
 
@@ -1413,8 +1569,15 @@ function startChatConversation() {
   });
 }
 
-function stopServer() {
+function stopServer(keepRestartPending = false) {
+  if (!keepRestartPending && state.restartTimer) {
+    clearTimeout(state.restartTimer);
+    state.restartTimer = null;
+    state.restartPending = false;
+  }
+  state.serverGen++;
   state.isRunning = false;
+  state.serverPhase = 'stopped';
   clearSimTimeouts();
   clearInterval(state.uptimeInterval);
   state.uptimeSeconds = 0;
@@ -1422,7 +1585,6 @@ function stopServer() {
   const t = i18n[state.lang];
   btnStartStop.textContent = t.btnStart;
   btnStartStop.className = 'w-btn w-btn-start';
-  if (btnRestartServer) btnRestartServer.disabled = true;
   if (chartCpuTitle) {
     chartCpuTitle.dataset.i18n = 'tileCpuSys';
     chartCpuTitle.textContent = t.tileCpuSys;
@@ -1433,12 +1595,13 @@ function stopServer() {
   state.cpuPct = state.systemCpuPct || 2.4;
   tileUptime.textContent = '00:00:00';
   if (tileTime) tileTime.textContent = '--:--';
+  syncDashboardControlLocks();
   updateTelemetryVisuals(true);
 
   if (state.onlinePlayers.length > 0) {
     state.onlinePlayers.forEach(p => {
       appendLog(`[${now()}] [Server thread/INFO]: ${p.name} lost connection: Server closed`, 'warn');
-      appendLog(`[${now()}] [Server thread/INFO]: ${p.name} left the game`, 'warn');
+      appendLog(`[${now()}] [Server thread/INFO]: ${p.name} left the game`, 'sys');
     });
   }
   state.onlinePlayers = [];
@@ -1448,7 +1611,7 @@ function stopServer() {
   appendLog(`[${now()}] [Server thread/INFO]: Stopping the server`, 'warn');
   appendLog(`[${now()}] [Server thread/INFO]: Saving players`, 'info');
   appendLog(`[${now()}] [Server thread/INFO]: Saving worlds`, 'info');
-  appendLog(`[${now()}] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld`, 'info');
+  appendLog(`[${now()}] [Server thread/INFO]: Saving chunks for level 'ServerLevel[${state.properties.levelName || 'world'}]'/minecraft:overworld`, 'info');
   appendLog(`[${now()}] [Server thread/INFO]: ThreadedAnvilChunkStorage: All dimensions are saved`, 'info');
   appendLog(t.consoleStopping, 'sys');
 }
@@ -1457,29 +1620,32 @@ function stopServer() {
 const cmdSuggestions = ['help', 'list', 'say ', 'op ', 'deop ', 'whitelist ', 'time set day', 'time set night', 'gamemode ', 'stop'];
 
 function sendCommand() {
-  const cmd = consoleInput.value.trim();
-  if (!cmd) return;
+  const rawCmd = consoleInput.value.trim();
+  const cleanCmd = rawCmd.startsWith('/') ? rawCmd.slice(1).trim() : rawCmd;
+  if (!cleanCmd) {
+    consoleInput.value = '';
+    return;
+  }
   consoleInput.value = '';
-  state.cmdHistory.push(cmd);
+  state.cmdHistory.push(rawCmd);
   state.cmdHistoryIdx = state.cmdHistory.length;
 
-  const cleanCmd = cmd.startsWith('/') ? cmd.slice(1) : cmd;
   appendLog(`> ${cleanCmd}`, 'cmd');
 
   const t = i18n[state.lang];
-  if (!state.isRunning) {
+  const parts = cleanCmd.split(/\s+/);
+  const base = parts[0].toLowerCase();
+
+  if (state.serverPhase !== 'running' && !(base === 'stop' && state.isRunning)) {
     appendLog(t.consoleNotRunning, 'warn');
     return;
   }
 
-  const parts = cleanCmd.split(/\s+/);
-  const base = parts[0].toLowerCase();
-
-  setTimeout(() => {
+  scheduleSim(() => {
     switch (base) {
       case 'help':
         appendLog(`[${now()}] [Server thread/INFO]: --- Showing help page 1 of 1 ---`, 'info');
-        appendLog(`[${now()}] [Server thread/INFO]: /help, /list, /say <message>, /stop, /op <player>, /time set <day|night>`, 'info');
+        appendLog(`[${now()}] [Server thread/INFO]: /help, /list, /say <message>, /stop, /op <player>, /deop <player>, /whitelist <on|off|list|add|remove>, /time set <day|night>, /save-all`, 'info');
         break;
       case 'list': {
         const names = state.onlinePlayers.map(p => p.name).join(', ');
@@ -1487,18 +1653,30 @@ function sendCommand() {
         break;
       }
       case 'say': {
-        const msg = parts.slice(1).join(' ') || 'Hello from Server!';
+        const msg = parts.slice(1).join(' ').trim();
+        if (!msg) {
+          appendLog(`[${now()}] [Server thread/INFO]: Unknown or incomplete command. Usage: /say <message>`, 'warn');
+          break;
+        }
         appendLog(`[${now()}] [Server thread/INFO]: [Server] ${msg}`, 'chat');
         break;
       }
       case 'op': {
-        const pl = parts[1] || 'Player';
+        const pl = (parts[1] || '').trim();
+        if (!isValidPlayerName(pl)) {
+          appendLog(`[${now()}] [Server thread/INFO]: Unknown or incomplete command. Usage: /op <player>`, 'warn');
+          break;
+        }
         addAccessListItem('listOps', pl, true);
         appendLog(`[${now()}] [Server thread/INFO]: Made ${pl} a server operator`, 'sys');
         break;
       }
       case 'deop': {
-        const pl = parts[1] || 'Player';
+        const pl = (parts[1] || '').trim();
+        if (!isValidPlayerName(pl)) {
+          appendLog(`[${now()}] [Server thread/INFO]: Unknown or incomplete command. Usage: /deop <player>`, 'warn');
+          break;
+        }
         const opsList = document.getElementById('listOps');
         if (opsList) {
           const targetLower = pl.toLowerCase();
@@ -1517,6 +1695,43 @@ function sendCommand() {
         appendLog(`[${now()}] [Server thread/INFO]: Made ${pl} no longer a server operator`, 'warn');
         break;
       }
+      case 'whitelist': {
+        const sub = (parts[1] || '').toLowerCase();
+        const targetPl = (parts[2] || '').trim();
+        if (sub === 'on') {
+          state.properties.whitelist = true;
+          syncChkBox('chkWhitelistRow', true);
+          appendLog(`[${now()}] [Server thread/INFO]: Whitelist is now turned on`, 'sys');
+        } else if (sub === 'off') {
+          state.properties.whitelist = false;
+          syncChkBox('chkWhitelistRow', false);
+          appendLog(`[${now()}] [Server thread/INFO]: Whitelist is now turned off`, 'warn');
+        } else if (sub === 'list') {
+          const wlItems = Array.from(document.querySelectorAll('#listWhitelist .player-item span')).map(s => s.textContent.trim());
+          appendLog(`[${now()}] [Server thread/INFO]: There are ${wlItems.length} whitelisted player(s)${wlItems.length ? ': ' + wlItems.join(', ') : ''}`, 'info');
+        } else if (sub === 'add' && isValidPlayerName(targetPl)) {
+          addAccessListItem('listWhitelist', targetPl, false);
+          appendLog(`[${now()}] [Server thread/INFO]: Added ${targetPl} to the whitelist`, 'sys');
+        } else if (sub === 'remove' && isValidPlayerName(targetPl)) {
+          const wlList = document.getElementById('listWhitelist');
+          if (wlList) {
+            wlList.querySelectorAll('.player-item').forEach(it => {
+              const span = it.querySelector('span');
+              if (span && span.textContent.trim().toLowerCase() === targetPl.toLowerCase()) it.remove();
+            });
+            if (!wlList.querySelector('.player-item.selected')) {
+              const first = wlList.querySelector('.player-item');
+              if (first) first.classList.add('selected');
+            }
+          }
+          appendLog(`[${now()}] [Server thread/INFO]: Removed ${targetPl} from the whitelist`, 'warn');
+        } else if (sub === 'reload') {
+          appendLog(`[${now()}] [Server thread/INFO]: Reloaded the whitelist`, 'info');
+        } else {
+          appendLog(`[${now()}] [Server thread/INFO]: Unknown or incomplete command. Usage: /whitelist <on|off|list|add|remove|reload>`, 'warn');
+        }
+        break;
+      }
       case 'time': {
         const sub = (parts[1] || 'query').toLowerCase();
         const arg = (parts[2] || 'day').toLowerCase();
@@ -1524,12 +1739,14 @@ function sendCommand() {
           const preset = { day: 1000, noon: 6000, night: 13000, midnight: 18000 };
           const parsed = Number.isFinite(Number(arg)) ? Math.max(0, parseInt(arg, 10) % 24000) : preset[arg];
           state.worldTimeTick = Number.isFinite(parsed) ? parsed : 1000;
+          state.worldTimeUserSet = true;
           if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
           updateTelemetryVisuals(false);
           appendLog(`[${now()}] [Server thread/INFO]: Set the time to ${state.worldTimeTick}`, 'info');
         } else if (sub === 'add') {
           const delta = parseInt(parts[2] || '0', 10) || 0;
           state.worldTimeTick = (((state.worldTimeTick + delta) % 24000) + 24000) % 24000;
+          state.worldTimeUserSet = true;
           if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
           updateTelemetryVisuals(false);
           appendLog(`[${now()}] [Server thread/INFO]: Set the time to ${state.worldTimeTick}`, 'info');
@@ -1599,9 +1816,13 @@ const sampleJars = [
 ];
 if (btnBrowse && inputJar) {
   btnBrowse.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    if (state.serverPhase !== 'stopped') {
+      showToast(t.errServerMustStop);
+      return;
+    }
     state.jarIndex = (state.jarIndex + 1) % sampleJars.length;
     inputJar.value = sampleJars[state.jarIndex];
-    const t = i18n[state.lang];
     appendLog(`${t.logJarSelected}${inputJar.value}`, 'info');
     showToast(inputJar.value.split('\\').pop());
   });
@@ -1612,8 +1833,17 @@ const btnUnban = document.getElementById('btnUnban');
 const inputUnban = document.getElementById('inputUnban');
 if (btnUnban && inputUnban) {
   btnUnban.addEventListener('click', () => {
-    const val = inputUnban.value.trim() || 'Alex';
     const t = i18n[state.lang];
+    const val = inputUnban.value.trim();
+    if (!isValidPlayerName(val)) {
+      showToast(t.errEmptyName);
+      return;
+    }
+    if (state.serverPhase !== 'running') {
+      appendLog(t.consoleNotRunning, 'warn');
+      showToast(t.consoleNotRunning.replace('» ', ''));
+      return;
+    }
     appendLog(`[${now()}] [Server thread/INFO]: Unbanned player ${val}`, 'sys');
     showToast(`${t.logUnban.replace('» ', '')}${val}`);
     inputUnban.value = '';
@@ -1624,11 +1854,11 @@ if (btnUnban && inputUnban) {
 const btnKickPlayer = document.getElementById('btnKickPlayer');
 if (btnKickPlayer) {
   btnKickPlayer.addEventListener('click', () => {
-    if (!state.isRunning || state.onlinePlayers.length === 0) return;
+    if (state.serverPhase !== 'running' || state.onlinePlayers.length === 0) return;
     const target = state.selectedPlayer || state.onlinePlayers[0].name;
     state.onlinePlayers = state.onlinePlayers.filter(p => p.name !== target);
     appendLog(`[${now()}] [Server thread/INFO]: Kicked ${target} from the game: "Kicked by an operator"`, 'warn');
-    appendLog(`[${now()}] [Server thread/INFO]: ${target} left the game`, 'warn');
+    appendLog(`[${now()}] [Server thread/INFO]: ${target} left the game`, 'sys');
     state.selectedPlayer = state.onlinePlayers.length ? state.onlinePlayers[0].name : null;
     renderDashboardPlayers();
   });
@@ -1637,11 +1867,11 @@ if (btnKickPlayer) {
 const btnBanPlayer = document.getElementById('btnBanPlayer');
 if (btnBanPlayer) {
   btnBanPlayer.addEventListener('click', () => {
-    if (!state.isRunning || state.onlinePlayers.length === 0) return;
+    if (state.serverPhase !== 'running' || state.onlinePlayers.length === 0) return;
     const target = state.selectedPlayer || state.onlinePlayers[0].name;
     state.onlinePlayers = state.onlinePlayers.filter(p => p.name !== target);
     appendLog(`[${now()}] [Server thread/INFO]: Banned ${target}: "Banned by an operator"`, 'sys');
-    appendLog(`[${now()}] [Server thread/INFO]: ${target} left the game`, 'warn');
+    appendLog(`[${now()}] [Server thread/INFO]: ${target} left the game`, 'sys');
     state.selectedPlayer = state.onlinePlayers.length ? state.onlinePlayers[0].name : null;
     renderDashboardPlayers();
   });
@@ -1650,15 +1880,16 @@ if (btnBanPlayer) {
 // Whitelist & Ops dynamic helpers
 function addAccessListItem(listId, name, isOp) {
   const list = document.getElementById(listId);
-  if (!list) return;
+  if (!list) return 'missing';
   const label = isOp ? `${name} (Level 4 OP)` : name;
   const existing = Array.from(list.querySelectorAll('.player-item')).find(el => {
-    const txt = el.textContent.trim().toLowerCase();
+    const span = el.querySelector('span');
+    const txt = (span ? span.textContent : el.textContent).trim().toLowerCase();
     return txt === name.toLowerCase() || txt.startsWith(`${name.toLowerCase()} (`);
   });
   if (existing) {
     selectListItem(list, existing);
-    return;
+    return 'duplicate';
   }
   const item = document.createElement('div');
   item.className = 'player-item';
@@ -1671,19 +1902,21 @@ function addAccessListItem(listId, name, isOp) {
   item.appendChild(span);
   list.appendChild(item);
   selectListItem(list, item);
+  return 'added';
 }
 
-function removeSelectedAccessItem(listId, fallbackName) {
+function removeSelectedAccessItem(listId) {
   const list = document.getElementById(listId);
-  if (!list) return fallbackName;
+  if (!list) return null;
   const sel = list.querySelector('.player-item.selected') || list.querySelector('.player-item');
-  if (!sel) return fallbackName;
-  const raw = sel.textContent.trim();
-  const cleanName = raw.replace(/\s*\(Level\s+\d+\s+OP\)$/i, '').trim() || fallbackName;
+  if (!sel) return null;
+  const span = sel.querySelector('span');
+  const raw = (span ? span.textContent : sel.textContent).trim();
+  const cleanName = raw.replace(/\s*\(Level\s+\d+\s+OP\)$/i, '').trim();
   sel.remove();
   const next = list.querySelector('.player-item');
   if (next) next.classList.add('selected');
-  return cleanName;
+  return cleanName || null;
 }
 
 // Whitelist & Ops actions
@@ -1691,9 +1924,17 @@ document.querySelectorAll('[data-i18n="btnAddWl"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const card = btn.closest('.w-card');
     const input = card ? card.querySelector('input') : null;
-    const name = (input && input.value.trim()) ? input.value.trim() : 'Herobrine';
+    const name = input ? input.value.trim() : '';
     const t = i18n[state.lang];
-    addAccessListItem('listWhitelist', name, false);
+    if (!isValidPlayerName(name)) {
+      showToast(t.errEmptyName);
+      return;
+    }
+    const status = addAccessListItem('listWhitelist', name, false);
+    if (status === 'duplicate') {
+      showToast(t.errDuplicateItem);
+      return;
+    }
     appendLog(`[${now()}] [Server thread/INFO]: Added ${name} to the whitelist`, 'sys');
     showToast(`${t.logItemAdded.replace('» ', '')}${name}`);
     if (input) input.value = '';
@@ -1701,8 +1942,12 @@ document.querySelectorAll('[data-i18n="btnAddWl"]').forEach(btn => {
 });
 document.querySelectorAll('[data-i18n="btnRemWl"]').forEach(btn => {
   btn.addEventListener('click', () => {
-    const removed = removeSelectedAccessItem('listWhitelist', 'Steve');
     const t = i18n[state.lang];
+    const removed = removeSelectedAccessItem('listWhitelist');
+    if (!removed) {
+      showToast(t.errEmptyList);
+      return;
+    }
     appendLog(`[${now()}] [Server thread/INFO]: Removed ${removed} from the whitelist`, 'warn');
     showToast(`${t.logItemRemoved.replace('» ', '')}${removed}`);
   });
@@ -1711,9 +1956,17 @@ document.querySelectorAll('[data-i18n="btnOpAdd"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const card = btn.closest('.w-card');
     const input = card ? card.querySelector('input') : null;
-    const name = (input && input.value.trim()) ? input.value.trim() : 'Alex';
+    const name = input ? input.value.trim() : '';
     const t = i18n[state.lang];
-    addAccessListItem('listOps', name, true);
+    if (!isValidPlayerName(name)) {
+      showToast(t.errEmptyName);
+      return;
+    }
+    const status = addAccessListItem('listOps', name, true);
+    if (status === 'duplicate') {
+      showToast(t.errDuplicateItem);
+      return;
+    }
     appendLog(`[${now()}] [Server thread/INFO]: Made ${name} a server operator`, 'sys');
     showToast(`${t.logItemAdded.replace('» ', '')}${name} (OP)`);
     if (input) input.value = '';
@@ -1721,15 +1974,107 @@ document.querySelectorAll('[data-i18n="btnOpAdd"]').forEach(btn => {
 });
 document.querySelectorAll('[data-i18n="btnOpRem"]').forEach(btn => {
   btn.addEventListener('click', () => {
-    const removed = removeSelectedAccessItem('listOps', 'Steve');
     const t = i18n[state.lang];
+    const removed = removeSelectedAccessItem('listOps');
+    if (!removed) {
+      showToast(t.errEmptyList);
+      return;
+    }
     appendLog(`[${now()}] [Server thread/INFO]: Made ${removed} no longer a server operator`, 'warn');
     showToast(`${t.logItemRemoved.replace('» ', '')}${removed}`);
   });
 });
 
-// Reload buttons
-document.querySelectorAll('[data-i18n="btnReload"]').forEach(btn => {
+// Checkbox helpers & Property mapping
+function syncChkBox(rowId, checked) {
+  const row = document.getElementById(rowId);
+  const box = row ? row.querySelector('.chk-box') : null;
+  if (!box) return;
+  box.classList.toggle('checked', !!checked);
+  box.textContent = checked ? '✓' : '';
+}
+
+function isChkRowChecked(rowId) {
+  const row = document.getElementById(rowId);
+  const box = row ? row.querySelector('.chk-box') : null;
+  return box ? box.classList.contains('checked') : false;
+}
+
+const PROP_CHK_MAP = [
+  ['chkHardcoreRow', 'hardcore'],
+  ['chkForceGmRow', 'forceGm'],
+  ['chkOnlineRow', 'online'],
+  ['chkPvpRow', 'pvp'],
+  ['chkWhitelistRow', 'whitelist'],
+  ['chkFlightRow', 'flight'],
+  ['chkCmdBlockRow', 'cmdblock'],
+  ['chkSecureProfRow', 'secureProf'],
+  ['chkHidePlayersRow', 'hidePlayers'],
+  ['chkNetherRow', 'nether'],
+  ['chkMonstersRow', 'monsters'],
+  ['chkAnimalsRow', 'animals'],
+  ['chkNpcsRow', 'npcs']
+];
+
+function setGroupVal(groupId, val) {
+  const grp = document.getElementById(groupId);
+  if (!grp) return;
+  grp.querySelectorAll('.btn-sel').forEach(b => {
+    b.classList.toggle('active', b.dataset.val === val);
+  });
+}
+
+function getGroupVal(groupId, fallback) {
+  const grp = document.getElementById(groupId);
+  const active = grp ? grp.querySelector('.btn-sel.active') : null;
+  return (active && active.dataset.val) ? active.dataset.val : fallback;
+}
+
+function renderPropertiesFromState() {
+  const p = state.properties;
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v;
+  };
+  setVal('inputMotd', p.motd);
+  setVal('inputMaxPlayers', p.maxPlayers);
+  setVal('inputSpawnProt', p.spawnProt);
+  setVal('inputViewDist', p.viewDist);
+  setVal('inputSimDist', p.simDist);
+  setVal('inputLevelName', p.levelName);
+  setVal('inputLevelSeed', p.levelSeed);
+  setGroupVal('grpGamemode', p.gamemode);
+  setGroupVal('grpDifficulty', p.difficulty);
+  setGroupVal('grpLevelType', p.levelType);
+  PROP_CHK_MAP.forEach(([rowId, propKey]) => syncChkBox(rowId, p[propKey]));
+}
+
+function syncSettingsFromState() {
+  const s = state.appSettings;
+  syncChkBox('chkAutoStartRow', s.autoStart);
+  syncChkBox('chkSplashRow', s.splashAnim);
+  syncChkBox('chkCrashGuardRow', s.crashGuard);
+  syncChkBox('chkDailyRestartRow', s.dailyRestart);
+  syncChkBox('chkSchedBkRow', s.schedBk);
+  const rtEl = document.getElementById('inputRestartTime');
+  if (rtEl) rtEl.value = s.dailyRestartTime;
+  const jvmEl = document.getElementById('inputJvmArgs');
+  if (jvmEl) jvmEl.value = s.jvmArgs;
+  const bkEl = document.getElementById('inputSchedBkHours');
+  if (bkEl) bkEl.value = s.schedBkHours;
+}
+
+function clampIntField(id, minV, maxV, fallback) {
+  const el = document.getElementById(id);
+  const raw = el ? el.value.trim() : '';
+  const parsed = /^\d+$/.test(raw) ? parseInt(raw, 10) : fallback;
+  const clamped = Math.max(minV, Math.min(maxV, Number.isFinite(parsed) ? parsed : fallback));
+  if (el) el.value = String(clamped);
+  return String(clamped);
+}
+
+// Refresh buttons (Access, Backups, Plugins & Mods)
+document.querySelectorAll('[data-i18n="btnRefresh"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const t = i18n[state.lang];
     appendLog(t.logListReloaded, 'info');
@@ -1737,25 +2082,41 @@ document.querySelectorAll('[data-i18n="btnReload"]').forEach(btn => {
   });
 });
 
-// Gamemode / Difficulty toggles in Props page
-document.querySelectorAll('.btn-sel').forEach(btn => {
+// Reload Properties button (restores saved snapshot)
+const btnReloadProps = document.getElementById('btnReloadProps');
+if (btnReloadProps) {
+  btnReloadProps.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    renderPropertiesFromState();
+    appendLog(t.logPropsReloaded, 'info');
+    showToast(t.toastPropsReloaded);
+  });
+}
+
+// Button-group toggles (excluding lang buttons)
+document.querySelectorAll('.btn-group .btn-sel:not(.lang-btn)').forEach(btn => {
   btn.addEventListener('click', () => {
     const parent = btn.parentElement;
+    if (!parent) return;
     parent.querySelectorAll('.btn-sel').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    const k = btn.dataset.i18n || '';
-    if (k.startsWith('gm')) state.gamemode = k.slice(2).toLowerCase();
-    if (k.startsWith('df')) state.difficulty = k.slice(2).toLowerCase();
   });
 });
 
-// Checkboxes toggle
+// Checkboxes toggle + Settings sync
 document.querySelectorAll('.chk-row').forEach(row => {
   row.addEventListener('click', () => {
     const box = row.querySelector('.chk-box');
     if (!box) return;
-    box.classList.toggle('checked');
-    box.textContent = box.classList.contains('checked') ? '✓' : '';
+    const nextChecked = !box.classList.contains('checked');
+    box.classList.toggle('checked', nextChecked);
+    box.textContent = nextChecked ? '✓' : '';
+
+    if (row.id === 'chkAutoStartRow') state.appSettings.autoStart = nextChecked;
+    else if (row.id === 'chkSplashRow') state.appSettings.splashAnim = nextChecked;
+    else if (row.id === 'chkCrashGuardRow') state.appSettings.crashGuard = nextChecked;
+    else if (row.id === 'chkDailyRestartRow') state.appSettings.dailyRestart = nextChecked;
+    else if (row.id === 'chkSchedBkRow') state.appSettings.schedBk = nextChecked;
   });
 });
 
@@ -1781,6 +2142,10 @@ document.querySelectorAll('[data-i18n="btnNewBackup"]').forEach(btn => {
     const ts = now().replace(/:/g, '-');
     const fname = `backup_${dateStr}_${ts}_${tag}.zip`;
 
+    if (state.serverPhase === 'running') {
+      appendLog(`[${now()}] [Server thread/INFO]: Saved the game`, 'sys');
+    }
+
     const list = document.getElementById('listBackups');
     if (list) {
       const item = document.createElement('div');
@@ -1797,13 +2162,17 @@ document.querySelectorAll('[data-i18n="btnNewBackup"]').forEach(btn => {
 
 document.querySelectorAll('[data-i18n="btnRestoreBackup"]').forEach(btn => {
   btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    if (state.serverPhase !== 'stopped') {
+      showToast(t.errServerMustStop);
+      return;
+    }
     const bkList = document.getElementById('listBackups');
     const sel = bkList ? (bkList.querySelector('.selected') || bkList.firstElementChild) : null;
     if (!sel) {
-      showToast(state.lang === 'en' ? 'No backup selected to restore.' : 'Geri yüklenecek yedek bulunamadı.');
+      showToast(t.errEmptyList);
       return;
     }
-    const t = i18n[state.lang];
     appendLog(t.logBackupRestored, 'sys');
     showToast(t.logBackupRestored.replace('» ', ''));
   });
@@ -1811,14 +2180,16 @@ document.querySelectorAll('[data-i18n="btnRestoreBackup"]').forEach(btn => {
 
 document.querySelectorAll('[data-i18n="btnDeleteBackup"]').forEach(btn => {
   btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
     const list = document.getElementById('listBackups');
     const sel = list ? (list.querySelector('.player-item.selected') || list.querySelector('.player-item')) : null;
-    if (sel) {
-      sel.remove();
-      const next = list.querySelector('.player-item');
-      if (next) next.classList.add('selected');
+    if (!sel) {
+      showToast(t.errEmptyList);
+      return;
     }
-    const t = i18n[state.lang];
+    sel.remove();
+    const next = list.querySelector('.player-item');
+    if (next) next.classList.add('selected');
     appendLog(t.logBackupDeleted, 'warn');
     showToast(t.logBackupDeleted.replace('» ', ''));
   });
@@ -1838,20 +2209,27 @@ const sampleAddons = {
   plugins: ['WorldEdit.jar', 'CoreProtect.jar', 'LuckPerms.jar', 'PlaceholderAPI.jar'],
   mods: ['Iris.jar', 'FerriteCore.jar', 'Indium.jar', 'ModMenu.jar']
 };
-let addonIdx = { plugins: 0, mods: 0 };
 
 document.querySelectorAll('[data-i18n="btnAddItem"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const card = btn.closest('.w-card');
     const list = card ? card.querySelector('.player-list') : null;
     if (!list) return;
+    const t = i18n[state.lang];
     const isPlugin = list.id === 'listPlugins';
     const pool = isPlugin ? sampleAddons.plugins : sampleAddons.mods;
-    const key = isPlugin ? 'plugins' : 'mods';
-    const name = pool[addonIdx[key] % pool.length];
-    addonIdx[key]++;
+    const existingSet = new Set(
+      Array.from(list.querySelectorAll('.player-item')).map(el => {
+        const raw = el.firstChild ? el.firstChild.textContent : el.textContent;
+        return raw.replace(/^[^\w.-]+\s*/, '').replace(/\.disabled\b/gi, '').trim().toLowerCase();
+      })
+    );
+    const name = pool.find(n => !existingSet.has(n.toLowerCase()));
+    if (!name) {
+      showToast(t.errDuplicateItem);
+      return;
+    }
 
-    const t = i18n[state.lang];
     const item = document.createElement('div');
     item.className = 'player-item';
     const icon = isPlugin ? '🧩 ' : '⚙️ ';
@@ -1875,13 +2253,16 @@ document.querySelectorAll('[data-i18n="btnDelItem"]').forEach(btn => {
     const card = btn.closest('.w-card');
     const list = card ? card.querySelector('.player-list') : null;
     if (!list) return;
+    const t = i18n[state.lang];
     const sel = list.querySelector('.player-item.selected') || list.querySelector('.player-item');
-    if (!sel) return;
+    if (!sel) {
+      showToast(t.errEmptyList);
+      return;
+    }
     const label = sel.firstChild ? sel.firstChild.textContent.trim() : 'item.jar';
     sel.remove();
     const next = list.querySelector('.player-item');
     if (next) next.classList.add('selected');
-    const t = i18n[state.lang];
     appendLog(`${t.logItemRemoved}${label}`, 'warn');
     showToast(`${t.logItemRemoved.replace('» ', '')}${label}`);
   });
@@ -1891,16 +2272,44 @@ document.querySelectorAll('[data-i18n="btnDelItem"]').forEach(btn => {
 document.querySelectorAll('[data-i18n="btnSaveProfile"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const t = i18n[state.lang];
-    const input = btn.parentElement.querySelector('input');
-    const name = (input && input.value.trim()) ? input.value.trim() : 'Custom Server';
+    const input = document.getElementById('inputProfileName') || btn.parentElement.querySelector('input');
+    const name = input ? input.value.trim() : '';
+    if (!name) {
+      showToast(t.errEmptyProfile);
+      return;
+    }
     const ramVal = (inputRam && inputRam.value.trim()) ? inputRam.value.trim() : '4G';
+    if (!parseRamStrict(ramVal)) {
+      showToast(t.errInvalidRam);
+      return;
+    }
     const portVal = (inputPort && inputPort.value.trim()) ? inputPort.value.trim() : '25565';
+    if (!parsePortStrict(portVal)) {
+      showToast(t.errInvalidPort);
+      return;
+    }
+    const jarVal = (inputJar && inputJar.value.trim()) ? inputJar.value.trim() : 'C:\\Minecraft\\paper-1.20.4.jar';
+    const ipVal = (inputIp && inputIp.value.trim()) ? inputIp.value.trim() : '';
+    const jvmEl = document.getElementById('inputJvmArgs');
+    const jvmVal = jvmEl ? jvmEl.value.trim() : state.appSettings.jvmArgs;
+
     const list = document.getElementById('listProfiles');
     if (list) {
-      const item = document.createElement('div');
-      item.className = 'player-item';
+      let item = Array.from(list.querySelectorAll('.player-item')).find(el =>
+        (el.dataset.name || '').toLowerCase() === name.toLowerCase()
+      );
+      if (!item) {
+        item = document.createElement('div');
+        item.className = 'player-item';
+        list.prepend(item);
+      }
+      item.dataset.name = name;
+      item.dataset.jar = jarVal;
+      item.dataset.ip = ipVal;
+      item.dataset.port = portVal;
+      item.dataset.ram = ramVal;
+      item.dataset.jvm = jvmVal;
       item.textContent = `📂 ${name}   •   ${ramVal}   •   :${portVal}`;
-      list.prepend(item);
       selectListItem(list, item);
     }
     if (input) input.value = '';
@@ -1913,63 +2322,167 @@ document.querySelectorAll('[data-i18n="btnSaveProfile"]').forEach(btn => {
 document.querySelectorAll('[data-i18n="btnLoadProfile"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const t = i18n[state.lang];
+    if (state.serverPhase !== 'stopped') {
+      showToast(t.errServerMustStop);
+      return;
+    }
     const list = document.getElementById('listProfiles');
     const sel = list ? (list.querySelector('.player-item.selected') || list.querySelector('.player-item')) : null;
-    const txt = sel ? sel.textContent.replace(/^📂\s*/, '').trim() : '26.3 Survival   •   5G   •   :25565';
-    const ramMatch = txt.match(/•\s*([^\s•]+)\s*•/);
-    const portMatch = txt.match(/:(\d+)/);
-    if (ramMatch && inputRam) inputRam.value = ramMatch[1];
-    if (portMatch && inputPort) inputPort.value = portMatch[1];
-    appendLog(`${t.logProfileLoaded}"${txt}"`, 'info');
-    showToast(`${t.logProfileLoaded.replace('» ', '')}${txt.split('•')[0].trim()}`);
+    if (!sel) {
+      showToast(t.errEmptyList);
+      return;
+    }
+    const profileName = sel.dataset.name || sel.textContent.replace(/^📂\s*/, '').split('•')[0].trim();
+    if (sel.dataset.jar && inputJar) inputJar.value = sel.dataset.jar;
+    if (inputIp) inputIp.value = sel.dataset.ip !== undefined ? sel.dataset.ip : '';
+    if (sel.dataset.ram && inputRam) inputRam.value = sel.dataset.ram;
+    if (sel.dataset.port && inputPort) inputPort.value = sel.dataset.port;
+    if (sel.dataset.jvm !== undefined) {
+      state.appSettings.jvmArgs = sel.dataset.jvm;
+      const jvmEl = document.getElementById('inputJvmArgs');
+      if (jvmEl) jvmEl.value = sel.dataset.jvm;
+    }
+    updateTelemetryVisuals(false);
+    appendLog(`${t.logProfileLoaded}"${profileName}"`, 'info');
+    showToast(`${t.logProfileLoaded.replace('» ', '')}${profileName}`);
   });
 });
 
 // Delete Profile simulator
 document.querySelectorAll('[data-i18n="btnDeleteProfile"]').forEach(btn => {
   btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
     const list = document.getElementById('listProfiles');
     const sel = list ? (list.querySelector('.player-item.selected') || list.querySelector('.player-item')) : null;
-    if (sel) {
-      sel.remove();
-      const next = list.querySelector('.player-item');
-      if (next) next.classList.add('selected');
+    if (!sel) {
+      showToast(t.errEmptyList);
+      return;
     }
-    const t = i18n[state.lang];
+    sel.remove();
+    const next = list.querySelector('.player-item');
+    if (next) next.classList.add('selected');
     appendLog(t.logProfileDeleted, 'warn');
     showToast(t.logProfileDeleted.replace('» ', ''));
   });
 });
 
 // Save server.properties simulator
-document.querySelectorAll('[data-i18n="btnSaveProps"]').forEach(btn => {
-  btn.addEventListener('click', () => {
+const btnSavePropsEl = document.getElementById('btnSaveProps');
+if (btnSavePropsEl) {
+  btnSavePropsEl.addEventListener('click', () => {
     const t = i18n[state.lang];
+    const prevGm = state.properties.gamemode;
+    const prevDiff = state.properties.difficulty;
+    const prevWl = state.properties.whitelist;
+
+    const motdEl = document.getElementById('inputMotd');
+    const lvlNameEl = document.getElementById('inputLevelName');
+    const lvlSeedEl = document.getElementById('inputLevelSeed');
+
+    state.properties.motd = motdEl ? motdEl.value.trim() : state.properties.motd;
+    state.properties.maxPlayers = clampIntField('inputMaxPlayers', 1, 99999, 20);
+    state.properties.spawnProt = clampIntField('inputSpawnProt', 0, 256, 16);
+    state.properties.viewDist = clampIntField('inputViewDist', 2, 32, 10);
+    state.properties.simDist = clampIntField('inputSimDist', 2, 32, 10);
+    state.properties.gamemode = getGroupVal('grpGamemode', 'survival');
+    state.properties.difficulty = getGroupVal('grpDifficulty', 'normal');
+    state.properties.levelType = getGroupVal('grpLevelType', 'default');
+
+    const cleanLvl = lvlNameEl ? lvlNameEl.value.trim() : 'world';
+    state.properties.levelName = cleanLvl || 'world';
+    if (lvlNameEl && !cleanLvl) lvlNameEl.value = 'world';
+    state.properties.levelSeed = lvlSeedEl ? lvlSeedEl.value.trim() : '';
+
+    PROP_CHK_MAP.forEach(([rowId, propKey]) => {
+      state.properties[propKey] = isChkRowChecked(rowId);
+    });
+
+    state.gamemode = state.properties.gamemode;
+    state.difficulty = state.properties.difficulty;
     updateTelemetryVisuals(false);
+
+    if (state.serverPhase === 'running') {
+      if (state.properties.gamemode !== prevGm) {
+        appendLog(`[${now()}] [Server thread/INFO]: Set the default game mode to ${state.properties.gamemode}`, 'info');
+      }
+      if (state.properties.difficulty !== prevDiff) {
+        appendLog(`[${now()}] [Server thread/INFO]: The difficulty has been set to ${state.properties.difficulty}`, 'info');
+      }
+      if (state.properties.whitelist !== prevWl) {
+        appendLog(`[${now()}] [Server thread/INFO]: Whitelist is now turned ${state.properties.whitelist ? 'on' : 'off'}`, state.properties.whitelist ? 'sys' : 'warn');
+      }
+    }
+
     appendLog(t.logPropsSaved, 'sys');
     showToast(t.toastSaved);
   });
-});
+}
 
-// General Save buttons simulator
-document.querySelectorAll('.tab-page button[data-i18n="btnSave"]').forEach(btn => {
-  btn.addEventListener('click', () => {
+// Settings -> Server & Automation save buttons with validation
+const btnSaveDailyRestart = document.getElementById('btnSaveDailyRestart');
+if (btnSaveDailyRestart) {
+  btnSaveDailyRestart.addEventListener('click', () => {
     const t = i18n[state.lang];
+    const el = document.getElementById('inputRestartTime');
+    const val = el ? el.value.trim() : '';
+    if (!isValidHHMM(val)) {
+      showToast(t.errInvalidTime);
+      return;
+    }
+    state.appSettings.dailyRestartTime = val;
+    state.appSettings.dailyRestart = isChkRowChecked('chkDailyRestartRow');
     appendLog(t.logSettingsSaved, 'sys');
     showToast(t.toastSaved);
   });
-});
+}
+
+const btnSaveJvm = document.getElementById('btnSaveJvm');
+if (btnSaveJvm) {
+  btnSaveJvm.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    const el = document.getElementById('inputJvmArgs');
+    const val = el ? el.value.trim() : '';
+    if (val.includes('"')) {
+      showToast(t.errInvalidJvm);
+      return;
+    }
+    state.appSettings.jvmArgs = val;
+    appendLog(t.logSettingsSaved, 'sys');
+    showToast(t.toastSaved);
+  });
+}
+
+const btnSaveSchedBk = document.getElementById('btnSaveSchedBk');
+if (btnSaveSchedBk) {
+  btnSaveSchedBk.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    const el = document.getElementById('inputSchedBkHours');
+    const raw = el ? el.value.trim() : '';
+    const v = /^\d+$/.test(raw) ? parseInt(raw, 10) : 0;
+    if (v < 1 || v > 72) {
+      showToast(t.errInvalidHours);
+      return;
+    }
+    state.appSettings.schedBkHours = String(v);
+    state.appSettings.schedBk = isChkRowChecked('chkSchedBkRow');
+    appendLog(t.logSettingsSaved, 'sys');
+    showToast(t.toastSaved);
+  });
+}
 
 // Toggle Plugin/Mod Active-Disabled
 document.querySelectorAll('[data-i18n="btnTogglePlugin"]').forEach(btn => {
   btn.addEventListener('click', () => {
     const card = btn.closest('.w-card');
     if (!card) return;
+    const t = i18n[state.lang];
     const selected = card.querySelector('.player-item.selected') || card.querySelector('.player-item');
-    if (!selected) return;
+    if (!selected) {
+      showToast(t.errEmptyList);
+      return;
+    }
     const badge = selected.querySelector('span[class^="badge-status-"]');
     if (!badge) return;
-    const t = i18n[state.lang];
     const isNowActive = badge.classList.contains('badge-status-disabled');
     const textNode = selected.firstChild;
     if (textNode && textNode.nodeType === Node.TEXT_NODE) {
@@ -2016,12 +2529,14 @@ function now() {
 }
 
 if (inputRam) inputRam.addEventListener('input', () => updateTelemetryVisuals(false));
-if (inputMaxPlayers) inputMaxPlayers.addEventListener('input', () => updateTelemetryVisuals(false));
 
 // Initial state
+renderPropertiesFromState();
+syncSettingsFromState();
 setLanguage('tr');
 setTheme('dark');
 setPage('panel');
 setSettingsSubTab('gen');
 renderDashboardPlayers();
+syncDashboardControlLocks();
 updateTelemetryVisuals(false);

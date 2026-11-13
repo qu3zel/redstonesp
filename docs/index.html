@@ -23,8 +23,8 @@
     <div class="nav-links">
       <a href="#features" class="nav-link" data-i18n="navFeatures">Özellikler</a>
       <a href="#projects" class="nav-link" data-i18n="navProjects">Diğer Projeler</a>
-      <a href="https://github.com/qu3zel/redstonesp" target="_blank" class="nav-link">GitHub ⭐</a>
-      <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" class="btn-nav-download" data-i18n="navDownload">
+      <a href="https://github.com/qu3zel/redstonesp" target="_blank" rel="noopener noreferrer" class="nav-link">GitHub ⭐</a>
+      <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" rel="noopener noreferrer" class="btn-nav-download" data-i18n="navDownload">
         ⬇️ İndir (.exe)
       </a>
     </div>
@@ -41,15 +41,15 @@
       Electron veya hantal arayüzler yok. Tek dosyada derlenen ultra hafif saf Win32 mimarisi, modern sekmeli arayüz, gerçek zamanlı renkli konsol ve otomatik yedekleme sistemi.
     </p>
     <div class="hero-actions">
-      <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" class="btn-primary" data-i18n="heroBtnDownload">
+      <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" rel="noopener noreferrer" class="btn-primary" data-i18n="heroBtnDownload">
         ⚡ Windows İçin İndir (.exe)
       </a>
-      <a href="https://github.com/qu3zel/redstonesp" target="_blank" class="btn-secondary" data-i18n="heroBtnGithub">
+      <a href="https://github.com/qu3zel/redstonesp" target="_blank" rel="noopener noreferrer" class="btn-secondary" data-i18n="heroBtnGithub">
         ⭐ GitHub'da İncele
       </a>
     </div>
     <div class="quick-stats">
-      <div class="quick-stat-item">🚀 <strong>10ms</strong> <span data-i18n="statStartup">Açılış Süresi</span></div>
+      <div class="quick-stat-item">⚡ <strong>C++17</strong> <span data-i18n="statStartup">Saf Win32</span></div>
       <div class="quick-stat-item">💾 <strong>~10 MB</strong> <span data-i18n="statRam">RAM Tüketimi</span></div>
       <div class="quick-stat-item">🎨 <strong>4</strong> <span data-i18n="statThemes">Özel Tema</span></div>
       <div class="quick-stat-item">🌐 <strong>TR / EN</strong> <span data-i18n="statLang">Çift Dil</span></div>
@@ -155,7 +155,7 @@
                 <div style="margin-top: 0.75rem;">
                   <label class="w-label" data-i18n="lblUnban">Banı kaldır (oyuncu adı)</label>
                   <div class="w-input-row">
-                    <input type="text" class="w-input" placeholder="oyuncu_adi" id="inputUnban" style="margin-bottom: 0;">
+                    <input type="text" class="w-input" placeholder="oyuncu_adi" data-i18n-ph="phUnban" id="inputUnban" style="margin-bottom: 0;">
                     <button class="w-btn" data-i18n="btnUnban" id="btnUnban" style="height: 32px; white-space: nowrap;">Banı Kaldır</button>
                   </div>
                 </div>
@@ -298,7 +298,7 @@
               <div class="w-card">
                 <div class="w-card-title" data-i18n="cardPropServer">SUNUCU BİLGİLERİ</div>
                 <label class="w-label" data-i18n="lblMotd">Sunucu Açıklaması (MOTD)</label>
-                <input type="text" class="w-input" value="A Minecraft Server - Powered by Redstone SP">
+                <input type="text" class="w-input" id="inputMotd" value="A Minecraft Server - Powered by Redstone SP">
 
                 <div class="w-input-row">
                   <div style="flex: 1;">
@@ -307,24 +307,24 @@
                   </div>
                   <div style="flex: 1;">
                     <label class="w-label" data-i18n="lblSpawnProt">Başlangıç Koruması (blok)</label>
-                    <input type="text" class="w-input" value="16">
+                    <input type="text" class="w-input" id="inputSpawnProt" value="16">
                   </div>
                 </div>
 
                 <div class="w-input-row">
                   <div style="flex: 1;">
                     <label class="w-label" data-i18n="lblViewDist">Görüş Mesafesi (chunk)</label>
-                    <input type="text" class="w-input" value="10">
+                    <input type="text" class="w-input" id="inputViewDist" value="10">
                   </div>
                   <div style="flex: 1;">
                     <label class="w-label" data-i18n="lblSimDist">Simülasyon Mesafesi</label>
-                    <input type="text" class="w-input" value="10">
+                    <input type="text" class="w-input" id="inputSimDist" value="10">
                   </div>
                 </div>
 
                 <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-                  <button class="w-btn w-btn-start" style="flex: 1;" data-i18n="btnSaveProps">Ayarları Kaydet</button>
-                  <button class="w-btn" data-i18n="btnReload">Yeniden Yükle</button>
+                  <button class="w-btn w-btn-start" id="btnSaveProps" style="flex: 1;" data-i18n="btnSaveProps">Ayarları Kaydet</button>
+                  <button class="w-btn" id="btnReloadProps" data-i18n="btnReload">Yeniden Yükle</button>
                 </div>
 
                 <p class="w-desc-text" style="margin-top: 0.75rem;" data-i18n="descPropsNote">Not: Bazı ayarların tam geçerli olması için sunucuyu yeniden başlatmanız gerekir.</p>
@@ -333,24 +333,24 @@
               <div class="w-card" style="margin-bottom: 0;">
                 <div class="w-card-title" data-i18n="cardGmDiff">OYUN MODU &amp; ZORLUK</div>
                 <div class="w-label" data-i18n="lblDefGamemode">Varsayılan Oyun Modu (gamemode)</div>
-                <div class="btn-group">
-                  <div class="btn-sel active" data-i18n="gmSurvival">Hayatta Kalma</div>
-                  <div class="btn-sel" data-i18n="gmCreative">Yaratıcı</div>
-                  <div class="btn-sel" data-i18n="gmAdventure">Macera</div>
-                  <div class="btn-sel" data-i18n="gmSpectator">İzleyici</div>
+                <div class="btn-group" id="grpGamemode">
+                  <div class="btn-sel active" data-val="survival" data-i18n="gmSurvival">Hayatta Kalma</div>
+                  <div class="btn-sel" data-val="creative" data-i18n="gmCreative">Yaratıcı</div>
+                  <div class="btn-sel" data-val="adventure" data-i18n="gmAdventure">Macera</div>
+                  <div class="btn-sel" data-val="spectator" data-i18n="gmSpectator">İzleyici</div>
                 </div>
                 <div class="w-label" data-i18n="lblDifficulty">Oyun Zorluğu (difficulty)</div>
-                <div class="btn-group">
-                  <div class="btn-sel" data-i18n="dfPeaceful">Barışçıl</div>
-                  <div class="btn-sel" data-i18n="dfEasy">Kolay</div>
-                  <div class="btn-sel active" data-i18n="dfNormal">Normal</div>
-                  <div class="btn-sel" data-i18n="dfHard">Zor</div>
+                <div class="btn-group" id="grpDifficulty">
+                  <div class="btn-sel" data-val="peaceful" data-i18n="dfPeaceful">Barışçıl</div>
+                  <div class="btn-sel" data-val="easy" data-i18n="dfEasy">Kolay</div>
+                  <div class="btn-sel active" data-val="normal" data-i18n="dfNormal">Normal</div>
+                  <div class="btn-sel" data-val="hard" data-i18n="dfHard">Zor</div>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkHardcoreRow">
                   <div class="chk-box"></div>
                   <span data-i18n="chkHardcore">Hardcore Modu (hardcore — tek yaşam)</span>
                 </div>
-                <div class="chk-row" style="margin-bottom: 0;">
+                <div class="chk-row" id="chkForceGmRow" style="margin-bottom: 0;">
                   <div class="chk-box"></div>
                   <span data-i18n="chkForceGm">Oyun Modunu Zorla (force-gamemode)</span>
                 </div>
@@ -360,31 +360,31 @@
             <div>
               <div class="w-card">
                 <div class="w-card-title" data-i18n="cardRules">KURALLAR &amp; GÜVENLİK</div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkOnlineRow">
                   <div class="chk-box checked">✓</div>
                   <span data-i18n="chkOnline">Orijinal Hesap Zorunlu (online-mode)</span>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkPvpRow">
                   <div class="chk-box checked">✓</div>
                   <span data-i18n="chkPvp">Oyuncular Arası Hasar (pvp)</span>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkWhitelistRow">
                   <div class="chk-box"></div>
                   <span data-i18n="chkWhitelist">Whitelist Zorunlu (white-list)</span>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkFlightRow">
                   <div class="chk-box"></div>
                   <span data-i18n="chkFlight">Uçmaya İzin Ver (allow-flight)</span>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkCmdBlockRow">
                   <div class="chk-box"></div>
                   <span data-i18n="chkCmdBlock">Komut Bloklarını Etkinleştir (enable-command-block)</span>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkSecureProfRow">
                   <div class="chk-box checked">✓</div>
                   <span data-i18n="chkSecureProf">Güvenli Sohbet İmzası (enforce-secure-profile)</span>
                 </div>
-                <div class="chk-row" style="margin-bottom: 0;">
+                <div class="chk-row" id="chkHidePlayersRow" style="margin-bottom: 0;">
                   <div class="chk-box"></div>
                   <span data-i18n="chkHidePlayers">Oyuncu Listesini Gizle (hide-online-players)</span>
                 </div>
@@ -395,33 +395,33 @@
                 <div class="w-input-row">
                   <div style="flex: 1;">
                     <label class="w-label" data-i18n="lblLevelName">Dünya Adı (level-name)</label>
-                    <input type="text" class="w-input" value="world">
+                    <input type="text" class="w-input" id="inputLevelName" value="world">
                   </div>
                   <div style="flex: 1;">
                     <label class="w-label" data-i18n="lblLevelSeed">Dünya Tohumu (level-seed)</label>
-                    <input type="text" class="w-input" value="">
+                    <input type="text" class="w-input" id="inputLevelSeed" value="">
                   </div>
                 </div>
                 <div class="w-label" data-i18n="lblLevelType">Dünya Oluşturma Türü (level-type)</div>
-                <div class="btn-group">
-                  <div class="btn-sel active" data-i18n="lvlNormal">Normal</div>
-                  <div class="btn-sel" data-i18n="lvlFlat">Düz</div>
-                  <div class="btn-sel" data-i18n="lvlLarge">Geniş Biyom</div>
-                  <div class="btn-sel" data-i18n="lvlAmp">Yükseltilmiş</div>
+                <div class="btn-group" id="grpLevelType">
+                  <div class="btn-sel active" data-val="default" data-i18n="lvlNormal">Normal</div>
+                  <div class="btn-sel" data-val="flat" data-i18n="lvlFlat">Düz</div>
+                  <div class="btn-sel" data-val="largeBiomes" data-i18n="lvlLarge">Geniş Biyom</div>
+                  <div class="btn-sel" data-val="amplified" data-i18n="lvlAmp">Yükseltilmiş</div>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkNetherRow">
                   <div class="chk-box checked">✓</div>
                   <span data-i18n="chkNether">Nether Boyutuna İzin Ver (allow-nether)</span>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkMonstersRow">
                   <div class="chk-box checked">✓</div>
                   <span data-i18n="chkMonsters">Canavar Doğumu (spawn-monsters)</span>
                 </div>
-                <div class="chk-row">
+                <div class="chk-row" id="chkAnimalsRow">
                   <div class="chk-box checked">✓</div>
                   <span data-i18n="chkAnimals">Hayvan Doğumu (spawn-animals)</span>
                 </div>
-                <div class="chk-row" style="margin-bottom: 0;">
+                <div class="chk-row" id="chkNpcsRow" style="margin-bottom: 0;">
                   <div class="chk-box checked">✓</div>
                   <span data-i18n="chkNpcs">Köylü / NPC Doğumu (spawn-npcs)</span>
                 </div>
@@ -446,7 +446,7 @@
               </div>
               <div style="display: flex; gap: 0.5rem;">
                 <button class="w-btn" style="flex: 1;" data-i18n="btnRemWl">Seçileni Çıkar</button>
-                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+                <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
               </div>
             </div>
 
@@ -462,7 +462,7 @@
               </div>
               <div style="display: flex; gap: 0.5rem;">
                 <button class="w-btn" style="flex: 1;" data-i18n="btnOpRem">OP Al (Deop)</button>
-                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+                <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
               </div>
             </div>
           </div>
@@ -493,7 +493,7 @@
               <div class="btn-row-3">
                 <button class="w-btn" data-i18n="btnRestoreBackup">Geri Yükle</button>
                 <button class="w-btn" data-i18n="btnDeleteBackup">Yedeği Sil</button>
-                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+                <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
               </div>
             </div>
           </div>
@@ -515,7 +515,7 @@
                 <button class="w-btn" data-i18n="btnAddItem">Ekle</button>
                 <button class="w-btn" data-i18n="btnDelItem">Sil</button>
                 <button class="w-btn" data-i18n="btnOpenFolder">Aç</button>
-                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+                <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
               </div>
             </div>
 
@@ -532,7 +532,7 @@
                 <button class="w-btn" data-i18n="btnAddItem">Ekle</button>
                 <button class="w-btn" data-i18n="btnDelItem">Sil</button>
                 <button class="w-btn" data-i18n="btnOpenFolder">Aç</button>
-                <button class="w-btn" data-i18n="btnReload">Yenile</button>
+                <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
               </div>
             </div>
           </div>
@@ -548,7 +548,7 @@
                 Panel'deki .jar yolu, IP, port, RAM ve JVM argümanlarını bir profil olarak saklar. Farklı sunucular arasında tek tıkla geçiş yapabilirsiniz.
               </p>
               <label class="w-label" data-i18n="lblProfileName">Profil Adı (ör: 1.20 Survival)</label>
-              <input type="text" class="w-input" placeholder="Hardcore Survival">
+              <input type="text" class="w-input" id="inputProfileName" placeholder="Hardcore Survival">
               <button class="w-btn w-btn-start" style="width: 100%;" data-i18n="btnSaveProfile">💾 Yeni Profil Olarak Kaydet</button>
             </div>
 
@@ -556,9 +556,9 @@
             <div class="w-card">
               <div class="w-card-title" data-i18n="cardProfiles">KAYITLI SUNUCU PROFİLLERİ</div>
               <div class="player-list" id="listProfiles" style="height: 150px;">
-                <div class="player-item selected">📂 26.3 Survival   •   5G   •   :25565</div>
-                <div class="player-item">📂 Modlu Forge Sunucu   •   8G   •   :25566</div>
-                <div class="player-item">📂 Test Paper Server   •   2G   •   :25567</div>
+                <div class="player-item selected" data-name="26.3 Survival" data-jar="C:\Minecraft\server-26.3.jar" data-ip="" data-port="25565" data-ram="5G" data-jvm="-XX:+UseG1GC -XX:+ParallelRefProcEnabled">📂 26.3 Survival   •   5G   •   :25565</div>
+                <div class="player-item" data-name="Modlu Forge Sunucu" data-jar="C:\Minecraft\forge-1.20.1-server.jar" data-ip="" data-port="25566" data-ram="8G" data-jvm="-XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfml.readTimeout=90">📂 Modlu Forge Sunucu   •   8G   •   :25566</div>
+                <div class="player-item" data-name="Test Paper Server" data-jar="C:\Minecraft\paper-1.20.4.jar" data-ip="127.0.0.1" data-port="25567" data-ram="2G" data-jvm="-XX:+UseG1GC">📂 Test Paper Server   •   2G   •   :25567</div>
               </div>
               <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
                 <button class="w-btn w-btn-start" style="flex: 1;" data-i18n="btnLoadProfile">Seçili Profili Yükle</button>
@@ -583,17 +583,21 @@
               <div>
                 <div class="w-card">
                   <div class="w-card-title" data-i18n="cardStartup">BAŞLANGIÇ</div>
-                  <div class="chk-row">
+                  <div class="chk-row" id="chkAutoStartRow">
                     <div class="chk-box"></div>
                     <span data-i18n="lblAutostart">Windows ile birlikte başlat</span>
+                  </div>
+                  <div class="chk-row" id="chkSplashRow" style="margin-bottom: 0;">
+                    <div class="chk-box checked">✓</div>
+                    <span data-i18n="lblSplashAnim">Açılış animasyonunu göster</span>
                   </div>
                 </div>
 
                 <div class="w-card">
                   <div class="w-card-title" data-i18n="cardLang">DİL SEÇİMİ (LANGUAGE)</div>
                   <div class="btn-group">
-                    <div class="btn-sel lang-btn active" data-lang="tr" onclick="setLanguage('tr')">Türkçe</div>
-                    <div class="btn-sel lang-btn" data-lang="en" onclick="setLanguage('en')">English</div>
+                    <div class="btn-sel lang-btn active" data-lang="tr">Türkçe</div>
+                    <div class="btn-sel lang-btn" data-lang="en">English</div>
                   </div>
                 </div>
               </div>
@@ -617,7 +621,7 @@
               <div>
                 <div class="w-card">
                   <div class="w-card-title" data-i18n="cardAutoRestart">OTOMATİK YENİDEN BAŞLATMA</div>
-                  <div class="chk-row">
+                  <div class="chk-row" id="chkCrashGuardRow">
                     <div class="chk-box checked">✓</div>
                     <span data-i18n="lblCrashGuard">Çökme Koruması</span>
                   </div>
@@ -628,7 +632,7 @@
 
                 <div class="w-card">
                   <div class="w-card-title" data-i18n="cardDailyRestart">GÜNLÜK YENİDEN BAŞLATMA</div>
-                  <div class="chk-row">
+                  <div class="chk-row" id="chkDailyRestartRow">
                     <div class="chk-box"></div>
                     <span data-i18n="lblDailyRestart">Planlı Yeniden Başlatma</span>
                   </div>
@@ -636,8 +640,8 @@
                     Her gün belirtilen saatte (SS:DD) oyunculara 5 ve 1 dakika kala duyuru yaparak sunucuyu güvenle yeniden başlatır.
                   </p>
                   <div class="w-input-row">
-                    <input type="text" class="w-input" value="04:00" style="margin-bottom: 0;">
-                    <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
+                    <input type="text" class="w-input" id="inputRestartTime" value="04:00" style="margin-bottom: 0;">
+                    <button class="w-btn w-btn-start" id="btnSaveDailyRestart" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
                   </div>
                 </div>
 
@@ -658,14 +662,14 @@
                     Sunucu başlatılırken kullanılacak ek Java argümanları. Değişiklik bir sonraki başlatmada geçerli olur.
                   </p>
                   <div class="w-input-row">
-                    <input type="text" class="w-input" value="-XX:+UseG1GC -XX:+ParallelRefProcEnabled" style="margin-bottom: 0;">
-                    <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
+                    <input type="text" class="w-input" id="inputJvmArgs" value="-XX:+UseG1GC -XX:+ParallelRefProcEnabled" style="margin-bottom: 0;">
+                    <button class="w-btn w-btn-start" id="btnSaveJvm" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
                   </div>
                 </div>
 
                 <div class="w-card">
                   <div class="w-card-title" data-i18n="cardSchedBk">OTOMATİK ZAMANLANMIŞ YEDEKLEME</div>
-                  <div class="chk-row">
+                  <div class="chk-row" id="chkSchedBkRow">
                     <div class="chk-box checked">✓</div>
                     <span data-i18n="lblSchedBk">Otomatik Yedekleme</span>
                   </div>
@@ -673,8 +677,8 @@
                     Sunucu çalışırken belirlenen saat aralığında (saat cinsinden) arka planda otomatik olarak dünya yedeği alır.
                   </p>
                   <div class="w-input-row">
-                    <input type="number" class="w-input" value="2" min="1" max="72" style="margin-bottom: 0;">
-                    <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
+                    <input type="number" class="w-input" id="inputSchedBkHours" value="2" min="1" max="72" style="margin-bottom: 0;">
+                    <button class="w-btn w-btn-start" id="btnSaveSchedBk" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
                   </div>
                 </div>
               </div>
@@ -756,7 +760,7 @@
 
     <div class="projects-grid">
       <!-- MoriaS -->
-      <a href="https://github.com/qu3zel/MoriaS" target="_blank" class="proj-card">
+      <a href="https://github.com/qu3zel/MoriaS" target="_blank" rel="noopener noreferrer" class="proj-card">
         <div>
           <div class="proj-top">
             <div class="proj-icon-box">🌙</div>
@@ -773,7 +777,7 @@
       </a>
 
       <!-- scopybot -->
-      <a href="https://github.com/qu3zel/scopybot" target="_blank" class="proj-card">
+      <a href="https://github.com/qu3zel/scopybot" target="_blank" rel="noopener noreferrer" class="proj-card">
         <div>
           <div class="proj-top">
             <div class="proj-icon-box">🤖</div>
@@ -790,7 +794,7 @@
       </a>
 
       <!-- GitHub Profile Card -->
-      <a href="https://github.com/qu3zel" target="_blank" class="proj-card" style="border-color: rgba(56, 189, 248, 0.4);">
+      <a href="https://github.com/qu3zel" target="_blank" rel="noopener noreferrer" class="proj-card" style="border-color: rgba(56, 189, 248, 0.4);">
         <div>
           <div class="proj-top">
             <div class="proj-icon-box" style="background: rgba(56, 189, 248, 0.25);">👤</div>
@@ -811,10 +815,10 @@
   <!-- Footer -->
   <footer class="footer">
     <p>
-      <strong>Redstone Server Panel</strong> — <span data-i18n="footerLicensed">Açık kaynaklı</span> <a href="https://github.com/qu3zel/redstonesp/blob/main/LICENSE" target="_blank" data-i18n="footerLicenseLink">MIT Lisansı</a> <span data-i18n="footerLicensedEnd">ile korunmaktadır.</span>
+      <strong>Redstone Server Panel</strong> — <span data-i18n="footerLicensed">Açık kaynaklı</span> <a href="https://github.com/qu3zel/redstonesp/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" data-i18n="footerLicenseLink">MIT Lisansı</a> <span data-i18n="footerLicensedEnd">ile korunmaktadır.</span>
     </p>
     <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-      <span data-i18n="footerDev">Geliştirici:</span> <a href="https://github.com/qu3zel" target="_blank">@qu3zel</a> • <a href="https://github.com/qu3zel/redstonesp" target="_blank" data-i18n="footerRepo">GitHub Deposu</a> • <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" data-i18n="footerDownloadLatest">Son Sürümü İndir</a>
+      <span data-i18n="footerDev">Geliştirici:</span> <a href="https://github.com/qu3zel" target="_blank" rel="noopener noreferrer">@qu3zel</a> • <a href="https://github.com/qu3zel/redstonesp" target="_blank" rel="noopener noreferrer" data-i18n="footerRepo">GitHub Deposu</a> • <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" rel="noopener noreferrer" data-i18n="footerDownloadLatest">Son Sürümü İndir</a>
     </p>
   </footer>
 

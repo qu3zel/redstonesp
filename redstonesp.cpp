@@ -94,7 +94,7 @@ enum {
     ID_CHK_SCHED_RESTART, ID_BTN_SCHED_RESTART_SAVE,
     ID_BTN_OPEN_SRVDIR, ID_BTN_FILT_ALL, ID_BTN_FILT_WARN, ID_BTN_FILT_CHAT,
     ID_BTN_CON_SAVE, ID_BTN_CON_CLEAR, ID_BTN_JAVA_BROWSE, ID_BTN_JAVA_AUTO, ID_BTN_JAVA_SAVE,
-    ID_CHK_MIN_TRAY, ID_BTN_APP_EXIT,
+    ID_CHK_MIN_TRAY, ID_CHK_SPLASH, ID_BTN_APP_EXIT,
     ID_EDIT_JAR = 1101, ID_EDIT_IP, ID_EDIT_PORT, ID_EDIT_RAM, ID_EDIT_UNBAN,
     ID_EDIT_CMD, ID_EDIT_LOG, ID_LIST_PLAYERS, ID_EDIT_JVM,
     ID_EDIT_MOTD, ID_EDIT_MAXPL, ID_EDIT_VIEWDIST, ID_EDIT_SPAWNPROT,
@@ -555,16 +555,23 @@ static WNDPROC g_oldEdit = NULL, g_oldBtn = NULL;
 
 static SrvState g_state = SrvState::Stopped;
 static HANDLE g_hProc = NULL, g_hStdinWr = NULL, g_hJob = NULL;
+static HANDLE g_hReaderThread = NULL, g_hBackupThread = NULL;
 static int g_gen = 0;
 static std::atomic<int> g_pendingTime{0};
 static std::atomic<bool> g_useTimelineCmd{false};
 static std::atomic<int> g_suppressErrLines{0};
+static std::atomic<bool> g_appClosing{false};
+static std::atomic<int> g_skinGdiActive{0};
 static ULONGLONG g_startTick = 0;
 static bool g_quitPending = false;
+static bool g_deferredQuit = false;
+static int  g_modalDepth = 0;
+static bool g_backupSaveOffSent = false;
 static bool g_trayHintShown = false;
 static bool g_srvStopAck = false;
 static int  g_stopRetryCount = 0;
 static int  g_procExitedTicks = 0;
+static std::atomic<int> g_monitorHz{60};
 
 static constexpr int TELEM_HIST = 48;
 static std::wstring g_igTime = L"--:--", g_ramText = L"0 MB", g_ramDetailText = L"0 MB / 4096 MB", g_cpuText = L"0.0%", g_upText = L"00:00:00";
@@ -612,11 +619,12 @@ static int g_logFilter = 0; // 0=All, 1=Warn&Err, 2=Chat
 static std::wstring g_javaPath, g_mcVersion, g_detectedJavaLabel;
 static int  g_schedBkKeep = 10;
 static bool g_minimizeToTray = true;
+static bool g_splashEnabled = true;
 static bool g_manualRestartPending = false;
 static HWND g_hBtnOpenSrvDir = NULL, g_hBtnFiltAll = NULL, g_hBtnFiltWarn = NULL, g_hBtnFiltChat = NULL;
 static HWND g_hBtnConSave = NULL, g_hBtnConClear = NULL;
 static HWND g_hEditJavaPath = NULL, g_hBtnJavaBrowse = NULL, g_hBtnJavaAuto = NULL, g_hBtnJavaSave = NULL;
-static HWND g_hEditBkKeep = NULL, g_hChkMinTray = NULL, g_hBtnAppExit = NULL;
+static HWND g_hEditBkKeep = NULL, g_hChkMinTray = NULL, g_hChkSplash = NULL, g_hBtnAppExit = NULL;
 
 // Window / page navigation (tab bar + title bar + sub-tabs + card pages)
 enum { PG_PANEL, PG_PROPS, PG_ACCESS, PG_BACKUPS, PG_PLUGINS, PG_PROFILES, PG_SETTINGS, PG_COUNT };
@@ -841,7 +849,30 @@ static std::wstring SysError(DWORD e) {
     return s;
 }
 
+struct ModalGuard {
+    ModalGuard() { g_modalDepth++; }
+    ~ModalGuard() { if (g_modalDepth > 0) g_modalDepth--; }
+};
+
+static std::wstring JoinPath(const std::wstring& dir, const std::wstring& child) {
+    if (dir.empty()) return child;
+    wchar_t last = dir.back();
+    if (last == L'\\' || last == L'/') return dir + child;
+    return dir + L"\\" + child;
+}
+
+static std::wstring ResolveTarExe() {
+    wchar_t sys[MAX_PATH] = {};
+    UINT n = GetSystemDirectoryW(sys, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) {
+        std::wstring p = JoinPath(sys, L"tar.exe");
+        if (GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES) return p;
+    }
+    return L"tar.exe";
+}
+
 static int Msg(const std::wstring& text, const wchar_t* title, UINT flags = MB_OK | MB_ICONINFORMATION) {
+    ModalGuard mg;
     bool visible = g_hwnd && IsWindowVisible(g_hwnd);
     HWND owner = visible ? g_hwnd : NULL;
     // When the panel is hidden in the tray there is no owner window, so make the
@@ -870,6 +901,28 @@ static bool WriteAll(const std::wstring& path, const std::string& data) {
     }
     CloseHandle(h);
     return ok;
+}
+
+static bool ParseStrictUint(const std::wstring& s, int minV, int maxV, int& out) {
+    if (s.empty()) return false;
+    long long v = 0;
+    for (wchar_t c : s) {
+        if (c < L'0' || c > L'9') return false;
+        v = v * 10 + (c - L'0');
+        if (v > (long long)maxV + 1000LL) return false;
+    }
+    if (v < minV || v > maxV) return false;
+    out = (int)v;
+    return true;
+}
+
+static bool ParseStrictHHMM(const std::wstring& s, int& hOut, int& mOut) {
+    std::wstring trimmed = Trim(s);
+    size_t col = trimmed.find(L':');
+    if (col == std::wstring::npos || trimmed.find(L':', col + 1) != std::wstring::npos) return false;
+    std::wstring hs = trimmed.substr(0, col), ms = trimmed.substr(col + 1);
+    if (hs.empty() || hs.size() > 2 || ms.size() != 2) return false;
+    return ParseStrictUint(hs, 0, 23, hOut) && ParseStrictUint(ms, 0, 59, mOut);
 }
 
 // ----------------------------------------------------------------------------
@@ -928,13 +981,22 @@ static void LoadAppPrefs() {
 
     g_schedRestartEnabled = Trim(IniGet(L"SchedRestartEnabled", L"0")) == L"1";
     g_schedRestartTime = Trim(IniGet(L"SchedRestartTime", L"04:00"));
-    if (g_schedRestartTime.empty()) g_schedRestartTime = L"04:00";
+    {
+        int rth = 4, rtm = 0;
+        if (!ParseStrictHHMM(g_schedRestartTime, rth, rtm)) {
+            g_schedRestartTime = L"04:00";
+        } else {
+            wchar_t tb[16]; swprintf(tb, 16, L"%02d:%02d", rth, rtm);
+            g_schedRestartTime = tb;
+        }
+    }
 
     g_javaPath = TrimQuotes(IniGet(L"JavaPath", L""));
     g_schedBkKeep = _wtoi(IniGet(L"SchedBkKeep", L"10").c_str());
     if (g_schedBkKeep < 0) g_schedBkKeep = 0;
     else if (g_schedBkKeep > 50) g_schedBkKeep = 50;
     g_minimizeToTray = Trim(IniGet(L"MinimizeToTray", L"1")) != L"0";
+    g_splashEnabled = Trim(IniGet(L"SplashAnim", L"1")) != L"0";
 }
 static void LoadSettings() {
     SetWindowTextW(g_hJar,  TrimQuotes(IniGet(L"Jar", L"")).c_str());
@@ -970,6 +1032,7 @@ static void SaveSettings() {
     WritePrivateProfileStringW(L"Server", L"SchedRestartEnabled", g_schedRestartEnabled ? L"1" : L"0", p.c_str());
     WritePrivateProfileStringW(L"Server", L"SchedRestartTime", g_schedRestartTime.c_str(), p.c_str());
     WritePrivateProfileStringW(L"Server", L"MinimizeToTray", g_minimizeToTray ? L"1" : L"0", p.c_str());
+    WritePrivateProfileStringW(L"Server", L"SplashAnim", g_splashEnabled ? L"1" : L"0", p.c_str());
 }
 
 // Directory holding settings.ini and console.log (%APPDATA%\RedstoneServerPanel)
@@ -1147,16 +1210,25 @@ static bool HttpFetchBytes(const wchar_t* host, const wchar_t* path, std::vector
         WinHttpQueryHeaders(hReq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                             WINHTTP_HEADER_NAME_BY_INDEX, &status, &sz, WINHTTP_NO_HEADER_INDEX);
         if (status == 200) {
+            static constexpr size_t MAX_FETCH = 256 * 1024;
+            bool ioOk = true;
             DWORD avail = 0;
-            while (WinHttpQueryDataAvailable(hReq, &avail) && avail > 0) {
-                if (out.size() + avail > 256 * 1024) break;
+            while (!g_appClosing.load()) {
+                if (!WinHttpQueryDataAvailable(hReq, &avail)) { ioOk = false; break; }
+                if (avail == 0) break;
+                if (avail > MAX_FETCH - out.size()) { ioOk = false; break; }
                 size_t old = out.size();
                 out.resize(old + avail);
                 DWORD rd = 0;
-                if (!WinHttpReadData(hReq, out.data() + old, avail, &rd)) break;
+                if (!WinHttpReadData(hReq, out.data() + old, avail, &rd)) {
+                    out.resize(old);
+                    ioOk = false;
+                    break;
+                }
                 out.resize(old + rd);
             }
-            ok = !out.empty();
+            ok = ioOk && !g_appClosing.load() && !out.empty();
+            if (!ok) out.clear();
         }
     }
     WinHttpCloseHandle(hReq);
@@ -1220,22 +1292,33 @@ struct SkinFetchArgs {
 
 static DWORD WINAPI SkinFetchThread(LPVOID p) {
     std::unique_ptr<SkinFetchArgs> a((SkinFetchArgs*)p);
+    if (g_appClosing.load()) return 0;
     std::wstring id = !a->uuid.empty() ? a->uuid : a->name;
     // Strip leading Bedrock '.' or '*' prefix if present when querying skin APIs
     while (!id.empty() && (id[0] == L'.' || id[0] == L'*')) id.erase(0, 1);
 
     HBITMAP hbm = NULL;
-    if (!id.empty()) {
+    if (!id.empty() && !g_appClosing.load()) {
         std::vector<BYTE> png;
         std::wstring p1 = L"/avatar/" + id + L"/32.png";
         std::wstring p2 = L"/helm/" + id + L"/32.png";
 
-        if (!HttpFetchBytes(L"mc-heads.net", p1.c_str(), png)) {
+        if (!HttpFetchBytes(L"mc-heads.net", p1.c_str(), png) && !g_appClosing.load()) {
             HttpFetchBytes(L"minotar.net", p2.c_str(), png);
         }
-        hbm = DecodePngToBitmap(png, 32);
+        if (!png.empty() && !g_appClosing.load()) {
+            g_skinGdiActive.fetch_add(1);
+            if (!g_appClosing.load()) {
+                hbm = DecodePngToBitmap(png, 32);
+            }
+            g_skinGdiActive.fetch_sub(1);
+        }
     }
 
+    if (g_appClosing.load()) {
+        if (hbm) DeleteObject(hbm);
+        return 0;
+    }
     SrvEvent* ev = new (std::nothrow) SrvEvent{ EV_SKIN, a->gen, a->name, hbm };
     if (!ev) {
         if (hbm) DeleteObject(hbm);
@@ -1249,6 +1332,7 @@ static DWORD WINAPI SkinFetchThread(LPVOID p) {
 }
 
 static void RequestPlayerSkin(const std::wstring& name) {
+    if (g_appClosing.load()) return;
     std::wstring key = ToLowerW(name);
     if (g_skinCache.count(key) || g_skinPending.count(key)) return;
     g_skinPending.insert(key);
@@ -1664,10 +1748,35 @@ static int ClassifyConsoleLine(const std::wstring& line) {
 
     std::wstring lower = ToLowerW(line);
 
-    // 3. Stack traces & Exceptions / Errors / Fatal crashes
+    // 3. Stack traces & Exceptions / Explicit Logger Severity Brackets (checked before '<' chat)
     if (lower.find(L"\tat ") != std::wstring::npos ||
-        lower.find(L"caused by:") != std::wstring::npos ||
-        lower.find(L"error") != std::wstring::npos ||
+        lower.find(L"caused by:") != std::wstring::npos) {
+        return LCAT_ERR;
+    }
+    size_t firstLt = lower.find(L'<');
+    std::wstring header = (firstLt == std::wstring::npos) ? lower : lower.substr(0, firstLt);
+    if (header.find(L"/error]") != std::wstring::npos ||
+        header.find(L"[error]") != std::wstring::npos ||
+        header.find(L"error]:") != std::wstring::npos ||
+        header.find(L"/fatal]") != std::wstring::npos ||
+        header.find(L"[fatal]") != std::wstring::npos ||
+        header.find(L"fatal]:") != std::wstring::npos) {
+        return LCAT_ERR;
+    }
+    if (header.find(L"/warn]") != std::wstring::npos ||
+        header.find(L"[warn]") != std::wstring::npos ||
+        header.find(L"warn]:") != std::wstring::npos ||
+        header.find(L"/warning]") != std::wstring::npos ||
+        header.find(L"[warning]") != std::wstring::npos ||
+        header.find(L"warning]:") != std::wstring::npos) {
+        return LCAT_WARN;
+    }
+
+    // 4. Player in-game chat messages: e.g. "<qu3zel> hello world" (before generic body keywords)
+    if (IsMinecraftChatLine(line)) return LCAT_CHAT;
+
+    // 5. Errors / Exceptions / Fatal failures in non-chat lines
+    if (lower.find(L"error") != std::wstring::npos ||
         lower.find(L"fatal") != std::wstring::npos ||
         lower.find(L"exception") != std::wstring::npos ||
         lower.find(L"critical") != std::wstring::npos ||
@@ -1675,16 +1784,13 @@ static int ClassifyConsoleLine(const std::wstring& line) {
         return LCAT_ERR;
     }
 
-    // 4. Server Warnings
+    // 6. Server Warnings
     if (lower.find(L"warn") != std::wstring::npos ||
         lower.find(L"warning") != std::wstring::npos) {
         return LCAT_WARN;
     }
 
-    // 5. Player in-game chat messages: e.g. "<qu3zel> hello world"
-    if (IsMinecraftChatLine(line)) return LCAT_CHAT;
-
-    // 6. Player join, leave, login events & Server Ready
+    // 7. Player join, leave, login events & Server Ready
     if (lower.find(L"joined the game") != std::wstring::npos ||
         lower.find(L"left the game") != std::wstring::npos ||
         lower.find(L"logged in with entity id") != std::wstring::npos ||
@@ -1718,10 +1824,6 @@ static COLORREF ColorForLogCat(int cat, bool isDark) {
         case LCAT_DEBUG: return isDark ? RGB(175, 190, 215) : RGB(100, 116, 139);
         default:         return isDark ? RGB(245, 248, 252) : P.logText;
     }
-}
-
-static COLORREF GetConsoleColorForLine(const std::wstring& line, bool isDark) {
-    return ColorForLogCat(ClassifyConsoleLine(line), isDark);
 }
 
 static bool LogMatchesFilter(int cat, int filter) {
@@ -1845,13 +1947,6 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
         }
     }
 
-    if (overflowed) {
-        if (isVisiblePage) RebuildLogView(true);
-        else g_logThemeDirty = true;
-        return;
-    }
-    if (batches.empty()) return;
-
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
@@ -1864,6 +1959,20 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
         SendMessageW(g_hLog, EM_EXGETSEL, 0, (LPARAM)&savedSel);
         SendMessageW(g_hLog, EM_GETSCROLLPOS, 0, (LPARAM)&savedScroll);
     }
+
+    if (overflowed) {
+        if (isVisiblePage) {
+            RebuildLogView(wasAtBottom);
+            if (!wasAtBottom) {
+                savedScroll.x = 0;
+                SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&savedScroll);
+            }
+        } else {
+            g_logThemeDirty = true;
+        }
+        return;
+    }
+    if (batches.empty()) return;
 
     if (isVisiblePage) {
         SendMessageW(g_hLog, WM_SETREDRAW, FALSE, 0);
@@ -1931,7 +2040,7 @@ static void ReapplyLogColors() {
     if (!g_hLog) return;
     SendMessageW(g_hLog, EM_SETBKGNDCOLOR, 0, (LPARAM)P.logBg);
 
-    if (!IsWindowVisible(g_hLog) || g_page != PG_PANEL) {
+    if (g_page != PG_PANEL) {
         g_logThemeDirty = true;
         return;
     }
@@ -1982,8 +2091,27 @@ static void StripFormatting(std::string& s) {
         } else if (c == 0xC2 && i + 1 < s.size() && (unsigned char)s[i + 1] == 0xA7) {
             // UTF-8 '§' (0xC2 0xA7) followed by color/format code
             i += 2;
+        } else if ((c >= 0xC2 && c <= 0xDF) && i + 1 < s.size() && ((unsigned char)s[i + 1] & 0xC0) == 0x80) {
+            // Preserve valid 2-byte UTF-8 sequences (e.g. 'ç' = 0xC3 0xA7) intact
+            o.push_back(s[i]);
+            o.push_back(s[i + 1]);
+            i += 1;
+        } else if ((c >= 0xE0 && c <= 0xEF) && i + 2 < s.size() &&
+                   ((unsigned char)s[i + 1] & 0xC0) == 0x80 && ((unsigned char)s[i + 2] & 0xC0) == 0x80) {
+            o.push_back(s[i]);
+            o.push_back(s[i + 1]);
+            o.push_back(s[i + 2]);
+            i += 2;
+        } else if ((c >= 0xF0 && c <= 0xF4) && i + 3 < s.size() &&
+                   ((unsigned char)s[i + 1] & 0xC0) == 0x80 && ((unsigned char)s[i + 2] & 0xC0) == 0x80 &&
+                   ((unsigned char)s[i + 3] & 0xC0) == 0x80) {
+            o.push_back(s[i]);
+            o.push_back(s[i + 1]);
+            o.push_back(s[i + 2]);
+            o.push_back(s[i + 3]);
+            i += 3;
         } else if (c == 0xA7 && i + 1 < s.size()) {
-            // Single-byte '§' followed by color/format code
+            // Single-byte legacy CP1252/Latin-1 '§' followed by color/format code
             i += 1;
         } else if (c >= 0x20 || c == '\t' || c == '\n') {
             o.push_back(s[i]);
@@ -2013,24 +2141,51 @@ static bool IsValidMcToken(const std::string& n) {
 
 // Strips logger/timestamp/thread prefixes such as "[12:34:56 INFO]: [System] [CHAT] "
 static std::string ExtractLogPayload(const std::string& line) {
-    std::string msg = line;
-    // Advance past standard logger header(s) ending with "]: "
+    std::string msg = TrimA(line);
+    // Advance past contiguous leading logger bracket blocks ending at the header colon:
+    // e.g. "[12:34:56] [Server thread/INFO]: " or "[13Nov 12:34:56.0] [Server thread/INFO] [mc/Server]: "
     size_t pos = 0;
-    while (true) {
-        size_t br = msg.find("]: ", pos);
-        if (br == std::string::npos) break;
-        // Only treat "]: " as header if there's a '[' before it and no '<' (chat) before it
-        size_t openBr = msg.rfind('[', br);
-        size_t chatLt = msg.find('<', pos);
-        if (openBr != std::string::npos && (chatLt == std::string::npos || openBr < chatLt)) {
-            pos = br + 3;
-        } else {
-            break;
+    size_t n = msg.size();
+    bool sawColon = false;
+    while (pos < n) {
+        size_t p = pos;
+        bool anyBracket = false;
+        while (p < n) {
+            while (p < n && (msg[p] == ' ' || msg[p] == '\t')) p++;
+            if (p >= n || msg[p] != '[') break;
+            size_t cl = msg.find(']', p + 1);
+            if (cl == std::string::npos) break;
+            anyBracket = true;
+            p = cl + 1;
         }
+        if (!anyBracket) break;
+        if (p + 1 < n && msg[p] == ':' && (msg[p + 1] == ' ' || msg[p + 1] == '\t')) {
+            pos = p + 2;
+            while (pos < n && (msg[pos] == ' ' || msg[pos] == '\t')) pos++;
+            sawColon = true;
+            // Allow at most a second bracketed logger header only when the previous block was a bare timestamp
+            std::string prev = ToLowerA(msg.substr(0, p));
+            if (prev.find("/info") != std::string::npos || prev.find("/warn") != std::string::npos ||
+                prev.find("/error") != std::string::npos || prev.find(" info]") != std::string::npos ||
+                prev.find(" warn]") != std::string::npos || prev.find(" error]") != std::string::npos) {
+                break;
+            }
+            continue;
+        }
+        // Fallback: bare "[INFO] msg" without ':' right at start
+        if (!sawColon && p < n && (msg[p] == ' ' || msg[p] == '\t')) {
+            std::string head = ToLowerA(msg.substr(pos, p - pos));
+            if (head == "[info]" || head == "[warn]" || head == "[warning]" ||
+                head == "[error]" || head == "[fatal]" || head == "[debug]") {
+                pos = p + 1;
+                while (pos < n && (msg[pos] == ' ' || msg[pos] == '\t')) pos++;
+            }
+        }
+        break;
     }
     if (pos > 0) msg = msg.substr(pos);
 
-    // Strip any remaining leading tags like "[System]", "[CHAT]", "[Not Secure]", "System chat:", "System:", "System "
+    // Strip only known Mojang/Paper system prefixes (never arbitrary chat rank tags like "[VIP]" or "[Bob]:")
     msg = TrimA(msg);
     bool changed = true;
     while (changed && !msg.empty()) {
@@ -2038,18 +2193,17 @@ static std::string ExtractLogPayload(const std::string& line) {
         if (msg[0] == '[') {
             size_t cl = msg.find(']');
             if (cl != std::string::npos) {
-                // Do not strip if this is "PlayerName[/127.0.0.1]" (that starts with player name, not '[')
-                msg = TrimA(msg.substr(cl + 1));
-                if (!msg.empty() && msg[0] == ':') msg = TrimA(msg.substr(1));
-                changed = true;
+                std::string tag = ToLowerA(TrimA(msg.substr(1, cl - 1)));
+                if (tag == "system" || tag == "chat" || tag == "not secure") {
+                    msg = TrimA(msg.substr(cl + 1));
+                    changed = true;
+                }
             }
         } else if (StartsWith(ToLowerA(msg), "system chat:")) {
             msg = TrimA(msg.substr(12));
             changed = true;
-        } else if (StartsWith(ToLowerA(msg), "system:") || StartsWith(ToLowerA(msg), "system ")) {
+        } else if (StartsWith(ToLowerA(msg), "system:")) {
             msg = TrimA(msg.substr(7));
-            if (!msg.empty() && (msg[0] == ':' || msg[0] == '|' || msg[0] == '>'))
-                msg = TrimA(msg.substr(1));
             changed = true;
         }
     }
@@ -2058,8 +2212,9 @@ static std::string ExtractLogPayload(const std::string& line) {
 
 // Extracts player name from join/leave suffix lines ("<Player> joined the game" / "<Player> (formerly <Old>) joined the game")
 static bool ExtractJoinLeaveName(std::string prefixPart, std::string& out) {
-    // Reject chat or colon-prefixed lines (e.g. "<Player> someone joined the game" or "[G] Steve: Alex joined the game")
+    // Reject chat, bracketed tags, or colon-prefixed lines (e.g. "<Player> ..." or "[VIP] Alex ...")
     if (prefixPart.find('<') != std::string::npos || prefixPart.find('>') != std::string::npos ||
+        prefixPart.find('[') != std::string::npos || prefixPart.find(']') != std::string::npos ||
         prefixPart.find(':') != std::string::npos)
         return false;
 
@@ -2070,12 +2225,18 @@ static bool ExtractJoinLeaveName(std::string prefixPart, std::string& out) {
         prefixPart = TrimA(prefixPart.substr(0, fpos));
     }
 
-    // Take the token immediately preceding "joined the game" / "left the game"
-    size_t sp = prefixPart.rfind(' ');
-    std::string candidate = (sp == std::string::npos) ? prefixPart : prefixPart.substr(sp + 1);
-    if (!IsValidMcToken(candidate)) return false;
-    out = candidate;
+    if (prefixPart.find(' ') != std::string::npos) return false;
+    if (!IsValidMcToken(prefixPart)) return false;
+    out = prefixPart;
     return true;
+}
+
+static bool ConsumePendingTime() {
+    int cur = g_pendingTime.load();
+    while (cur > 0) {
+        if (g_pendingTime.compare_exchange_weak(cur, cur - 1)) return true;
+    }
+    return false;
 }
 
 static void HandleLine(const ReaderArgs& a, std::string line, std::wstring& chunk) {
@@ -2174,12 +2335,12 @@ static void HandleLine(const ReaderArgs& a, std::string line, std::wstring& chun
                 PostEv(a.hwnd, a.gen, EV_TIME, Pad2(hour) + L":" + Pad2(min));
             }
         }
-        if (g_pendingTime.load() > 0) { g_pendingTime--; suppress = true; }
+        if (ConsumePendingTime()) suppress = true;
     }
     // 7b. Fallback if "time query daytime" was sent to a 26.1+ server before version detection
     else if (msg.find("Can't find element 'minecraft:daytime'") != std::string::npos) {
         g_useTimelineCmd = true;
-        if (g_pendingTime.load() > 0) g_pendingTime--;
+        ConsumePendingTime();
         suppress = true;
         g_suppressErrLines = 1;
         PostEv(a.hwnd, a.gen, EV_RETRY_TIME);
@@ -2451,17 +2612,34 @@ static void RefreshDetectedJavaLabel() {
 }
 static bool EulaAccepted(const std::wstring& dir) {
     std::string d;
-    if (!ReadAll(dir + L"\\eula.txt", d)) return false;
-    std::transform(d.begin(), d.end(), d.begin(), [](unsigned char c) { return (char)tolower(c); });
-    return d.find("eula=true") != std::string::npos;
+    if (!ReadAll(JoinPath(dir, L"eula.txt"), d)) return false;
+    if (d.size() >= 3 && (unsigned char)d[0] == 0xEF && (unsigned char)d[1] == 0xBB && (unsigned char)d[2] == 0xBF) {
+        d.erase(0, 3);
+    }
+    bool accepted = false;
+    size_t p = 0;
+    while (p < d.size()) {
+        size_t e = d.find('\n', p);
+        if (e == std::string::npos) e = d.size();
+        std::string l = TrimA(d.substr(p, e - p));
+        p = e + 1;
+        if (l.empty() || l[0] == '#' || l[0] == '!') continue;
+        size_t eq = l.find('=');
+        if (eq == std::string::npos) continue;
+        if (ToLowerA(TrimA(l.substr(0, eq))) == "eula") {
+            std::string val = ToLowerA(TrimA(l.substr(eq + 1)));
+            accepted = (val == "true");
+        }
+    }
+    return accepted;
 }
 static void StripUtf8Bom(std::string& s) {
     if (s.size() >= 3 && (unsigned char)s[0] == 0xEF && (unsigned char)s[1] == 0xBB && (unsigned char)s[2] == 0xBF) {
         s.erase(0, 3);
     }
 }
-static void UpdateProperties(const std::wstring& dir, const std::vector<std::pair<std::string, std::string>>& kv) {
-    std::wstring path = dir + L"\\server.properties";
+static bool UpdateProperties(const std::wstring& dir, const std::vector<std::pair<std::string, std::string>>& kv) {
+    std::wstring path = JoinPath(dir, L"server.properties");
     std::string data; ReadAll(path, data);
     StripUtf8Bom(data);
     std::vector<std::string> lines;
@@ -2487,7 +2665,7 @@ static void UpdateProperties(const std::wstring& dir, const std::vector<std::pai
     }
     std::string out;
     for (auto& l : lines) out += l + "\n";
-    WriteAll(path, out);
+    return WriteAll(path, out);
 }
 
 static std::wstring GetJarPath() {
@@ -2502,13 +2680,15 @@ static std::wstring GetServerDir() {
     std::wstring jar = GetJarPath();
     if (jar.empty()) return L".";
     size_t sl = jar.find_last_of(L"\\/");
-    return sl == std::wstring::npos ? L"." : jar.substr(0, sl);
+    if (sl == std::wstring::npos) return L".";
+    if (sl == 2 && jar.size() > 2 && jar[1] == L':') return jar.substr(0, 3);
+    return jar.substr(0, sl);
 }
 
 static std::map<std::string, std::string> ReadPropertiesMap(const std::wstring& dir) {
     std::map<std::string, std::string> mp;
     std::string data;
-    if (!ReadAll(dir + L"\\server.properties", data)) return mp;
+    if (!ReadAll(JoinPath(dir, L"server.properties"), data)) return mp;
     StripUtf8Bom(data);
     size_t p = 0;
     while (p < data.size()) {
@@ -2665,7 +2845,15 @@ static void SaveServerPropertiesFromUi() {
         { "spawn-animals",          g_propAnimals     ? "true" : "false" },
         { "spawn-npcs",             g_propNpcs        ? "true" : "false" }
     };
-    UpdateProperties(dir, kv);
+    if (!UpdateProperties(dir, kv)) {
+        AppLog(Tx(L"server.properties yazılamadı!", L"Failed to write server.properties!"));
+        return;
+    }
+    SetWindowTextW(g_hMaxPl, maxp.c_str());
+    SetWindowTextW(g_hViewDist, view.c_str());
+    SetWindowTextW(g_hSimDist, simd.c_str());
+    SetWindowTextW(g_hSpawnProt, spwn.c_str());
+    SetWindowTextW(g_hLevelName, lvlN.c_str());
     g_maxPlayersProp = std::max(1, _wtoi(maxp.c_str()));
     g_propRawLvlType = lvlTypeVal;
     g_propLoadedLvlType = g_propLvlType;
@@ -2689,39 +2877,62 @@ struct JsonPlayerEntry {
     bool bypassesPlayerLimit = false;
 };
 
+static bool FindJsonKeyValuePos(const std::string& obj, const std::string& key, size_t& valPos) {
+    int depth = 0;
+    size_t n = obj.size();
+    for (size_t i = 0; i < n; i++) {
+        char c = obj[i];
+        if (c == '{' || c == '[') { depth++; continue; }
+        if (c == '}' || c == ']') { if (depth > 0) depth--; continue; }
+        if (c != '"') continue;
+
+        std::string s;
+        i++;
+        while (i < n && obj[i] != '"') {
+            if (obj[i] == '\\' && i + 1 < n) {
+                char esc = obj[++i];
+                s.push_back(esc);
+            } else {
+                s.push_back(obj[i]);
+            }
+            i++;
+        }
+        if (depth == 1) {
+            size_t j = i + 1;
+            while (j < n && (obj[j] == ' ' || obj[j] == '\t' || obj[j] == '\r' || obj[j] == '\n')) j++;
+            if (j < n && obj[j] == ':' && s == key) {
+                j++;
+                while (j < n && (obj[j] == ' ' || obj[j] == '\t' || obj[j] == '\r' || obj[j] == '\n')) j++;
+                valPos = j;
+                return j < n;
+            }
+        }
+    }
+    return false;
+}
+
 static std::string ExtractJsonField(const std::string& obj, const std::string& key) {
-    std::string pat = "\"" + key + "\"";
-    size_t k = obj.find(pat);
-    if (k == std::string::npos) return "";
-    size_t col = obj.find(':', k + pat.size());
-    if (col == std::string::npos) return "";
-    size_t q1 = obj.find('"', col + 1);
-    if (q1 == std::string::npos) return "";
-    size_t q2 = obj.find('"', q1 + 1);
-    if (q2 == std::string::npos) return "";
-    return obj.substr(q1 + 1, q2 - q1 - 1);
+    size_t p = 0;
+    if (!FindJsonKeyValuePos(obj, key, p) || obj[p] != '"') return "";
+    std::string out;
+    size_t n = obj.size();
+    for (size_t i = p + 1; i < n && obj[i] != '"'; i++) {
+        if (obj[i] == '\\' && i + 1 < n) out.push_back(obj[++i]);
+        else out.push_back(obj[i]);
+    }
+    return out;
 }
 
 static int ExtractJsonInt(const std::string& obj, const std::string& key, int defVal) {
-    std::string pat = "\"" + key + "\"";
-    size_t k = obj.find(pat);
-    if (k == std::string::npos) return defVal;
-    size_t col = obj.find(':', k + pat.size());
-    if (col == std::string::npos) return defVal;
-    size_t p = col + 1;
-    while (p < obj.size() && (obj[p] == ' ' || obj[p] == '\t' || obj[p] == '\r' || obj[p] == '\n')) ++p;
-    if (p >= obj.size() || !(isdigit((unsigned char)obj[p]) || obj[p] == '-')) return defVal;
+    size_t p = 0;
+    if (!FindJsonKeyValuePos(obj, key, p)) return defVal;
+    if (!(isdigit((unsigned char)obj[p]) || obj[p] == '-')) return defVal;
     return atoi(obj.c_str() + p);
 }
 
 static bool ExtractJsonBool(const std::string& obj, const std::string& key, bool defVal) {
-    std::string pat = "\"" + key + "\"";
-    size_t k = obj.find(pat);
-    if (k == std::string::npos) return defVal;
-    size_t col = obj.find(':', k + pat.size());
-    if (col == std::string::npos) return defVal;
-    size_t p = col + 1;
-    while (p < obj.size() && (obj[p] == ' ' || obj[p] == '\t' || obj[p] == '\r' || obj[p] == '\n')) ++p;
+    size_t p = 0;
+    if (!FindJsonKeyValuePos(obj, key, p)) return defVal;
     if (obj.compare(p, 4, "true") == 0) return true;
     if (obj.compare(p, 5, "false") == 0) return false;
     return defVal;
@@ -2821,7 +3032,7 @@ static std::string OfflineUuidFor(const std::string& name) {
     return buf;
 }
 
-static void WritePlayerJsonList(const std::wstring& path, const std::vector<JsonPlayerEntry>& list, bool isOps) {
+static bool WritePlayerJsonList(const std::wstring& path, const std::vector<JsonPlayerEntry>& list, bool isOps) {
     std::string out = "[\n";
     for (size_t i = 0; i < list.size(); i++) {
         const auto& e = list[i];
@@ -2838,7 +3049,23 @@ static void WritePlayerJsonList(const std::wstring& path, const std::vector<Json
         out += (i + 1 < list.size()) ? "  },\n" : "  }\n";
     }
     out += "]\n";
-    WriteAll(path, out);
+    return WriteAll(path, out);
+}
+
+static std::string LookupUuidFor(const std::wstring& dir, const std::wstring& name) {
+    std::string uuid;
+    std::wstring key = ToLowerW(name);
+    EnterCriticalSection(&g_csUuid);
+    auto it = g_playerUuids.find(key);
+    if (it != g_playerUuids.end()) uuid = ToUtf8(it->second);
+    LeaveCriticalSection(&g_csUuid);
+    if (!uuid.empty()) return uuid;
+
+    std::string lowA = ToLowerA(ToUtf8(name));
+    for (const auto& e : ReadPlayerJsonList(JoinPath(dir, L"usercache.json"))) {
+        if (ToLowerA(e.name) == lowA && !e.uuid.empty()) return e.uuid;
+    }
+    return "";
 }
 
 static void LoadAccessListsToUi() {
@@ -2850,14 +3077,14 @@ static void LoadAccessListsToUi() {
         return;
     }
     std::wstring dir = GetServerDir();
-    for (const auto& e : ReadPlayerJsonList(dir + L"\\whitelist.json")) {
+    for (const auto& e : ReadPlayerJsonList(JoinPath(dir, L"whitelist.json"))) {
         std::wstring w = FromUtf8(e.name);
         if (ValidPlayerName(w)) {
             RequestPlayerSkin(w);
             SendMessageW(g_hListWl, LB_ADDSTRING, 0, (LPARAM)w.c_str());
         }
     }
-    for (const auto& e : ReadPlayerJsonList(dir + L"\\ops.json")) {
+    for (const auto& e : ReadPlayerJsonList(JoinPath(dir, L"ops.json"))) {
         std::wstring w = FromUtf8(e.name);
         if (ValidPlayerName(w)) {
             RequestPlayerSkin(w);
@@ -2868,29 +3095,6 @@ static void LoadAccessListsToUi() {
 }
 
 static void UpdateAccessListForName(const std::wstring& name, bool isOp, bool add) {
-    std::wstring dir = GetServerDir();
-    std::wstring path = dir + (isOp ? L"\\ops.json" : L"\\whitelist.json");
-    auto list = ReadPlayerJsonList(path);
-    std::string targetLow = ToLowerA(ToUtf8(name));
-
-    if (add) {
-        bool exists = false;
-        for (const auto& e : list) if (ToLowerA(e.name) == targetLow) { exists = true; break; }
-        if (!exists) {
-            std::string uuid;
-            EnterCriticalSection(&g_csUuid);
-            auto it = g_playerUuids.find(ToLowerW(name));
-            if (it != g_playerUuids.end()) uuid = ToUtf8(it->second);
-            LeaveCriticalSection(&g_csUuid);
-            list.push_back({ uuid, ToUtf8(name), 4, false });
-            WritePlayerJsonList(path, list, isOp);
-        }
-    } else {
-        std::vector<JsonPlayerEntry> filtered;
-        for (const auto& e : list) if (ToLowerA(e.name) != targetLow) filtered.push_back(e);
-        WritePlayerJsonList(path, filtered, isOp);
-    }
-
     if (g_state == SrvState::Running) {
         if (isOp) WriteToConsole((add ? L"op " : L"deop ") + name);
         else {
@@ -2898,6 +3102,31 @@ static void UpdateAccessListForName(const std::wstring& name, bool isOp, bool ad
             WriteToConsole(L"whitelist reload");
         }
         SetTimer(g_hwnd, TID_ACCESS_SYNC, 700, NULL);
+        return;
+    }
+
+    std::wstring dir = GetServerDir();
+    std::wstring path = JoinPath(dir, isOp ? L"ops.json" : L"whitelist.json");
+    auto list = ReadPlayerJsonList(path);
+    std::string targetLow = ToLowerA(ToUtf8(name));
+    bool writeOk = true;
+
+    if (add) {
+        bool exists = false;
+        for (const auto& e : list) if (ToLowerA(e.name) == targetLow) { exists = true; break; }
+        if (!exists) {
+            std::string uuid = LookupUuidFor(dir, name);
+            list.push_back({ uuid, ToUtf8(name), 4, false });
+            writeOk = WritePlayerJsonList(path, list, isOp);
+        }
+    } else {
+        std::vector<JsonPlayerEntry> filtered;
+        for (const auto& e : list) if (ToLowerA(e.name) != targetLow) filtered.push_back(e);
+        writeOk = WritePlayerJsonList(path, filtered, isOp);
+    }
+
+    if (!writeOk) {
+        AppLog(Tx(L"Erişim listesi yazılamadı!", L"Failed to write access list file!"));
     }
     LoadAccessListsToUi();
 }
@@ -2908,6 +3137,7 @@ static void ModifyAccessList(bool isOp, bool add) {
     std::wstring name;
     if (add) {
         name = Trim(GetText(hEdit));
+        if (name.empty()) return;
     } else {
         int idx = (int)SendMessageW(hList, LB_GETCURSEL, 0, 0);
         if (idx != LB_ERR) {
@@ -2954,8 +3184,87 @@ static bool DirExists(const std::wstring& p) {
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+static bool DeleteDirRecursive(const std::wstring& dir) {
+    if (dir.empty() || !DirExists(dir)) return true;
+    WIN32_FIND_DATAW fd = {};
+    HANDLE h = FindFirstFileW(JoinPath(dir, L"*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+            std::wstring child = JoinPath(dir, fd.cFileName);
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) DeleteDirRecursive(child);
+                else RemoveDirectoryW(child.c_str());
+            } else {
+                SetFileAttributesW(child.c_str(), FILE_ATTRIBUTE_NORMAL);
+                DeleteFileW(child.c_str());
+            }
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    return RemoveDirectoryW(dir.c_str()) != FALSE;
+}
+
+static std::string UnescapeTarOctals(const std::string& raw) {
+    std::string out; out.reserve(raw.size());
+    for (size_t i = 0; i < raw.size(); i++) {
+        if (raw[i] == '\\' && i + 3 < raw.size() &&
+            raw[i + 1] >= '0' && raw[i + 1] <= '7' &&
+            raw[i + 2] >= '0' && raw[i + 2] <= '7' &&
+            raw[i + 3] >= '0' && raw[i + 3] <= '7') {
+            int val = ((raw[i + 1] - '0') << 6) | ((raw[i + 2] - '0') << 3) | (raw[i + 3] - '0');
+            out.push_back((char)(unsigned char)val);
+            i += 3;
+        } else {
+            out.push_back(raw[i]);
+        }
+    }
+    return out;
+}
+
+static bool RunProcessCapture(const std::wstring& cmd, const std::wstring& workDir, DWORD& exitCode, std::string* stdOut) {
+    exitCode = 1;
+    HANDLE rd = NULL, wr = NULL;
+    if (stdOut) {
+        SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+        if (!CreatePipe(&rd, &wr, &sa, 0)) return false;
+        SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    }
+    std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
+    cmdBuf.push_back(0);
+    STARTUPINFOW si = {};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW | (stdOut ? STARTF_USESTDHANDLES : 0);
+    si.wShowWindow = SW_HIDE;
+    if (stdOut) { si.hStdOutput = wr; si.hStdError = wr; }
+    PROCESS_INFORMATION pi = {};
+    BOOL ok = CreateProcessW(NULL, cmdBuf.data(), NULL, NULL, stdOut ? TRUE : FALSE, CREATE_NO_WINDOW, NULL, workDir.c_str(), &si, &pi);
+    if (wr) CloseHandle(wr);
+    if (!ok) { if (rd) CloseHandle(rd); return false; }
+    if (stdOut && rd) {
+        char buf[4096]; DWORD n = 0;
+        while (ReadFile(rd, buf, sizeof(buf), &n, NULL) && n > 0) {
+            if (stdOut->size() < 2 * 1024 * 1024) stdOut->append(buf, n);
+        }
+        CloseHandle(rd);
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
+static void SetBackupButtonsEnabled(bool en) {
+    if (g_hBtnBkCreate)  EnableWindow(g_hBtnBkCreate,  en ? TRUE : FALSE);
+    if (g_hBtnBkRestore) EnableWindow(g_hBtnBkRestore, en ? TRUE : FALSE);
+    if (g_hBtnBkDel)     EnableWindow(g_hBtnBkDel,     en ? TRUE : FALSE);
+}
+
+static bool IsServerDirLocked(const std::wstring& dir, bool* worldLockOut);
+
 static std::wstring BackupsDir() {
-    std::wstring d = GetServerDir() + L"\\backups";
+    std::wstring d = JoinPath(GetServerDir(), L"backups");
     CreateDirectoryW(d.c_str(), NULL);
     return d;
 }
@@ -2970,9 +3279,9 @@ static void LoadBackupsListToUi() {
         return;
     }
 
-    std::wstring dir = GetServerDir() + L"\\backups";
+    std::wstring dir = JoinPath(GetServerDir(), L"backups");
     WIN32_FIND_DATAW fd = {};
-    HANDLE h = FindFirstFileW((dir + L"\\*.zip").c_str(), &fd);
+    HANDLE h = FindFirstFileW(JoinPath(dir, L"*.zip").c_str(), &fd);
     struct BkItem { std::wstring file, label; FILETIME ft; };
     std::vector<BkItem> items;
     if (h != INVALID_HANDLE_VALUE) {
@@ -3006,6 +3315,7 @@ struct BackupTaskArgs {
     int  keepCount;
     Lang lang;
     std::wstring srvDir;
+    std::wstring fileName;
     std::wstring zipPath;
     std::vector<std::wstring> worldFolders;
 };
@@ -3013,43 +3323,84 @@ struct BackupTaskArgs {
 static DWORD WINAPI BackupWorkerThread(LPVOID param) {
     std::unique_ptr<BackupTaskArgs> a((BackupTaskArgs*)param);
     if (a->serverWasRunning && !a->restore) {
-        Sleep(1500); // give server time to finish "save-all flush"
+        for (int s = 0; s < 15 && !g_appClosing.load(); s++) Sleep(100);
+        if (g_appClosing.load()) { g_backupBusy = false; return 0; }
     }
 
-    std::wstring cmd;
-    if (!a->restore) {
-        cmd = L"tar.exe -a -c --exclude=session.lock --exclude=*/session.lock -f \"" + a->zipPath + L"\"";
-        for (const auto& wf : a->worldFolders) cmd += L" \"" + wf + L"\"";
-    } else {
-        cmd = L"tar.exe -x -f \"" + a->zipPath + L"\"";
-    }
-
-    std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
-    cmdBuf.push_back(0);
-    STARTUPINFOW si = {};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION pi = {};
+    std::wstring tarExe = ResolveTarExe();
+    std::wstring relZip = L"backups\\" + a->fileName;
     DWORD exitCode = 1;
 
-    if (CreateProcessW(NULL, cmdBuf.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, a->srvDir.c_str(), &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, INFINITE);
-        GetExitCodeProcess(pi.hProcess, &exitCode);
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+    if (!a->restore) {
+        std::wstring cmd = L"\"" + tarExe + L"\" -a -c --exclude=session.lock --exclude=*/session.lock -f \"" + relZip + L"\" --";
+        for (const auto& wf : a->worldFolders) cmd += L" \"" + wf + L"\"";
+        RunProcessCapture(cmd, a->srvDir, exitCode, NULL);
+        if (exitCode != 0) DeleteFileW(a->zipPath.c_str());
+    } else {
+        std::string listOut;
+        DWORD listCode = 1;
+        std::wstring listCmd = L"\"" + tarExe + L"\" -t -f \"" + relZip + L"\"";
+        if (RunProcessCapture(listCmd, a->srvDir, listCode, &listOut) && listCode == 0) {
+            std::set<std::wstring> topDirs;
+            bool unsafePath = false;
+            size_t pos = 0;
+            while (pos < listOut.size()) {
+                size_t nl = listOut.find('\n', pos);
+                if (nl == std::string::npos) nl = listOut.size();
+                std::string raw = listOut.substr(pos, nl - pos);
+                if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+                pos = nl + 1;
+                std::wstring entry = FromUtf8(UnescapeTarOctals(raw));
+                while (entry.size() >= 2 && (entry.compare(0, 2, L"./") == 0 || entry.compare(0, 2, L".\\") == 0)) entry.erase(0, 2);
+                while (!entry.empty() && (entry[0] == L'/' || entry[0] == L'\\')) entry.erase(0, 1);
+                if (entry.empty()) continue;
+                if (entry.find(L"..") != std::wstring::npos || entry.find(L':') != std::wstring::npos) { unsafePath = true; break; }
+                size_t sl = entry.find_first_of(L"/\\");
+                std::wstring top = (sl == std::wstring::npos) ? entry : entry.substr(0, sl);
+                if (!top.empty() && top != L"." && ToLowerW(top) != L"backups") topDirs.insert(top);
+            }
+
+            if (!unsafePath && !topDirs.empty()) {
+                ULONGLONG tick = GetTickCount64();
+                std::vector<std::pair<std::wstring, std::wstring>> staged;
+                bool stageOk = true;
+                for (const auto& d : topDirs) {
+                    std::wstring orig = JoinPath(a->srvDir, d);
+                    if (DirExists(orig)) {
+                        std::wstring bak = JoinPath(a->srvDir, d + L".restore_old_" + std::to_wstring(tick));
+                        if (!MoveFileW(orig.c_str(), bak.c_str())) { stageOk = false; break; }
+                        staged.push_back({ orig, bak });
+                    }
+                }
+                if (stageOk) {
+                    std::wstring extCmd = L"\"" + tarExe + L"\" -x -f \"" + relZip + L"\"";
+                    RunProcessCapture(extCmd, a->srvDir, exitCode, NULL);
+                    if (exitCode == 0) {
+                        for (const auto& pr : staged) DeleteDirRecursive(pr.second);
+                    } else {
+                        for (const auto& d : topDirs) {
+                            std::wstring orig = JoinPath(a->srvDir, d);
+                            if (DirExists(orig)) DeleteDirRecursive(orig);
+                        }
+                        for (const auto& pr : staged) MoveFileW(pr.second.c_str(), pr.first.c_str());
+                    }
+                } else {
+                    for (const auto& pr : staged) MoveFileW(pr.second.c_str(), pr.first.c_str());
+                }
+            }
+        }
     }
 
     if (exitCode == 0 && !a->restore && a->isAuto && a->keepCount > 0) {
-        std::wstring bkDir = a->srvDir + L"\\backups";
+        std::wstring bkDir = JoinPath(a->srvDir, L"backups");
         WIN32_FIND_DATAW fd = {};
-        HANDLE h = FindFirstFileW((bkDir + L"\\backup_*_auto.zip").c_str(), &fd);
+        HANDLE h = FindFirstFileW(JoinPath(bkDir, L"backup_*_auto.zip").c_str(), &fd);
         if (h != INVALID_HANDLE_VALUE) {
             struct AutoBk { std::wstring path; FILETIME ft; };
             std::vector<AutoBk> autos;
             do {
                 if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-                    autos.push_back({ bkDir + L"\\" + fd.cFileName, fd.ftLastWriteTime });
+                    autos.push_back({ JoinPath(bkDir, fd.cFileName), fd.ftLastWriteTime });
                 }
             } while (FindNextFileW(h, &fd));
             FindClose(h);
@@ -3073,9 +3424,11 @@ static DWORD WINAPI BackupWorkerThread(LPVOID param) {
             : (a->lang == Lang::TR ? L"Yedek oluşturulamadı!" : L"Failed to create backup!");
     }
 
-    g_backupBusy = false;
     SrvEvent* ev = new (std::nothrow) SrvEvent{ EV_BACKUP_DONE, 0, msg, NULL };
-    if (ev && !PostMessageW(a->hwnd, WM_SC_EVENT, 0, (LPARAM)ev)) delete ev;
+    if (!ev || !PostMessageW(a->hwnd, WM_SC_EVENT, 0, (LPARAM)ev)) {
+        delete ev;
+        g_backupBusy = false;
+    }
     return 0;
 }
 
@@ -3097,7 +3450,7 @@ static void StartCreateBackup(bool silent = false) {
 
     std::vector<std::wstring> folders;
     for (const std::wstring& cand : { lvl, lvl + L"_nether", lvl + L"_the_end" }) {
-        if (DirExists(srvDir + L"\\" + cand)) folders.push_back(cand);
+        if (DirExists(JoinPath(srvDir, cand))) folders.push_back(cand);
     }
     if (folders.empty()) {
         if (silent) AppLog(Tx(L"[Yedekleme] Uyarı: Yedeklenecek dünya klasörü (world) bulunamadı.", L"[Backup] Warning: No world folder found to back up."));
@@ -3121,18 +3474,31 @@ static void StartCreateBackup(bool silent = false) {
     if (!cleanTag.empty()) fileName += L"_" + cleanTag;
     fileName += L".zip";
 
-    std::wstring zipPath = BackupsDir() + L"\\" + fileName;
+    std::wstring zipPath = JoinPath(BackupsDir(), fileName);
     bool running = (g_state == SrvState::Running);
-    if (running) WriteToConsole(L"save-all flush");
+    if (running) {
+        g_backupSaveOffSent = true;
+        WriteToConsole(L"save-off");
+        WriteToConsole(L"save-all flush");
+    }
 
     g_backupBusy = true;
-    EnableWindow(g_hBtnBkCreate, FALSE);
+    SetBackupButtonsEnabled(false);
     AppLog(Tx(L"Dünya yedekleniyor, lütfen bekleyin…", L"Creating world backup, please wait…"));
 
-    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, false, running, silent, g_schedBkKeep, g_lang, srvDir, zipPath, folders };
+    if (g_hBackupThread) { WaitForSingleObject(g_hBackupThread, 0); CloseHandle(g_hBackupThread); g_hBackupThread = NULL; }
+    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, false, running, silent, g_schedBkKeep, g_lang, srvDir, fileName, zipPath, folders };
     HANDLE th = args ? CreateThread(NULL, 0, BackupWorkerThread, args, 0, NULL) : NULL;
-    if (th) CloseHandle(th);
-    else { delete args; g_backupBusy = false; EnableWindow(g_hBtnBkCreate, TRUE); }
+    if (th) g_hBackupThread = th;
+    else {
+        delete args;
+        g_backupBusy = false;
+        if (g_backupSaveOffSent) {
+            g_backupSaveOffSent = false;
+            if (g_state == SrvState::Running) WriteToConsole(L"save-on");
+        }
+        SetBackupButtonsEnabled(true);
+    }
 }
 
 static void RestoreSelectedBackup() {
@@ -3154,19 +3520,38 @@ static void RestoreSelectedBackup() {
         : (L"Restore \"" + file + L"\" and overwrite the current world files?");
     if (Msg(q, Tx(L"Yedeği Geri Yükle", L"Restore Backup"), MB_YESNO | MB_ICONWARNING) != IDYES) return;
 
+    // Re-validate state after modal dialog to prevent TOCTOU races
+    if (g_backupBusy.load() || g_state != SrvState::Stopped || !HasServerJar()) return;
     std::wstring srvDir = GetServerDir();
-    std::wstring zipPath = BackupsDir() + L"\\" + file;
+    std::wstring zipPath = JoinPath(BackupsDir(), file);
+    if (!FileExists(zipPath)) {
+        AppLog(Tx(L"Seçilen yedek dosyası bulunamadı.", L"Selected backup file was not found."));
+        LoadBackupsListToUi();
+        return;
+    }
+    if (IsServerDirLocked(srvDir, NULL)) {
+        Msg(Tx(L"Sunucu klasörü başka bir işlem tarafından kullanılıyor.", L"Server folder is locked by another process."),
+            L().titleError, MB_OK | MB_ICONWARNING);
+        return;
+    }
+    KillTimer(g_hwnd, TID_RESTART);
+    g_schedRestartPending = false;
+    g_manualRestartPending = false;
+    g_scheduledRestartTrigger = false;
+
     g_backupBusy = true;
-    EnableWindow(g_hBtnBkRestore, FALSE);
+    SetBackupButtonsEnabled(false);
     AppLog(Tx(L"Yedek geri yükleniyor…", L"Restoring backup…"));
 
-    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, true, false, false, 0, g_lang, srvDir, zipPath, {} };
+    if (g_hBackupThread) { WaitForSingleObject(g_hBackupThread, 0); CloseHandle(g_hBackupThread); g_hBackupThread = NULL; }
+    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, true, false, false, 0, g_lang, srvDir, file, zipPath, {} };
     HANDLE th = args ? CreateThread(NULL, 0, BackupWorkerThread, args, 0, NULL) : NULL;
-    if (th) CloseHandle(th);
-    else { delete args; g_backupBusy = false; EnableWindow(g_hBtnBkRestore, TRUE); }
+    if (th) g_hBackupThread = th;
+    else { delete args; g_backupBusy = false; SetBackupButtonsEnabled(true); }
 }
 
 static void DeleteSelectedBackup() {
+    if (g_backupBusy.load()) return;
     if (!HasServerJar()) { Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING); return; }
     int idx = (int)SendMessageW(g_hListBk, LB_GETCURSEL, 0, 0);
     if (idx == LB_ERR || idx < 0 || idx >= (int)g_backupFiles.size()) {
@@ -3178,7 +3563,10 @@ static void DeleteSelectedBackup() {
         ? (L"\"" + file + L"\" yedeği kalıcı olarak silinsin mi?")
         : (L"Permanently delete backup \"" + file + L"\"?");
     if (Msg(q, Tx(L"Yedeği Sil", L"Delete Backup"), MB_YESNO | MB_ICONWARNING) != IDYES) return;
-    DeleteFileW((BackupsDir() + L"\\" + file).c_str());
+    if (g_backupBusy.load()) return;
+    if (!DeleteFileW(JoinPath(BackupsDir(), file).c_str())) {
+        AppLog(Tx(L"Yedek dosyası silinemedi: ", L"Failed to delete backup file: ") + file);
+    }
     LoadBackupsListToUi();
 }
 
@@ -3438,11 +3826,17 @@ static void AddModItem(bool isPlugin) {
     ofn.hwndOwner = g_hwnd;
     ofn.lpstrFile = file;
     ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrFilter = L"Java Dosyaları (*.jar)\0*.jar\0Tüm Dosyalar (*.*)\0*.*\0";
+    ofn.lpstrFilter = Tx(L"Java Dosyaları (*.jar)\0*.jar\0Tüm Dosyalar (*.*)\0*.*\0",
+                         L"Java Archives (*.jar)\0*.jar\0All Files (*.*)\0*.*\0");
     ofn.lpstrTitle = isPlugin ? Tx(L"Eklenti Seç (.jar)", L"Select Plugin (.jar)") : Tx(L"Mod Seç (.jar)", L"Select Mod (.jar)");
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
 
-    if (GetOpenFileNameW(&ofn)) {
+    bool picked = false;
+    {
+        ModalGuard mg;
+        picked = GetOpenFileNameW(&ofn) != FALSE;
+    }
+    if (picked) {
         ImportModFiles(isPlugin, { file });
     }
 }
@@ -3614,6 +4008,7 @@ static void ApplyLanguage() {
     g_f[F_BK_KEEP].caption       = Tx(L"Maks. otomatik", L"Max auto keep");
 
     SetWindowTextW(g_hChkAutoStart,   L().menuAutoStart);
+    if (g_hChkSplash)    SetWindowTextW(g_hChkSplash,    Tx(L"Açılış animasyonunu göster", L"Show startup splash animation"));
     SetWindowTextW(g_hChkAutoRestart, Tx(L"Sunucu çökerse otomatik yeniden başlat", L"Restart the server automatically if it crashes"));
     if (g_hChkMinTray)   SetWindowTextW(g_hChkMinTray,   Tx(L"Kapatınca sistem tepsisine küçült", L"Minimize to system tray on close"));
     if (g_hBtnAppExit)   SetWindowTextW(g_hBtnAppExit,   Tx(L"Uygulamadan Çık", L"Exit Application"));
@@ -3709,6 +4104,7 @@ static std::wstring OpenJarDialog() {
     ofn.lpstrFilter = L().dlgFilterJar;
     ofn.lpstrTitle = L().dlgTitleJar;
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
+    ModalGuard mg;
     return GetOpenFileNameW(&ofn) ? std::wstring(file) : L"";
 }
 
@@ -3723,16 +4119,25 @@ static std::wstring OpenJavaDialog() {
     ofn.lpstrFilter = L"java.exe (java.exe)\0java.exe\0All Executables (*.exe)\0*.exe\0\0";
     ofn.lpstrTitle = Tx(L"java.exe Dosyasını Seçin", L"Select java.exe Executable");
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
+    ModalGuard mg;
     return GetOpenFileNameW(&ofn) ? std::wstring(file) : L"";
 }
 
 static void SaveJavaFromUi() {
     if (!g_hEditJavaPath) return;
     std::wstring jp = TrimQuotes(GetText(g_hEditJavaPath));
-    if (!jp.empty() && !FileExists(jp)) {
-        Msg(Tx(L"Belirtilen java.exe dosyası bulunamadı:\n", L"Specified java.exe file was not found:\n") + jp,
-            L().titleFileNotFound, MB_OK | MB_ICONWARNING);
-        return;
+    if (!jp.empty()) {
+        if (!FileExists(jp)) {
+            Msg(Tx(L"Belirtilen java.exe dosyası bulunamadı:\n", L"Specified java.exe file was not found:\n") + jp,
+                L().titleFileNotFound, MB_OK | MB_ICONWARNING);
+            return;
+        }
+        std::wstring low = ToLowerW(jp);
+        if (low.size() < 4 || low.compare(low.size() - 4, 4, L".exe") != 0) {
+            Msg(Tx(L"Lütfen geçerli bir .exe çalıştırılabilir dosyası seçin.", L"Please select a valid .exe executable file."),
+                L().titleInvalidVal, MB_OK | MB_ICONWARNING);
+            return;
+        }
     }
     g_javaPath = jp;
     SetWindowTextW(g_hEditJavaPath, g_javaPath.c_str());
@@ -3780,11 +4185,11 @@ static bool IsServerDirLocked(const std::wstring& dir, bool* worldLockOut) {
             levelName = ln;
         }
     }
-    if (IsFileLockedByProcess(dir + L"\\" + levelName + L"\\session.lock", true)) {
+    if (IsFileLockedByProcess(JoinPath(JoinPath(dir, levelName), L"session.lock"), true)) {
         if (worldLockOut) *worldLockOut = true;
         return true;
     }
-    return IsFileLockedByProcess(dir + L"\\logs\\latest.log", false);
+    return IsFileLockedByProcess(JoinPath(JoinPath(dir, L"logs"), L"latest.log"), false);
 }
 
 static void StartServer() {
@@ -3832,8 +4237,7 @@ static void StartServer() {
         return;
     }
 
-    size_t sl = jar.find_last_of(L"\\/");
-    std::wstring dir = sl == std::wstring::npos ? L"." : jar.substr(0, sl);
+    std::wstring dir = GetServerDir();
 
     bool worldLocked = false;
     if (IsServerDirLocked(dir, &worldLocked)) {
@@ -3858,7 +4262,7 @@ static void StartServer() {
 
     if (!EulaAccepted(dir)) {
         if (Msg(L().msgEulaPrompt, L().titleEula, MB_YESNO | MB_ICONQUESTION) != IDYES) return;
-        WriteAll(dir + L"\\eula.txt", "# Accepted via Redstone Server Panel\neula=true\n");
+        WriteAll(JoinPath(dir, L"eula.txt"), "# Accepted via Redstone Server Panel\neula=true\n");
     }
 
     std::vector<std::pair<std::string, std::string>> kv;
@@ -3946,6 +4350,7 @@ static void StartServer() {
     UpdateTelemetryStats(false);
     SendMessageW(g_hList, LB_RESETCONTENT, 0, 0);
 
+    if (g_hReaderThread) { CloseHandle(g_hReaderThread); g_hReaderThread = NULL; }
     ReaderArgs* ra = new (std::nothrow) ReaderArgs{ g_hwnd, outRd, g_gen };
     HANDLE t = ra ? CreateThread(NULL, 0, ReaderThread, ra, 0, NULL) : NULL;
     if (!t) {
@@ -3957,7 +4362,7 @@ static void StartServer() {
         Msg(L().msgThreadErr, L().titleError, MB_OK | MB_ICONERROR);
         return;
     }
-    CloseHandle(t);
+    g_hReaderThread = t;
 
     SetTimer(g_hwnd, TID_STATS, 1000, NULL);
     SaveSettings();
@@ -4031,6 +4436,11 @@ static void OnServerExited() {
     if (g_hProc) { WaitForSingleObject(g_hProc, 3000); GetExitCodeProcess(g_hProc, &code); CloseHandle(g_hProc); g_hProc = NULL; }
     if (g_hStdinWr) { CloseHandle(g_hStdinWr); g_hStdinWr = NULL; }
     if (g_hJob) { CloseHandle(g_hJob); g_hJob = NULL; }
+    if (g_hReaderThread) {
+        WaitForSingleObject(g_hReaderThread, 1500);
+        CloseHandle(g_hReaderThread);
+        g_hReaderThread = NULL;
+    }
     bool expected = (g_state == SrvState::Stopping);
     ULONGLONG upSec = (GetTickCount64() - g_startTick) / 1000;
     KillTimer(g_hwnd, TID_TIME); KillTimer(g_hwnd, TID_STOPWATCH); KillTimer(g_hwnd, TID_STOP_RETRY);
@@ -4080,14 +4490,29 @@ static void OnServerExited() {
         }
     }
     UpdateUi();
-    if (g_quitPending) DestroyWindow(g_hwnd);
+    if (g_quitPending && !g_backupBusy.load()) DestroyWindow(g_hwnd);
 }
 
 static void RequestExit() {
+    if (g_modalDepth > 0) return;
+    if (g_backupBusy.load()) {
+        int r = Msg(Tx(L"Şu anda bir yedekleme/geri yükleme işlemi devam ediyor.\nİşlem tamamlandığında otomatik çıkılsın mı?",
+                       L"A backup or restore operation is currently in progress.\nWait for completion and exit automatically?"),
+                    L().titleExit, MB_YESNO | MB_ICONWARNING);
+        if (r == IDYES) {
+            g_deferredQuit = true;
+            if (g_state == SrvState::Starting || g_state == SrvState::Running) {
+                g_quitPending = true;
+                StopServer();
+            }
+        }
+        return;
+    }
     if (g_state == SrvState::Stopped) { DestroyWindow(g_hwnd); return; }
     if (!g_quitPending) {
         if (Msg(L().msgExitConfirm, L().titleExit, MB_YESNO | MB_ICONQUESTION) != IDYES) return;
         g_quitPending = true;
+        if (g_state == SrvState::Stopping) return; // Stopping already in progress; wait for clean exit
     }
     if (g_state == SrvState::Stopped) { DestroyWindow(g_hwnd); return; }
     if (g_state == SrvState::Stopping) { ForceStopServer(); return; }
@@ -4124,6 +4549,7 @@ static void DoKickBan(bool ban) {
     WriteToConsole((ban ? L"ban " : L"kick ") + name);
 }
 static void DoUnban() {
+    if (g_state != SrvState::Running) { AppLog(L().logSrvNotRunning); return; }
     std::wstring n = Trim(GetText(g_hUnban));
     if (n.empty()) return;
     if (!ValidPlayerName(n)) { AppLog(L().logInvalidPlayer); return; }
@@ -4358,8 +4784,8 @@ static void HandleConsoleTabCompletion() {
 static void SendCommandFromUi() {
     ResetTabCompletion();
     std::wstring c = Trim(GetText(g_hCmd));
+    if (!c.empty() && c[0] == L'/') c = Trim(c.substr(1));
     if (c.empty()) return;
-    if (!c.empty() && c[0] == L'/') c.erase(0, 1);
     if (!WriteToConsole(c)) { AppLog(L().logSrvNotRunning); return; }
     AppendLog(L"> " + c + L"\r\n");
     if (g_hLog) {
@@ -4668,8 +5094,16 @@ static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, con
         DrawTxt(mem, scaleTxt, rtScale, g_fCap, BlendCol(P.logBg, P.muted, 0.65f), DT_LEFT | DT_TOP | DT_SINGLELINE);
     }
 
-    RECT rtTitle = { rc.left + S(25), rc.top + S(8), std::max(rc.left + S(40), rc.right - S(105)), rc.top + S(26) };
-    RECT rtVal   = { rc.left + S(90), rc.top + S(7), rc.right - S(12), rc.top + S(26) };
+    RECT calcVal = { 0, 0, S(260), S(20) };
+    {
+        HGDIOBJ of = SelectObject(mem, g_fSemi);
+        DrawTextW(mem, valStr.c_str(), -1, &calcVal, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(mem, of);
+    }
+    int valW = std::min<int>((int)(calcVal.right - calcVal.left) + S(4), std::max<int>(S(60), (int)(rc.right - rc.left) - S(90)));
+    int valLeft = std::max<int>((int)rc.left + S(70), (int)rc.right - S(12) - valW);
+    RECT rtTitle = { rc.left + S(25), rc.top + S(8), std::max<LONG>(rc.left + S(40), valLeft - S(6)), rc.top + S(26) };
+    RECT rtVal   = { valLeft, rc.top + S(7), rc.right - S(12), rc.top + S(26) };
     DrawTxt(mem, title, rtTitle, g_fCap, P.muted, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     DrawTxt(mem, valStr, rtVal, g_fSemi, P.text, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 }
@@ -5071,7 +5505,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
     bool focus = (di->itemState & ODS_FOCUS) && !(di->itemState & ODS_NOFOCUSRECT);
 
     // Checkbox-style toggles on the settings / properties pages
-    if (id == ID_CHK_AUTOSTART || id == ID_MENU_AUTORESTART || id == ID_CHK_MIN_TRAY ||
+    if (id == ID_CHK_AUTOSTART || id == ID_CHK_SPLASH || id == ID_MENU_AUTORESTART || id == ID_CHK_MIN_TRAY ||
         id == ID_CHK_ONLINE || id == ID_CHK_PVP || id == ID_CHK_WHITELIST || id == ID_CHK_FLIGHT || id == ID_CHK_CMDBLOCK ||
         id == ID_CHK_HARDCORE || id == ID_CHK_FORCEGM || id == ID_CHK_SECUREPROF || id == ID_CHK_HIDEPL ||
         id == ID_CHK_NETHER || id == ID_CHK_MONSTERS || id == ID_CHK_ANIMALS || id == ID_CHK_NPCS ||
@@ -5079,6 +5513,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         bool on = false;
         switch (id) {
             case ID_CHK_AUTOSTART:     on = g_autoStartCache; break;
+            case ID_CHK_SPLASH:        on = g_splashEnabled; break;
             case ID_MENU_AUTORESTART:  on = g_autoRestart; break;
             case ID_CHK_MIN_TRAY:      on = g_minimizeToTray; break;
             case ID_CHK_ONLINE:        on = g_propOnline; break;
@@ -5615,8 +6050,9 @@ static void LayoutSettings(int W, int m, int g, int p, int fh) {
     auto desc = [&](int x, int y, int w, int h, int id) { RECT r = { x, y, x + w, y + h }; g_txts.push_back({ r, id }); };
 
     if (g_subTab == 0) {
-        RECT a = card(lx, top, S(92), 0);
-        mv(g_hChkAutoStart, a.left + p, a.top + S(46), iw, S(24));
+        RECT a = card(lx, top, S(118), 0);
+        mv(g_hChkAutoStart, a.left + p, a.top + S(44), iw, S(24));
+        mv(g_hChkSplash,    a.left + p, a.top + S(74), iw, S(24));
         RECT b = card(lx, a.bottom + g, S(106), 1);
         int bw = (iw - S(10)) / 2;
         mv(g_hBtnLangTR, b.left + p, b.top + S(52), bw, fh);
@@ -5640,10 +6076,10 @@ static void LayoutSettings(int W, int m, int g, int p, int fh) {
         mv(g_hChkAutoRestart, d.left + p, d.top + S(46), iw, S(24));
         desc(d.left + p, d.top + S(78), iw, S(44), 0);
 
-        RECT cDaily = card(lx, d.bottom + g, S(168), 16);
+        RECT cDaily = card(lx, d.bottom + g, S(174), 16);
         mv(g_hChkSchedRestart, cDaily.left + p, cDaily.top + S(44), iw, S(24));
-        desc(cDaily.left + p, cDaily.top + S(72), iw, S(34), 9);
-        int ry = cDaily.top + S(120);
+        desc(cDaily.left + p, cDaily.top + S(72), iw, S(30), 9);
+        int ry = cDaily.top + S(126);
         g_f[F_RESTART_TIME].rc = { cDaily.left + p, ry, cDaily.left + p + iw - S(90), ry + fh };
         mv(g_hEditRestartTime, cDaily.left + p + S(10), ry + (fh - g_textH) / 2, iw - S(110), g_textH);
         mv(g_hBtnSchedRestartSave, cDaily.left + p + iw - S(80), ry, S(80), fh);
@@ -5652,16 +6088,16 @@ static void LayoutSettings(int W, int m, int g, int p, int fh) {
         mv(g_hBtnLogs, f.left + p, f.top + S(46), iw, fh);
         desc(f.left + p, f.top + S(86), iw, S(24), 2);
 
-        RECT e = card(rxc, top, S(178), 4);
-        desc(e.left + p, e.top + S(42), iw, S(36), 1);
-        int fy = e.top + S(90);
+        RECT e = card(rxc, top, S(186), 4);
+        desc(e.left + p, e.top + S(42), iw, S(30), 1);
+        int fy = e.top + S(98);
         g_f[F_JVM].rc = { e.left + p, fy, e.left + p + iw, fy + fh };
         mv(g_hJvm, e.left + p + S(10), fy + (fh - g_textH) / 2, iw - S(20), g_textH);
         mv(g_hBtnJvmSave, e.left + p, fy + fh + S(10), S(120), fh);
 
-        RECT cJava = card(rxc, e.bottom + g, S(178), 20);
-        desc(cJava.left + p, cJava.top + S(42), iw, S(36), 13);
-        int jfy = cJava.top + S(90);
+        RECT cJava = card(rxc, e.bottom + g, S(186), 20);
+        desc(cJava.left + p, cJava.top + S(42), iw, S(30), 13);
+        int jfy = cJava.top + S(98);
         g_f[F_JAVA_PATH].rc = { cJava.left + p, jfy, cJava.left + p + iw, jfy + fh };
         mv(g_hEditJavaPath, cJava.left + p + S(10), jfy + (fh - g_textH) / 2, iw - S(20), g_textH);
         int jbY = jfy + fh + S(10);
@@ -5670,10 +6106,10 @@ static void LayoutSettings(int W, int m, int g, int p, int fh) {
         mv(g_hBtnJavaAuto,   cJava.left + p + jbw + S(8),     jbY, jbw, fh);
         mv(g_hBtnJavaSave,   cJava.left + p + 2 * (jbw + S(8)), jbY, iw - 2 * (jbw + S(8)), fh);
 
-        RECT cAutoBk = card(rxc, cJava.bottom + g, S(168), 15);
+        RECT cAutoBk = card(rxc, cJava.bottom + g, S(174), 15);
         mv(g_hChkSchedBk, cAutoBk.left + p, cAutoBk.top + S(44), iw, S(24));
-        desc(cAutoBk.left + p, cAutoBk.top + S(72), iw, S(34), 8);
-        int by = cAutoBk.top + S(120);
+        desc(cAutoBk.left + p, cAutoBk.top + S(72), iw, S(30), 8);
+        int by = cAutoBk.top + S(126);
         int bkSaveW = S(80), bkFieldsW = iw - bkSaveW - S(8);
         int bkW1 = (bkFieldsW - S(8)) / 2;
         int bkW2 = bkFieldsW - bkW1 - S(8);
@@ -5687,7 +6123,9 @@ static void LayoutSettings(int W, int m, int g, int p, int fh) {
 
 // Shows the controls of the current page and hides the rest
 static void ShowPage() {
-    if (g_hwnd) SendMessageW(g_hwnd, WM_SETREDRAW, FALSE, 0);
+    // Only toggle WM_SETREDRAW while g_hwnd is visible: DefWindowProc(WM_SETREDRAW, TRUE) sets WS_VISIBLE on hidden windows.
+    bool wasVisible = g_hwnd && (IsWindowVisible(g_hwnd) != 0);
+    if (wasVisible) SendMessageW(g_hwnd, WM_SETREDRAW, FALSE, 0);
 
     bool pan = (g_page == PG_PANEL), prp = (g_page == PG_PROPS), acc = (g_page == PG_ACCESS),
          bkp = (g_page == PG_BACKUPS), plug = (g_page == PG_PLUGINS), prof = (g_page == PG_PROFILES), st = (g_page == PG_SETTINGS);
@@ -5709,7 +6147,7 @@ static void ShowPage() {
     HWND plugCtl[]  = { g_hListPlugins, g_hBtnPlugToggle, g_hBtnPlugAdd, g_hBtnPlugDel, g_hBtnPlugOpen, g_hBtnPlugReload,
                         g_hListMods,    g_hBtnModToggle,  g_hBtnModAdd,  g_hBtnModDel,  g_hBtnModOpen,  g_hBtnModReload };
     HWND profCtl[]  = { g_hEditProfName, g_hBtnProfSave, g_hListProf, g_hBtnProfLoad, g_hBtnProfDel };
-    HWND genCtl[] = { g_hChkAutoStart, g_hBtnLangTR, g_hBtnLangEN,
+    HWND genCtl[] = { g_hChkAutoStart, g_hChkSplash, g_hBtnLangTR, g_hBtnLangEN,
                       g_hBtnThDark, g_hBtnThLight, g_hBtnThRedstone, g_hBtnThMc,
                       g_hChkMinTray, g_hBtnAppExit };
     HWND srvCtl[] = { g_hChkAutoRestart, g_hBtnLogs, g_hJvm, g_hBtnJvmSave,
@@ -5746,22 +6184,92 @@ static void ShowPage() {
     RECT rc; GetClientRect(g_hwnd, &rc);
     Layout(rc.right, rc.bottom);
 
-    if (g_hwnd) {
+    if (wasVisible) {
+        HWND curFocus = GetFocus();
+        if (curFocus && curFocus != g_hwnd && IsChild(g_hwnd, curFocus) && !IsWindowVisible(curFocus)) {
+            HWND first = GetNextDlgTabItem(g_hwnd, NULL, FALSE);
+            SetFocus(first ? first : g_hwnd);
+        }
         SendMessageW(g_hwnd, WM_SETREDRAW, TRUE, 0);
         RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
 }
-static DWORD WINAPI AnimVSyncThreadProc(LPVOID) {
-    HMODULE hDwm = LoadLibraryW(L"dwmapi.dll");
+static void RefreshMonitorHz() {
+    if (g_hwnd) g_monitorHz = std::max(30, GetMonitorRefreshRate(g_hwnd));
+}
+// Shared display-paced frame waiter (prefers DWM vsync with sleep/locked-screen guard, falls back to high-res timer).
+struct VSyncPacer {
     typedef HRESULT (WINAPI *PfnDwmFlush)(void);
     typedef HRESULT (WINAPI *PfnDwmIsCompositionEnabled)(BOOL*);
-    PfnDwmFlush pDwmFlush = hDwm ? reinterpret_cast<PfnDwmFlush>(reinterpret_cast<void*>(GetProcAddress(hDwm, "DwmFlush"))) : NULL;
-    PfnDwmIsCompositionEnabled pDwmComp = hDwm ? reinterpret_cast<PfnDwmIsCompositionEnabled>(reinterpret_cast<void*>(GetProcAddress(hDwm, "DwmIsCompositionEnabled"))) : NULL;
-
     typedef HANDLE (WINAPI *PfnCreateWaitableTimerExW)(LPSECURITY_ATTRIBUTES, LPCWSTR, DWORD, DWORD);
-    HMODULE hK32 = GetModuleHandleW(L"kernel32.dll");
-    PfnCreateWaitableTimerExW pCreateTimerEx = hK32 ? reinterpret_cast<PfnCreateWaitableTimerExW>(reinterpret_cast<void*>(GetProcAddress(hK32, "CreateWaitableTimerExW"))) : NULL;
-    HANDLE hHiTimer = pCreateTimerEx ? pCreateTimerEx(NULL, NULL, 0x00000002, TIMER_ALL_ACCESS) : NULL;
+
+    HMODULE hDwm = NULL;
+    PfnDwmFlush pDwmFlush = NULL;
+    PfnDwmIsCompositionEnabled pDwmComp = NULL;
+    HANDLE hHiTimer = NULL;
+    LARGE_INTEGER qpcFreq = {};
+
+    VSyncPacer() = default;
+    ~VSyncPacer() { Close(); }
+    VSyncPacer(const VSyncPacer&) = delete;
+    VSyncPacer& operator=(const VSyncPacer&) = delete;
+
+    void Init() {
+        QueryPerformanceFrequency(&qpcFreq);
+        hDwm = LoadLibraryW(L"dwmapi.dll");
+        if (hDwm) {
+            pDwmFlush = reinterpret_cast<PfnDwmFlush>(reinterpret_cast<void*>(GetProcAddress(hDwm, "DwmFlush")));
+            pDwmComp  = reinterpret_cast<PfnDwmIsCompositionEnabled>(reinterpret_cast<void*>(GetProcAddress(hDwm, "DwmIsCompositionEnabled")));
+        }
+        HMODULE hK32 = GetModuleHandleW(L"kernel32.dll");
+        PfnCreateWaitableTimerExW pCreateTimerEx = hK32
+            ? reinterpret_cast<PfnCreateWaitableTimerExW>(reinterpret_cast<void*>(GetProcAddress(hK32, "CreateWaitableTimerExW")))
+            : NULL;
+        if (pCreateTimerEx) hHiTimer = pCreateTimerEx(NULL, NULL, 0x00000002, TIMER_ALL_ACCESS);
+    }
+
+    void WaitNextFrame(int fallbackHz) {
+        bool flushed = false;
+        if (pDwmFlush) {
+            BOOL compOn = TRUE;
+            if (!pDwmComp || (SUCCEEDED(pDwmComp(&compOn)) && compOn)) {
+                LARGE_INTEGER t0 = {}, t1 = {};
+                QueryPerformanceCounter(&t0);
+                if (SUCCEEDED(pDwmFlush())) {
+                    QueryPerformanceCounter(&t1);
+                    double elapsedMs = (qpcFreq.QuadPart > 0)
+                        ? ((double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)qpcFreq.QuadPart)
+                        : 0.0;
+                    // Guard against immediate DwmFlush returns when display is asleep/locked/RDP
+                    if (elapsedMs >= 1.0) flushed = true;
+                }
+            }
+        }
+        if (!flushed) {
+            int hz = std::max(30, fallbackHz);
+            if (hHiTimer) {
+                LARGE_INTEGER li;
+                li.QuadPart = -10000000LL / (LONGLONG)hz;
+                if (SetWaitableTimer(hHiTimer, &li, 0, NULL, NULL, FALSE)) {
+                    WaitForSingleObject(hHiTimer, 50);
+                    return;
+                }
+            }
+            Sleep(std::max(1, 1000 / hz));
+        }
+    }
+
+    void Close() {
+        if (hHiTimer) { CloseHandle(hHiTimer); hHiTimer = NULL; }
+        if (hDwm)     { FreeLibrary(hDwm);     hDwm = NULL; }
+        pDwmFlush = NULL;
+        pDwmComp  = NULL;
+    }
+};
+
+static DWORD WINAPI AnimVSyncThreadProc(LPVOID) {
+    VSyncPacer pacer;
+    pacer.Init();
 
     while (!g_animStop.load()) {
         if (!g_animActive.load()) {
@@ -5769,36 +6277,7 @@ static DWORD WINAPI AnimVSyncThreadProc(LPVOID) {
             else break;
             continue;
         }
-        bool flushed = false;
-        if (pDwmFlush) {
-            BOOL compOn = TRUE;
-            if (!pDwmComp || (SUCCEEDED(pDwmComp(&compOn)) && compOn)) {
-                LARGE_INTEGER t0 = {}, t1 = {}, freq = {};
-                QueryPerformanceFrequency(&freq);
-                QueryPerformanceCounter(&t0);
-                if (SUCCEEDED(pDwmFlush())) {
-                    QueryPerformanceCounter(&t1);
-                    double elapsedMs = (freq.QuadPart > 0) ? ((double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart) : 0.0;
-                    // Guard against immediate DwmFlush returns when display is asleep/locked/RDP
-                    if (elapsedMs >= 1.0) flushed = true;
-                }
-            }
-        }
-        if (!flushed) {
-            int hz = std::max(30, GetMonitorRefreshRate(g_hwnd));
-            LONGLONG due100ns = -10000000LL / (LONGLONG)hz;
-            if (hHiTimer) {
-                LARGE_INTEGER li;
-                li.QuadPart = due100ns;
-                if (SetWaitableTimer(hHiTimer, &li, 0, NULL, NULL, FALSE)) {
-                    WaitForSingleObject(hHiTimer, 50);
-                } else {
-                    Sleep(std::max(1, 1000 / hz));
-                }
-            } else {
-                Sleep(std::max(1, 1000 / hz));
-            }
-        }
+        pacer.WaitNextFrame(g_monitorHz.load());
         if (g_animStop.load()) break;
         if (g_animActive.load() && g_hwnd && !g_animFramePending.exchange(true)) {
             if (!PostMessageW(g_hwnd, WM_APP_ANIM, 0, 0)) {
@@ -5806,13 +6285,12 @@ static DWORD WINAPI AnimVSyncThreadProc(LPVOID) {
             }
         }
     }
-    if (hHiTimer) CloseHandle(hHiTimer);
-    if (hDwm) FreeLibrary(hDwm);
     return 0;
 }
 
 static void StartUiAnimation() {
     if (!g_hwnd) return;
+    RefreshMonitorHz();
     InitHighResTimer();
     if (g_animPerfFreq.QuadPart == 0) QueryPerformanceFrequency(&g_animPerfFreq);
     QueryPerformanceCounter(&g_animLastTime);
@@ -5827,7 +6305,7 @@ static void StartUiAnimation() {
     if (g_hAnimThread && g_hAnimWake) {
         SetEvent(g_hAnimWake);
     } else {
-        int hz = std::max(30, GetMonitorRefreshRate(g_hwnd));
+        int hz = std::max(30, g_monitorHz.load());
         SetTimer(g_hwnd, TID_ANIM, (UINT)std::max(1, 1000 / hz), NULL);
     }
 }
@@ -6008,6 +6486,7 @@ static bool OnCreate(HWND hwnd) {
     g_hBtnThLight    = MakeBtn(ID_MENU_THEME_LIGHT, L().menuThemeLight);
     g_hBtnThRedstone = MakeBtn(ID_MENU_THEME_REDSTONE, L().menuThemeRedstone);
     g_hBtnThMc       = MakeBtn(ID_MENU_THEME_MC, L().menuThemeMc);
+    g_hChkSplash     = MakeBtn(ID_CHK_SPLASH, Tx(L"Açılış animasyonunu göster", L"Show startup splash animation"));
     g_hChkMinTray    = MakeBtn(ID_CHK_MIN_TRAY, Tx(L"Kapatınca sistem tepsisine küçült", L"Minimize to system tray on close"));
     g_hBtnAppExit    = MakeBtn(ID_BTN_APP_EXIT, Tx(L"Uygulamadan Çık", L"Exit Application"));
     g_hBtnLogs       = MakeBtn(ID_MENU_OPENLOGS, Tx(L"Log Klasörünü Aç", L"Open Logs Folder"));
@@ -6182,13 +6661,17 @@ static bool OnCreate(HWND hwnd) {
     ApplyScrollTheme(g_hListMods);
     ApplyTitleBarTheme(hwnd);
 
-    g_icoBig = MakeIcon(32, 0); g_icoSmall = MakeIcon(16, 0);
-    int ts = GetSystemMetrics(SM_CXSMICON);
-    g_trayIco[0] = MakeIcon(ts, 0); g_trayIco[1] = MakeIcon(ts, 1);
-    g_trayIco[2] = MakeIcon(ts, 2); g_trayIco[3] = MakeIcon(ts, 3);
+    int bigSz = GetSystemMetrics(SM_CXICON);
+    int smSz  = GetSystemMetrics(SM_CXSMICON);
+    if (bigSz <= 0) bigSz = 32;
+    if (smSz  <= 0) smSz  = 16;
+    g_icoBig = MakeIcon(bigSz, 0); g_icoSmall = MakeIcon(smSz, 0);
+    g_trayIco[0] = MakeIcon(smSz, 0); g_trayIco[1] = MakeIcon(smSz, 1);
+    g_trayIco[2] = MakeIcon(smSz, 2); g_trayIco[3] = MakeIcon(smSz, 3);
     SendMessageW(hwnd, WM_SETICON, ICON_BIG, (LPARAM)g_icoBig);
     SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)g_icoSmall);
 
+    RefreshMonitorHz();
     InitHighResTimer();
     if (g_animPerfFreq.QuadPart == 0) QueryPerformanceFrequency(&g_animPerfFreq);
 
@@ -6222,6 +6705,7 @@ static void AppendLangAndThemeMenus(HMENU parent) {
 }
 
 static void ShowTrayMenu() {
+    if (g_modalDepth > 0 || g_appClosing.load()) return;
     HMENU m = CreatePopupMenu();
     if (!m) return;
     bool vis = IsWindowVisible(g_hwnd) != 0;
@@ -6263,10 +6747,23 @@ static void HandleServerEvent(SrvEvent* e) {
         return;
     }
     if (e->type == EV_BACKUP_DONE) {
-        if (g_hBtnBkCreate)  EnableWindow(g_hBtnBkCreate, TRUE);
-        if (g_hBtnBkRestore) EnableWindow(g_hBtnBkRestore, TRUE);
+        if (g_hBackupThread) {
+            WaitForSingleObject(g_hBackupThread, 3000);
+            CloseHandle(g_hBackupThread);
+            g_hBackupThread = NULL;
+        }
+        g_backupBusy = false;
+        if (g_backupSaveOffSent) {
+            g_backupSaveOffSent = false;
+            if (g_state == SrvState::Running) WriteToConsole(L"save-on");
+        }
+        SetBackupButtonsEnabled(true);
         AppLog(e->text);
         LoadBackupsListToUi();
+        if (g_deferredQuit && g_state == SrvState::Stopped) {
+            g_deferredQuit = false;
+            DestroyWindow(g_hwnd);
+        }
         return;
     }
     if (e->hbm) { DeleteObject(e->hbm); e->hbm = NULL; }
@@ -6379,13 +6876,41 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_GETMINMAXINFO: {
             MINMAXINFO* mm = (MINMAXINFO*)lp;
-            RECT r = { 0, 0, S(980), S(700) + HeaderH() };
+            RECT r = { 0, 0, S(980), S(648) + HeaderH() };
             AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-            mm->ptMinTrackSize.x = r.right - r.left; mm->ptMinTrackSize.y = r.bottom - r.top;
+            LONG minW = r.right - r.left;
+            LONG minH = r.bottom - r.top;
+            HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if (hMon) {
+                MONITORINFO mi = {};
+                mi.cbSize = sizeof(mi);
+                if (GetMonitorInfoW(hMon, &mi)) {
+                    minW = std::min<LONG>(minW, mi.rcWork.right - mi.rcWork.left);
+                    minH = std::min<LONG>(minH, mi.rcWork.bottom - mi.rcWork.top);
+                }
+            }
+            mm->ptMinTrackSize.x = minW; mm->ptMinTrackSize.y = minH;
             return 0;
         }
 
         case WM_DISPLAYCHANGE: {
+            RefreshMonitorHz();
+            if (!IsZoomed(hwnd) && !IsIconic(hwnd)) {
+                HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                MONITORINFO mi = {};
+                mi.cbSize = sizeof(mi);
+                RECT wr;
+                if (hMon && GetMonitorInfoW(hMon, &mi) && GetWindowRect(hwnd, &wr)) {
+                    int w = wr.right - wr.left, h = wr.bottom - wr.top;
+                    int maxW = mi.rcWork.right - mi.rcWork.left, maxH = mi.rcWork.bottom - mi.rcWork.top;
+                    int nw = std::min(w, maxW), nh = std::min(h, maxH);
+                    int nx = std::max<int>(mi.rcWork.left, std::min<int>(wr.left, mi.rcWork.right - nw));
+                    int ny = std::max<int>(mi.rcWork.top, std::min<int>(wr.top, mi.rcWork.bottom - nh));
+                    if (nw != w || nh != h || nx != wr.left || ny != wr.top) {
+                        SetWindowPos(hwnd, NULL, nx, ny, nw, nh, SWP_NOZORDER | SWP_NOACTIVATE);
+                    }
+                }
+            }
             RECT cr; GetClientRect(hwnd, &cr);
             if (cr.right > 0 && cr.bottom > 0) {
                 Layout(cr.right, cr.bottom);
@@ -6605,20 +7130,31 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case ID_BTN_MOD_RELOAD:  LoadModFolder(L"mods", g_modsList, g_hListMods); break;
 
                 case ID_CHK_SCHED_BK:
-                    g_schedBkEnabled = !g_schedBkEnabled; SaveSettings();
+                    g_schedBkEnabled = !g_schedBkEnabled;
+                    if (g_schedBkEnabled) g_lastAutoBackupTime = 0;
+                    SaveSettings();
                     if (g_hChkSchedBk) InvalidateRect(g_hChkSchedBk, NULL, FALSE);
                     break;
                 case ID_BTN_SCHED_BK_SAVE: {
-                    int h = _wtoi(Trim(GetText(g_hEditBkHours)).c_str());
-                    if (h < 1 || h > 72) {
+                    int h = 0;
+                    if (!ParseStrictUint(Trim(GetText(g_hEditBkHours)), 1, 72, h)) {
                         AppLog(Tx(L"Yedekleme aralığı 1 ile 72 saat arasında olmalıdır.", L"Backup interval must be between 1 and 72 hours."));
                         break;
                     }
-                    int keep = g_hEditBkKeep ? _wtoi(Trim(GetText(g_hEditBkKeep)).c_str()) : g_schedBkKeep;
-                    if (keep < 0) keep = 0;
-                    if (keep > 50) keep = 50;
+                    int keep = g_schedBkKeep;
+                    if (g_hEditBkKeep) {
+                        std::wstring ks = Trim(GetText(g_hEditBkKeep));
+                        if (ks.empty()) {
+                            keep = 0;
+                        } else if (!ParseStrictUint(ks, 0, 50, keep)) {
+                            AppLog(Tx(L"Maksimum otomatik yedek sayısı 0 ile 50 arasında olmalıdır.", L"Max auto backups must be between 0 and 50."));
+                            break;
+                        }
+                    }
                     g_schedBkHours = h;
                     g_schedBkKeep = keep;
+                    g_lastAutoBackupTime = 0;
+                    SetWindowTextW(g_hEditBkHours, std::to_wstring(g_schedBkHours).c_str());
                     if (g_hEditBkKeep) SetWindowTextW(g_hEditBkKeep, std::to_wstring(g_schedBkKeep).c_str());
                     SaveSettings();
                     AppLog(Tx(L"Otomatik yedekleme ayarları kaydedildi.", L"Scheduled backup settings saved."));
@@ -6631,8 +7167,8 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     break;
                 case ID_BTN_SCHED_RESTART_SAVE: {
                     std::wstring t = Trim(GetText(g_hEditRestartTime));
-                    int th = 0, tm = 0; wchar_t extra = 0;
-                    if (swscanf(t.c_str(), L"%d:%d%lc", &th, &tm, &extra) != 2 || th < 0 || th > 23 || tm < 0 || tm > 59) {
+                    int th = 0, tm = 0;
+                    if (!ParseStrictHHMM(t, th, tm)) {
                         AppLog(Tx(L"Saat formatı geçersiz (örnek format: 04:00)", L"Invalid time format (e.g. 04:00)"));
                         break;
                     }
@@ -6663,6 +7199,11 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     AppLog(Tx(L"Java otomatik algılama etkinleştirildi: ", L"Java auto-detection enabled: ") + g_detectedJavaLabel);
                     break;
                 case ID_BTN_JAVA_SAVE: SaveJavaFromUi(); break;
+                case ID_CHK_SPLASH:
+                    g_splashEnabled = !g_splashEnabled;
+                    SaveSettings();
+                    if (g_hChkSplash) InvalidateRect(g_hChkSplash, NULL, FALSE);
+                    break;
                 case ID_CHK_MIN_TRAY:
                     g_minimizeToTray = !g_minimizeToTray;
                     SaveSettings();
@@ -6822,7 +7363,14 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 KillTimer(hwnd, TID_RESTART);
                 bool trigSched = g_scheduledRestartTrigger;
                 g_scheduledRestartTrigger = false;
-                if ((g_autoRestart || trigSched) && g_state == SrvState::Stopped && !g_quitPending) StartServer();
+                if ((g_autoRestart || trigSched) && g_state == SrvState::Stopped && !g_quitPending) {
+                    if (g_backupBusy.load()) {
+                        g_scheduledRestartTrigger = trigSched;
+                        SetTimer(hwnd, TID_RESTART, 2000, NULL);
+                    } else {
+                        StartServer();
+                    }
+                }
             } else if (wp == TID_STOP_RETRY) {
                 if (g_state != SrvState::Stopping || !g_hProc || g_srvStopAck || g_stopRetryCount >= 15) {
                     KillTimer(hwnd, TID_STOP_RETRY);
@@ -6959,8 +7507,12 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_TRAYICON:
             switch (LOWORD(lp)) {
-                case WM_LBUTTONUP: case WM_LBUTTONDBLCLK: ShowMain(); break;
-                case WM_RBUTTONUP: ShowTrayMenu(); break;
+                case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
+                    ShowMain();
+                    break;
+                case WM_RBUTTONUP:
+                    if (g_modalDepth == 0) ShowTrayMenu();
+                    break;
             }
             return 0;
 
@@ -6996,16 +7548,18 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_DESTROY: {
+            g_appClosing = true;
             KillTimer(hwnd, TID_STATS); KillTimer(hwnd, TID_TIME); KillTimer(hwnd, TID_STOPWATCH); KillTimer(hwnd, TID_STOP_RETRY); KillTimer(hwnd, TID_RESTART); KillTimer(hwnd, TID_ANIM); KillTimer(hwnd, TID_ACCESS_SYNC);
             g_animStop = true;
             g_animActive = false;
             if (g_hAnimWake) SetEvent(g_hAnimWake);
+            bool animExited = true;
             if (g_hAnimThread) {
-                WaitForSingleObject(g_hAnimThread, 1000);
+                animExited = (WaitForSingleObject(g_hAnimThread, 1500) == WAIT_OBJECT_0);
                 CloseHandle(g_hAnimThread);
                 g_hAnimThread = NULL;
             }
-            if (g_hAnimWake) {
+            if (animExited && g_hAnimWake) {
                 CloseHandle(g_hAnimWake);
                 g_hAnimWake = NULL;
             }
@@ -7035,6 +7589,16 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 CloseHandle(g_hJob);
                 g_hJob = NULL;
             }
+            if (g_hReaderThread) {
+                WaitForSingleObject(g_hReaderThread, 2000);
+                CloseHandle(g_hReaderThread);
+                g_hReaderThread = NULL;
+            }
+            if (g_hBackupThread) {
+                WaitForSingleObject(g_hBackupThread, 5000);
+                CloseHandle(g_hBackupThread);
+                g_hBackupThread = NULL;
+            }
             MSG pendingMsg;
             while (PeekMessageW(&pendingMsg, NULL, WM_SC_EVENT, WM_SC_EVENT, PM_REMOVE)) {
                 SrvEvent* ev = (SrvEvent*)pendingMsg.lParam;
@@ -7056,6 +7620,337 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (g_msgTaskbarCreated && msg == g_msgTaskbarCreated) { TrayAdd(); TrayUpdate(); return 0; }
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+static LRESULT CALLBACK SplashWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_LBUTTONDOWN || msg == WM_CLOSE ||
+        (msg == WM_KEYDOWN && (wp == VK_ESCAPE || wp == VK_SPACE || wp == VK_RETURN))) {
+        bool* pSkip = reinterpret_cast<bool*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (pSkip) *pSkip = true;
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+// Discord-style display-paced startup splash overlay shown before revealing the main window.
+static void RunStartupSplash(HINSTANCE hInst, HWND mainHwnd, int nCmdShow, bool* outQuit) {
+    if (outQuit) *outQuit = false;
+    bool mainShown = false;
+    auto ensureMainVisible = [&]() {
+        if (!mainShown) {
+            mainShown = true;
+            ShowWindow(mainHwnd, nCmdShow);
+            UpdateWindow(mainHwnd);
+            SetForegroundWindow(mainHwnd);
+        }
+    };
+
+    const wchar_t* kSplashClass = L"RedstoneSplashWnd";
+    WNDCLASSEXW swc = {};
+    swc.cbSize = sizeof(swc);
+    swc.lpfnWndProc = SplashWndProc;
+    swc.hInstance = hInst;
+    swc.lpszClassName = kSplashClass;
+    swc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    if (!RegisterClassExW(&swc)) {
+        ensureMainVisible();
+        return;
+    }
+
+    int cardW = S(310);
+    int cardH = S(264);
+    int pad = S(22);
+    int surfW = cardW + pad * 2;
+    int surfH = cardH + pad * 2;
+
+    RECT targetWa = {};
+    HMONITOR hMon = MonitorFromWindow(mainHwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (hMon && GetMonitorInfoW(hMon, &mi)) targetWa = mi.rcWork;
+    else SystemParametersInfoW(SPI_GETWORKAREA, 0, &targetWa, 0);
+
+    int sx = targetWa.left + ((targetWa.right - targetWa.left) - surfW) / 2;
+    int sy = targetWa.top + ((targetWa.bottom - targetWa.top) - surfH) / 2;
+
+    HWND hSplash = CreateWindowExW(
+        WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+        kSplashClass, L"Redstone Server Panel", WS_POPUP,
+        sx, sy, surfW, surfH, mainHwnd, NULL, hInst, NULL);
+    if (!hSplash) {
+        UnregisterClassW(kSplashClass, hInst);
+        ensureMainVisible();
+        return;
+    }
+
+    bool skipRequested = false;
+    SetWindowLongPtrW(hSplash, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&skipRequested));
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = hdcScreen ? CreateCompatibleDC(hdcScreen) : NULL;
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = surfW;
+    bmi.bmiHeader.biHeight = -surfH; // Top-down 32bpp DIB for direct PARGB GDI+ rendering
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    void* pBits = NULL;
+    HBITMAP hBmp = (hdcScreen && hdcMem)
+        ? CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0)
+        : NULL;
+
+    if (!hdcScreen || !hdcMem || !hBmp || !pBits) {
+        if (hBmp) DeleteObject(hBmp);
+        if (hdcMem) DeleteDC(hdcMem);
+        if (hdcScreen) ReleaseDC(NULL, hdcScreen);
+        DestroyWindow(hSplash);
+        UnregisterClassW(kSplashClass, hInst);
+        ensureMainVisible();
+        return;
+    }
+
+    HGDIOBJ oldBmp = SelectObject(hdcMem, hBmp);
+    int iconPx = S(64);
+    HICON hSplashIcon = reinterpret_cast<HICON>(
+        LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON, iconPx, iconPx, LR_DEFAULTCOLOR));
+    std::unique_ptr<Gdiplus::Bitmap> logoBmp(hSplashIcon ? Gdiplus::Bitmap::FromHICON(hSplashIcon) : NULL);
+    bool hasLogo = logoBmp && logoBmp->GetLastStatus() == Gdiplus::Ok && logoBmp->GetWidth() > 0;
+
+    Gdiplus::FontFamily ffSegoe(L"Segoe UI");
+    const Gdiplus::FontFamily* pFamily = ffSegoe.IsAvailable()
+        ? &ffSegoe
+        : Gdiplus::FontFamily::GenericSansSerif();
+    Gdiplus::Font titleFont(pFamily, (Gdiplus::REAL)S(18), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+    Gdiplus::Font subFont(pFamily, (Gdiplus::REAL)S(12), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+    Gdiplus::Font badgeFont(pFamily, (Gdiplus::REAL)S(22), Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+    Gdiplus::StringFormat centerFmt;
+    centerFmt.SetAlignment(Gdiplus::StringAlignmentCenter);
+    centerFmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+
+    VSyncPacer pacer;
+    pacer.Init();
+    int hz = std::max(30, GetMonitorRefreshRate(mainHwnd));
+
+    LARGE_INTEGER freq = {}, tStart = {};
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&tStart);
+
+    const double kFadeInSec = 0.16;
+    const double kHoldSec = 0.90;
+    const double kNormalFadeOutSec = 0.22;
+    const double kSkipFadeOutSec = 0.10;
+    constexpr float kPi = 3.14159265f;
+
+    bool fadingOut = false;
+    bool gotQuit = false;
+    double fadeOutStart = kHoldSec;
+    double fadeOutDur = kNormalFadeOutSec;
+    bool shownSplash = false;
+
+    const wchar_t* txtTitle = L"Redstone Server Panel";
+    const wchar_t* txtStarting = Tx(L"Başlatılıyor…", L"Starting…");
+    const wchar_t* txtReady = Tx(L"Hazır", L"Ready");
+
+    for (;;) {
+        MSG msg;
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) {
+                gotQuit = true;
+                PostQuitMessage((int)msg.wParam);
+                break;
+            }
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        if (gotQuit) break;
+
+        LARGE_INTEGER tNow = {};
+        QueryPerformanceCounter(&tNow);
+        double elapsed = (freq.QuadPart > 0)
+            ? ((double)(tNow.QuadPart - tStart.QuadPart) / (double)freq.QuadPart)
+            : kHoldSec;
+
+        if (!fadingOut && (skipRequested || elapsed >= kHoldSec)) {
+            fadingOut = true;
+            fadeOutStart = elapsed;
+            fadeOutDur = skipRequested ? kSkipFadeOutSec : kNormalFadeOutSec;
+            ensureMainVisible();
+            SetWindowPos(hSplash, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+
+        double outElapsed = fadingOut ? (elapsed - fadeOutStart) : 0.0;
+        if (fadingOut && outElapsed >= fadeOutDur) break;
+
+        float inT = (float)std::min(1.0, elapsed / kFadeInSec);
+        float easeIn = 1.0f - powf(1.0f - inT, 3.0f);
+        float outT = fadingOut ? (float)std::min(1.0, outElapsed / fadeOutDur) : 0.0f;
+        float fadeOutMul = 1.0f - (outT * outT * (3.0f - 2.0f * outT));
+        float masterAlpha = easeIn * fadeOutMul;
+        BYTE sca = (BYTE)std::max(1, std::min(255, (int)(masterAlpha * 255.0f + 0.5f)));
+
+        {
+            Gdiplus::Bitmap frame(surfW, surfH, surfW * 4, PixelFormat32bppPARGB, static_cast<BYTE*>(pBits));
+            Gdiplus::Graphics g(&frame);
+            g.Clear(Gdiplus::Color(0, 0, 0, 0));
+            g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+
+            float slideY = (1.0f - easeIn) * (float)S(10);
+            float cx = (float)pad;
+            float cy = (float)pad + slideY;
+            float cw = (float)cardW;
+            float ch = (float)cardH;
+            float rad = (float)S(18);
+
+            // Soft layered ambient shadow around the splash card
+            const float shadowSpread[4] = { (float)S(14), (float)S(10), (float)S(6), (float)S(3) };
+            const BYTE shadowAlpha[4] = { 12, 22, 34, 48 };
+            for (int i = 0; i < 4; ++i) {
+                float sp = shadowSpread[i];
+                Gdiplus::GraphicsPath spPath;
+                AddRoundPath(spPath, cx - sp * 0.5f, cy + sp * 0.28f, cw + sp, ch + sp * 0.85f, rad + sp * 0.45f);
+                Gdiplus::SolidBrush spBr(Gdiplus::Color(shadowAlpha[i], 0, 0, 0));
+                g.FillPath(&spBr, &spPath);
+            }
+
+            // Card surface & subtle gradient
+            Gdiplus::GraphicsPath cardPath;
+            AddRoundPath(cardPath, cx, cy, cw, ch, rad);
+            Gdiplus::LinearGradientBrush cardBr(
+                Gdiplus::PointF(cx, cy), Gdiplus::PointF(cx, cy + ch),
+                GpCol(P.card), GpCol(BlendCol(P.card, P.bg, 0.35f)));
+            g.FillPath(&cardBr, &cardPath);
+
+            // Soft top accent wash inside card
+            {
+                g.SetClip(&cardPath);
+                Gdiplus::LinearGradientBrush topWash(
+                    Gdiplus::PointF(cx, cy), Gdiplus::PointF(cx, cy + (float)S(112)),
+                    GpCol(P.accent, g_theme == Theme::Light ? 24 : 34), GpCol(P.accent, 0));
+                topWash.SetWrapMode(Gdiplus::WrapModeTileFlipXY);
+                g.FillRectangle(&topWash, cx, cy, cw, (float)S(110));
+                g.ResetClip();
+            }
+
+            Gdiplus::Pen borderPen(GpCol(BlendCol(P.border, P.accent, 0.24f), 220), (Gdiplus::REAL)std::max(1, S(1)));
+            g.DrawPath(&borderPen, &cardPath);
+
+            // Hero logo center + pulsing glow + orbital spinner
+            float centerX = cx + cw * 0.5f;
+            float iconCenterY = cy + (float)S(88);
+            float pulse = 0.5f + 0.5f * sinf((float)elapsed * 5.5f);
+            float haloR = (float)S(54) + pulse * (float)S(5);
+            Gdiplus::SolidBrush haloOuter(GpCol(P.accent, (BYTE)(18 + (int)(pulse * 16.0f))));
+            g.FillEllipse(&haloOuter, centerX - haloR, iconCenterY - haloR, haloR * 2.0f, haloR * 2.0f);
+            float haloInner = (float)S(42);
+            Gdiplus::SolidBrush haloInnerBr(GpCol(P.accent, 34));
+            g.FillEllipse(&haloInnerBr, centerX - haloInner, iconCenterY - haloInner, haloInner * 2.0f, haloInner * 2.0f);
+
+            // Orbital accent arc around the icon
+            float ringR = (float)S(46);
+            Gdiplus::Pen trackRingPen(GpCol(P.border, 95), (Gdiplus::REAL)S(2));
+            g.DrawEllipse(&trackRingPen, centerX - ringR, iconCenterY - ringR, ringR * 2.0f, ringR * 2.0f);
+            Gdiplus::Pen spinPen(GpCol(P.accent, 230), (Gdiplus::REAL)std::max(2, S(2)));
+            spinPen.SetStartCap(Gdiplus::LineCapRound);
+            spinPen.SetEndCap(Gdiplus::LineCapRound);
+            float sweepAngle = -90.0f + (float)(elapsed * 330.0);
+            g.DrawArc(&spinPen, centerX - ringR, iconCenterY - ringR, ringR * 2.0f, ringR * 2.0f, sweepAngle, 108.0f);
+
+            float floatT = std::min(1.0f, (float)(elapsed / kHoldSec));
+            float logoOffY = -sinf(floatT * kPi * 1.5f) * (float)S(3);
+            float logoScale = 0.84f + 0.16f * easeIn;
+            float logoSz = (float)iconPx * logoScale;
+            if (hasLogo) {
+                if (easeIn >= 0.995f) g.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+                g.DrawImage(logoBmp.get(),
+                            centerX - logoSz * 0.5f, iconCenterY + logoOffY - logoSz * 0.5f,
+                            logoSz, logoSz);
+                g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            } else {
+                Gdiplus::GraphicsPath badgePath;
+                AddRoundPath(badgePath, centerX - logoSz * 0.5f, iconCenterY + logoOffY - logoSz * 0.5f,
+                             logoSz, logoSz, (float)S(16));
+                Gdiplus::SolidBrush badgeBr(GpCol(P.accent));
+                g.FillPath(&badgeBr, &badgePath);
+                Gdiplus::SolidBrush badgeTxtBr(Gdiplus::Color(255, 255, 255, 255));
+                Gdiplus::RectF bRect(centerX - logoSz * 0.5f, iconCenterY + logoOffY - logoSz * 0.5f, logoSz, logoSz);
+                g.DrawString(L"RS", -1, &badgeFont, bRect, &centerFmt, &badgeTxtBr);
+            }
+
+            // Title & status caption
+            Gdiplus::SolidBrush titleBr(GpCol(P.text));
+            Gdiplus::RectF titleRc(cx + (float)S(16), cy + (float)S(144), cw - (float)S(32), (float)S(28));
+            g.DrawString(txtTitle, -1, &titleFont, titleRc, &centerFmt, &titleBr);
+
+            Gdiplus::SolidBrush subBr(GpCol(fadingOut ? BlendCol(P.muted, P.accent, 0.35f) : P.muted));
+            Gdiplus::RectF subRc(cx + (float)S(16), cy + (float)S(172), cw - (float)S(32), (float)S(22));
+            g.DrawString(fadingOut ? txtReady : txtStarting, -1, &subFont, subRc, &centerFmt, &subBr);
+
+            // Progress pill + glossy shimmer
+            float pillW = (float)S(184);
+            float pillH = (float)std::max(5, S(5));
+            float pillX = centerX - pillW * 0.5f;
+            float pillY = cy + (float)S(212);
+            float pillR = pillH * 0.5f;
+
+            Gdiplus::GraphicsPath trackPath;
+            AddRoundPath(trackPath, pillX, pillY, pillW, pillH, pillR);
+            Gdiplus::SolidBrush trackBr(GpCol(BlendCol(P.field, P.border, 0.45f)));
+            g.FillPath(&trackBr, &trackPath);
+
+            float progRatio = fadingOut
+                ? 1.0f
+                : std::min(1.0f, 0.08f + 0.92f * (1.0f - powf(1.0f - std::min(1.0f, (float)(elapsed / kHoldSec)), 2.2f)));
+            float fillW = std::max(pillH, pillW * progRatio);
+            g.SetClip(&trackPath);
+            Gdiplus::GraphicsPath fillPath;
+            AddRoundPath(fillPath, pillX, pillY, fillW, pillH, pillR);
+            Gdiplus::LinearGradientBrush fillBr(
+                Gdiplus::PointF(pillX, pillY), Gdiplus::PointF(pillX + fillW, pillY),
+                GpCol(P.accent), GpCol(BlendCol(P.accent, RGB(255, 255, 255), 0.34f)));
+            g.FillPath(&fillBr, &fillPath);
+
+            // Moving glint inside filled bar
+            float glintW = (float)S(42);
+            float glintCycle = fmodf((float)(elapsed * 1.45), 1.4f) - 0.2f;
+            float glintX = pillX + glintCycle * fillW;
+            Gdiplus::LinearGradientBrush glintBr(
+                Gdiplus::PointF(glintX, pillY), Gdiplus::PointF(glintX + glintW, pillY),
+                Gdiplus::Color(0, 255, 255, 255), Gdiplus::Color(115, 255, 255, 255));
+            glintBr.SetBlendBellShape(0.5f, 1.0f);
+            g.FillRectangle(&glintBr, glintX, pillY, glintW, pillH);
+            g.ResetClip();
+
+            g.Flush(Gdiplus::FlushIntentionSync);
+        }
+
+        POINT ptDst = { sx, sy };
+        SIZE szDst = { surfW, surfH };
+        POINT ptSrc = { 0, 0 };
+        BLENDFUNCTION bf = { AC_SRC_OVER, 0, sca, AC_SRC_ALPHA };
+        UpdateLayeredWindow(hSplash, hdcScreen, &ptDst, &szDst, hdcMem, &ptSrc, 0, &bf, ULW_ALPHA);
+        if (!shownSplash) {
+            shownSplash = true;
+            ShowWindow(hSplash, SW_SHOWNOACTIVATE);
+        }
+
+        pacer.WaitNextFrame(hz);
+    }
+
+    pacer.Close();
+    logoBmp.reset();
+    if (hSplashIcon) DestroyIcon(hSplashIcon);
+    SelectObject(hdcMem, oldBmp);
+    DeleteObject(hBmp);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+    DestroyWindow(hSplash);
+    UnregisterClassW(kSplashClass, hInst);
+    if (outQuit) *outQuit = gotQuit;
+    if (!gotQuit) ensureMainVisible();
 }
 
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
@@ -7115,10 +8010,45 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     if (startHidden) {
         g_trayHintShown = true;
         Balloon(L"Redstone Server Panel", L().balloonTrayStart);
-    } else ShowWindow(hwnd, nCmdShow);
+    } else {
+        bool wantSplash = g_splashEnabled &&
+            nCmdShow != SW_HIDE && nCmdShow != SW_MINIMIZE &&
+            nCmdShow != SW_SHOWMINIMIZED && nCmdShow != SW_SHOWMINNOACTIVE;
+        bool splashQuit = false;
+        if (wantSplash) {
+            RunStartupSplash(hInst, hwnd, nCmdShow, &splashQuit);
+            if (splashQuit && IsWindow(hwnd)) DestroyWindow(hwnd);
+        } else {
+            ShowWindow(hwnd, nCmdShow);
+        }
+    }
 
-    MSG msg;
-    while (GetMessageW(&msg, NULL, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    MSG msg = {};
+    while (GetMessageW(&msg, NULL, 0, 0) > 0) {
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_TAB && g_modalDepth == 0 && g_hwnd &&
+            (msg.hwnd == g_hwnd || IsChild(g_hwnd, msg.hwnd))) {
+            bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            if (ctrl) {
+                NavigateTo((g_page + (shift ? -1 : 1) + PG_COUNT) % PG_COUNT);
+                continue;
+            }
+            // Forward plain Tab/Shift+Tab for ListBoxes, RichEdit log, or main window itself
+            if (msg.hwnd == g_hwnd || msg.hwnd == g_hLog || msg.hwnd == g_hList ||
+                msg.hwnd == g_hListWl || msg.hwnd == g_hListOp || msg.hwnd == g_hListBk ||
+                msg.hwnd == g_hListProf || msg.hwnd == g_hListPlugins || msg.hwnd == g_hListMods) {
+                FocusNext((msg.hwnd == g_hwnd) ? NULL : msg.hwnd);
+                continue;
+            }
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    g_appClosing = true;
+    for (int waitMs = 0; g_skinGdiActive.load() > 0 && waitMs < 2000; waitMs += 10) {
+        Sleep(10);
+    }
 
     for (HFONT f : { g_fUI, g_fSemi, g_fCap, g_fVal, g_fMono }) if (f) DeleteObject(f);
     for (HBRUSH b : { g_bBg, g_bField, g_bLog }) if (b) DeleteObject(b);

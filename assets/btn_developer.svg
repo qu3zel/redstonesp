@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="244" height="54" viewBox="0 0 244 54" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="244" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#25131c"/>
+      <stop offset="100%" stop-color="#130d16"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="244" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f87171" stop-opacity="0.60"/>
+      <stop offset="100%" stop-color="#dc2626" stop-opacity="0.28"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="242" height="52" rx="12" fill="url(#bg)" stroke="url(#rim)" stroke-width="1.2"/>
+  <line x1="16" y1="2" x2="228" y2="2" stroke="#ffffff" stroke-opacity="0.10" stroke-width="1"/>
+  <rect x="10" y="10" width="34" height="34" rx="9" fill="#ef4444" fill-opacity="0.15" stroke="#ef4444" stroke-opacity="0.35" stroke-width="1"/>
+  <g transform="translate(17, 17) scale(0.8333)">
+    <circle cx="12" cy="8.2" r="3.8" stroke="#f87171" stroke-width="1.9"/>
+    <path d="M5 19.8C5 16.2 8.1 14 12 14C15.9 14 19 16.2 19 19.8" stroke="#f87171" stroke-width="1.9" stroke-linecap="round"/>
+  </g>
+  <text x="54" y="24" fill="#f1f5f9" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="0.1">Developer · @qu3zel</text>
+  <text x="54" y="39" fill="#fca5a5" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="500">Geliştirici Profili</text>
+  <path d="M223 22 L228 27 L223 32" stroke="#f87171" stroke-opacity="0.72" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
