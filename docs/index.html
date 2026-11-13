@@ -86,7 +86,8 @@
       </div>
 
       <!-- Connected Tab Bar -->
-      <div class="win-tabbar">
+      <div class="win-tabbar" id="winTabbar">
+        <div class="win-tab-indicator" id="tabIndicator" aria-hidden="true"></div>
         <div class="win-tab active" data-page="panel" data-i18n="tabDashboard">Panel</div>
         <div class="win-tab" data-page="props" data-i18n="tabProperties">Özellikler</div>
         <div class="win-tab" data-page="access" data-i18n="tabAccess">Yetkiler</div>
@@ -570,7 +571,8 @@
         <!-- PAGE 7: SETTINGS (WITH TWO SUB-TABS: GENERAL & SERVER/AUTOMATION) -->
         <div class="tab-page" id="page-settings">
           <!-- Sub-Tab Header Buttons -->
-          <div class="settings-subtabs">
+          <div class="settings-subtabs" id="settingsSubtabs">
+            <div class="subtab-indicator" id="subtabIndicator" aria-hidden="true"></div>
             <button class="subtab-btn active" data-subtab="gen" onclick="setSettingsSubTab('gen')" data-i18n="subtabGen">GENEL</button>
             <button class="subtab-btn" data-subtab="srv" onclick="setSettingsSubTab('srv')" data-i18n="subtabSrv">SUNUCU & OTOMASYON</button>
           </div>
@@ -609,7 +611,7 @@
           </div>
 
           <!-- Sub-Tab 1: SERVER & AUTOMATION -->
-          <div class="settings-subpage" id="subpage-srv" style="display: none;">
+          <div class="settings-subpage" id="subpage-srv">
             <div class="prop-grid">
               <!-- Left Column: Auto-Restart, Daily Restart, Open Logs -->
               <div>

@@ -438,11 +438,12 @@ body {
 
 /* Connected Tab Bar */
 .win-tabbar {
+  position: relative;
   display: flex;
   background-color: var(--w-tabBar);
   padding: 6px 12px 0;
   gap: 6px;
-  border-bottom: 1px solid transparent;
+  box-shadow: inset 0 -1px 0 var(--w-border);
   overflow-x: auto;
   scrollbar-width: none;
   white-space: nowrap;
@@ -450,6 +451,34 @@ body {
 
 .win-tabbar::-webkit-scrollbar {
   display: none;
+}
+
+.win-tab-indicator {
+  position: absolute;
+  top: 6px;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background-color: var(--w-subBar);
+  border: 1px solid var(--w-accent);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 1;
+  will-change: transform, width;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.win-tab-indicator::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 0;
+  height: 2px;
+  background-color: var(--w-subBar);
+  transition: background-color 0.2s ease;
 }
 
 .win-tab {
@@ -461,21 +490,24 @@ body {
   cursor: pointer;
   border-radius: 8px 8px 0 0;
   background: transparent;
-  transition: all 0.15s ease;
+  transition: color 0.16s ease, background-color 0.16s ease;
   position: relative;
+  z-index: 2;
   border: 1px solid transparent;
   border-bottom: none;
 }
 
-.win-tab:hover {
+.win-tab:hover:not(.active) {
   color: var(--w-text);
+  background-color: rgba(148, 163, 184, 0.1);
 }
 
 .win-tab.active {
-  background-color: var(--w-subBar);
   color: var(--w-text);
-  border-color: var(--w-accent);
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.win-window.theme-light .win-tab.active {
+  color: var(--w-accent);
 }
 
 /* Sub-Bar (Connects directly with active tab) */
@@ -499,16 +531,17 @@ body {
 
 .tab-page {
   display: none;
-  animation: fadeIn 0.15s ease-in;
+  will-change: opacity, transform;
 }
 
 .tab-page.active {
   display: block;
+  animation: fadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(2px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translate3d(0, 5px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 /* Panel / Dashboard Grid */
@@ -1287,36 +1320,55 @@ body {
 }
 
 .settings-subtabs {
+  position: relative;
   display: flex;
   justify-content: center;
   gap: 0.5rem;
   margin-bottom: 1.25rem;
 }
 
+.subtab-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-radius: 999px;
+  background: var(--w-accent);
+  box-shadow: 0 0 12px var(--w-accent);
+  pointer-events: none;
+  z-index: 1;
+  will-change: transform, width;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
 .subtab-btn {
+  position: relative;
+  z-index: 2;
   padding: 0.4rem 1.25rem;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   border-radius: 999px;
   border: 1px solid var(--w-border);
-  background: var(--w-card);
+  background: transparent;
   color: var(--w-muted);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
   text-transform: uppercase;
 }
 
-.subtab-btn:hover {
+.subtab-btn:hover:not(.active) {
   color: var(--w-text);
   border-color: var(--w-accent);
+  background: rgba(148, 163, 184, 0.08);
 }
 
 .subtab-btn.active {
-  background: var(--w-accent);
+  background: transparent;
   color: #0b1522;
-  border-color: var(--w-accent);
-  box-shadow: 0 0 12px var(--w-accent);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .win-window.theme-light .subtab-btn.active,
@@ -1324,6 +1376,16 @@ body {
 .win-window.theme-light .chk-box.checked,
 .win-window.theme-redstone .chk-box.checked {
   color: #ffffff;
+}
+
+.settings-subpage {
+  display: none;
+  will-change: opacity, transform;
+}
+
+.settings-subpage.active {
+  display: block;
+  animation: fadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .win-window.theme-dark .chk-box.checked,
@@ -1356,13 +1418,6 @@ body {
   transform: translateY(0);
 }
 
-.settings-subpage {
-  display: none;
-}
-
-.settings-subpage.active {
-  display: block;
-}
 
 .w-desc-text {
   font-size: 0.78rem;

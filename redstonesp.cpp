@@ -72,6 +72,7 @@
 #define WM_TRAYICON  (WM_USER + 1)
 #define WM_SC_EVENT  (WM_USER + 2)   // worker thread -> UI thread
 #define WM_SC_SHOW   (WM_USER + 3)   // second instance -> primary instance
+#define WM_APP_ANIM  (WM_USER + 4)   // VSync high-res animation frame
 
 enum {
     ID_BTN_BROWSE = 1001, ID_BTN_START, ID_BTN_STOP, ID_BTN_KICK, ID_BTN_BAN,
@@ -610,11 +611,18 @@ static RECT g_rcTab[PG_COUNT], g_rcSub[2];
 static float g_tabCurX = -1.0f, g_tabCurW = -1.0f;
 static float g_tabTargetX = 0.0f, g_tabTargetW = 0.0f;
 static bool  g_animatingTab = false;
+static float g_subCurX = -1.0f, g_subTargetX = 0.0f;
+static bool  g_animatingSubTab = false;
 static int   g_tabHover = -1;
 static int   g_subTabHover = -1;
 static bool  g_logThemeDirty = false;
 static LARGE_INTEGER g_animPerfFreq = {};
 static LARGE_INTEGER g_animLastTime = {};
+static HANDLE g_hAnimThread = NULL;
+static HANDLE g_hAnimWake = NULL;
+static std::atomic<bool> g_animActive{false};
+static std::atomic<bool> g_animStop{false};
+static std::atomic<bool> g_animFramePending{false};
 static void  ShowPage();
 static void  NavigateTo(int pg);
 static std::vector<TxtBlock> g_scards, g_txts;       // active page cards (title id) and description blocks
@@ -3248,6 +3256,7 @@ static void LoadSelectedProfile() {
     RefreshDetectedJavaLabel();
     SaveSettings();
     RefreshMaxPlayersFromProps();
+    if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
     AppLog(std::wstring(Tx(L"Profil yüklendi: ", L"Profile loaded: ")) + pr.name);
 }
 
@@ -4645,17 +4654,20 @@ static void PaintHeader(HDC mem, int W) {
         DeleteObject(pAccent);
     }
 
-    // 4. Tab text labels
+    // 4. Tab text labels (smoothly blended across sliding active pill)
     for (int i = 0; i < PG_COUNT; i++) {
         RECT t = g_rcTab[i];
-        COLORREF txtCol;
-        if (i == g_page) {
-            txtCol = (g_theme != Theme::Light) ? RGB(255, 255, 255) : P.accent;
-        } else if (i == g_tabHover) {
-            txtCol = P.text;
-        } else {
-            txtCol = P.muted;
+        float overlap = 0.0f;
+        if (ax >= 0 && aw > 0 && t.right > t.left) {
+            int ox1 = std::max((int)t.left, ax);
+            int ox2 = std::min((int)t.right, ax + aw);
+            if (ox2 > ox1) overlap = (float)(ox2 - ox1) / (float)(t.right - t.left);
+        } else if (i == g_page) {
+            overlap = 1.0f;
         }
+        COLORREF idleCol = (i == g_tabHover) ? P.text : P.muted;
+        COLORREF actCol  = (g_theme != Theme::Light) ? RGB(255, 255, 255) : P.accent;
+        COLORREF txtCol  = BlendCol(idleCol, actCol, overlap);
         DrawTxt(mem, PageName(i), t, g_fSemi, txtCol, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
 
@@ -4672,11 +4684,11 @@ static void PaintHeader(HDC mem, int W) {
 
     if (!g_detectedJavaLabel.empty()) {
         RECT jl = { S(16), tabH, S(240), tabH + navH };
-        DrawTxt(mem, g_detectedJavaLabel, jl, g_fCap, P.muted, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        DrawTxt(mem, g_detectedJavaLabel, jl, g_fCap, P.muted, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
     if (g_state != SrvState::Stopped && !g_mcVersion.empty()) {
         RECT mr = { W - S(240), tabH, W - S(16), tabH + navH };
-        DrawTxt(mem, L"Minecraft " + g_mcVersion, mr, g_fCap, P.accent, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+        DrawTxt(mem, L"Minecraft " + g_mcVersion, mr, g_fCap, P.accent, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
 }
 
@@ -4691,12 +4703,34 @@ static void PaintCardPage(HDC mem) {
     if (g_page == PG_SETTINGS) {
         static const wchar_t* subTr[2] = { L"GENEL", L"SUNUCU" };
         static const wchar_t* subEn[2] = { L"GENERAL", L"SERVER" };
+        if (g_subCurX < 0 && g_rcSub[g_subTab].right > g_rcSub[g_subTab].left) {
+            g_subCurX = (float)g_rcSub[g_subTab].left;
+            g_subTargetX = g_subCurX;
+        }
         for (int i = 0; i < 2; i++) {
-            bool act = (i == g_subTab);
-            COLORREF bg = act ? P.accent : ((i == g_subTabHover) ? P.field : P.card);
-            COLORREF bdr = act ? P.accent : ((i == g_subTabHover) ? P.accent : P.border);
-            COLORREF txt = act ? ContrastText(bg) : ((i == g_subTabHover) ? P.text : P.muted);
+            bool hov = (i == g_subTabHover && i != g_subTab);
+            COLORREF bg = hov ? P.field : P.card;
+            COLORREF bdr = hov ? P.accent : P.border;
             FillRound(mem, g_rcSub[i], bg, bdr, S(30));
+        }
+        int subW = g_rcSub[0].right - g_rcSub[0].left;
+        int sx = (g_subCurX >= 0) ? (int)(g_subCurX + 0.5f) : g_rcSub[g_subTab].left;
+        if (subW > 0) {
+            RECT actPill = { sx, g_rcSub[0].top, sx + subW, g_rcSub[0].bottom };
+            FillRound(mem, actPill, P.accent, P.accent, S(30));
+        }
+        COLORREF actTxt = ContrastText(P.accent);
+        for (int i = 0; i < 2; i++) {
+            float overlap = 0.0f;
+            if (subW > 0 && g_rcSub[i].right > g_rcSub[i].left) {
+                int ox1 = std::max((int)g_rcSub[i].left, sx);
+                int ox2 = std::min((int)g_rcSub[i].right, sx + subW);
+                if (ox2 > ox1) overlap = (float)(ox2 - ox1) / (float)(g_rcSub[i].right - g_rcSub[i].left);
+            } else if (i == g_subTab) {
+                overlap = 1.0f;
+            }
+            COLORREF baseTxt = (i == g_subTabHover) ? P.text : P.muted;
+            COLORREF txt = BlendCol(baseTxt, actTxt, overlap);
             DrawTxt(mem, g_lang == Lang::TR ? subTr[i] : subEn[i], g_rcSub[i], g_fCap,
                     txt, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
@@ -5415,6 +5449,8 @@ static void LayoutSettings(int W, int m, int g, int p, int fh) {
     int oy = HeaderH(), subW = S(110), subH = S(30), cx = W / 2;
     g_rcSub[0] = { cx - subW - S(4), oy + m, cx - S(4), oy + m + subH };
     g_rcSub[1] = { cx + S(4), oy + m, cx + S(4) + subW, oy + m + subH };
+    g_subTargetX = (float)g_rcSub[g_subTab].left;
+    if (g_subCurX < 0 || !g_animatingSubTab) g_subCurX = g_subTargetX;
     int top = oy + m + subH + g;
     int colW = (W - 2 * m - g) / 2, lx = m, rxc = m + colW + g;
     int iw = colW - 2 * p;
@@ -5564,6 +5600,146 @@ static void ShowPage() {
         RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
 }
+static DWORD WINAPI AnimVSyncThreadProc(LPVOID) {
+    HMODULE hDwm = LoadLibraryW(L"dwmapi.dll");
+    typedef HRESULT (WINAPI *PfnDwmFlush)(void);
+    typedef HRESULT (WINAPI *PfnDwmIsCompositionEnabled)(BOOL*);
+    PfnDwmFlush pDwmFlush = hDwm ? reinterpret_cast<PfnDwmFlush>(reinterpret_cast<void*>(GetProcAddress(hDwm, "DwmFlush"))) : NULL;
+    PfnDwmIsCompositionEnabled pDwmComp = hDwm ? reinterpret_cast<PfnDwmIsCompositionEnabled>(reinterpret_cast<void*>(GetProcAddress(hDwm, "DwmIsCompositionEnabled"))) : NULL;
+
+    typedef HANDLE (WINAPI *PfnCreateWaitableTimerExW)(LPSECURITY_ATTRIBUTES, LPCWSTR, DWORD, DWORD);
+    HMODULE hK32 = GetModuleHandleW(L"kernel32.dll");
+    PfnCreateWaitableTimerExW pCreateTimerEx = hK32 ? reinterpret_cast<PfnCreateWaitableTimerExW>(reinterpret_cast<void*>(GetProcAddress(hK32, "CreateWaitableTimerExW"))) : NULL;
+    HANDLE hHiTimer = pCreateTimerEx ? pCreateTimerEx(NULL, NULL, 0x00000002, TIMER_ALL_ACCESS) : NULL;
+
+    while (!g_animStop.load()) {
+        if (!g_animActive.load()) {
+            if (g_hAnimWake) WaitForSingleObject(g_hAnimWake, INFINITE);
+            else break;
+            continue;
+        }
+        bool flushed = false;
+        if (pDwmFlush) {
+            BOOL compOn = TRUE;
+            if (!pDwmComp || (SUCCEEDED(pDwmComp(&compOn)) && compOn)) {
+                if (SUCCEEDED(pDwmFlush())) flushed = true;
+            }
+        }
+        if (!flushed) {
+            int hz = std::max(30, GetMonitorRefreshRate(g_hwnd));
+            LONGLONG due100ns = -10000000LL / (LONGLONG)hz;
+            if (hHiTimer) {
+                LARGE_INTEGER li;
+                li.QuadPart = due100ns;
+                if (SetWaitableTimer(hHiTimer, &li, 0, NULL, NULL, FALSE)) {
+                    WaitForSingleObject(hHiTimer, 50);
+                } else {
+                    Sleep(std::max(1, 1000 / hz));
+                }
+            } else {
+                Sleep(std::max(1, 1000 / hz));
+            }
+        }
+        if (g_animStop.load()) break;
+        if (g_animActive.load() && g_hwnd && !g_animFramePending.exchange(true)) {
+            if (!PostMessageW(g_hwnd, WM_APP_ANIM, 0, 0)) {
+                g_animFramePending = false;
+            }
+        }
+    }
+    if (hHiTimer) CloseHandle(hHiTimer);
+    if (hDwm) FreeLibrary(hDwm);
+    return 0;
+}
+
+static void StartUiAnimation() {
+    if (!g_hwnd) return;
+    InitHighResTimer();
+    if (g_animPerfFreq.QuadPart == 0) QueryPerformanceFrequency(&g_animPerfFreq);
+    QueryPerformanceCounter(&g_animLastTime);
+    g_animActive = true;
+    g_animFramePending = false;
+    if (!g_hAnimWake) g_hAnimWake = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!g_hAnimThread && g_hAnimWake) {
+        g_animStop = false;
+        g_hAnimThread = CreateThread(NULL, 0, AnimVSyncThreadProc, NULL, 0, NULL);
+    }
+    if (g_hAnimThread && g_hAnimWake) {
+        SetEvent(g_hAnimWake);
+    } else {
+        int hz = std::max(30, GetMonitorRefreshRate(g_hwnd));
+        SetTimer(g_hwnd, TID_ANIM, (UINT)std::max(1, 1000 / hz), NULL);
+    }
+}
+
+static void StepAnimations(HWND hwnd) {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    float dt = 0.016f;
+    if (g_animPerfFreq.QuadPart > 0 && g_animLastTime.QuadPart > 0) {
+        dt = (float)(now.QuadPart - g_animLastTime.QuadPart) / (float)g_animPerfFreq.QuadPart;
+    }
+    g_animLastTime = now;
+    if (dt <= 0.0f) dt = 0.001f;
+    if (dt > 0.05f) dt = 0.05f;
+
+    float alpha = 1.0f - expf(-24.0f * dt);
+    bool anyActive = false;
+    bool headDirty = false;
+    bool subDirty = false;
+
+    if (g_animatingTab) {
+        headDirty = true;
+        float dx = g_tabTargetX - g_tabCurX;
+        float dw = g_tabTargetW - g_tabCurW;
+        if (fabsf(dx) < 0.35f && fabsf(dw) < 0.35f) {
+            g_tabCurX = g_tabTargetX;
+            g_tabCurW = g_tabTargetW;
+            g_animatingTab = false;
+        } else {
+            g_tabCurX += dx * alpha;
+            g_tabCurW += dw * alpha;
+            anyActive = true;
+        }
+    }
+
+    if (g_animatingSubTab && g_page == PG_SETTINGS) {
+        subDirty = true;
+        float sx = g_subTargetX - g_subCurX;
+        if (fabsf(sx) < 0.35f) {
+            g_subCurX = g_subTargetX;
+            g_animatingSubTab = false;
+        } else {
+            g_subCurX += sx * alpha;
+            anyActive = true;
+        }
+    } else if (g_animatingSubTab) {
+        g_subCurX = g_subTargetX;
+        g_animatingSubTab = false;
+    }
+
+    if (!anyActive) {
+        g_animActive = false;
+        KillTimer(hwnd, TID_ANIM);
+    }
+    g_animFramePending = false;
+
+    RECT cr;
+    GetClientRect(hwnd, &cr);
+    if (headDirty) {
+        RECT rHead = { 0, 0, cr.right, HeaderH() };
+        InvalidateRect(hwnd, &rHead, FALSE);
+    }
+    if (subDirty) {
+        RECT rSub = { std::min(g_rcSub[0].left, g_rcSub[1].left) - S(4), g_rcSub[0].top - S(4),
+                      std::max(g_rcSub[0].right, g_rcSub[1].right) + S(4), g_rcSub[1].bottom + S(4) };
+        InvalidateRect(hwnd, &rSub, FALSE);
+    }
+    if (headDirty || subDirty) {
+        UpdateWindow(hwnd);
+    }
+}
+
 static void NavigateTo(int pg) {
     if (pg < 0 || pg >= PG_COUNT || pg == g_page) return;
     int oldPage = g_page;
@@ -5577,17 +5753,8 @@ static void NavigateTo(int pg) {
         g_tabCurW = (float)(g_rcTab[oldPage].right - g_rcTab[oldPage].left);
     }
 
-    if (g_hwnd) {
-        InitHighResTimer();
-        if (g_animPerfFreq.QuadPart == 0) QueryPerformanceFrequency(&g_animPerfFreq);
-        QueryPerformanceCounter(&g_animLastTime);
-        g_animatingTab = true;
-
-        int hz = GetMonitorRefreshRate(g_hwnd);
-        int timerMs = std::max(1, 1000 / hz);
-        SetTimer(g_hwnd, TID_ANIM, (UINT)timerMs, NULL);
-    }
-
+    g_animatingTab = true;
+    StartUiAnimation();
     ShowPage();
 }
 
@@ -5661,6 +5828,14 @@ static bool OnCreate(HWND hwnd) {
     SendMessageW(g_hLog, EM_SETTARGETDEVICE, 0, 0);
     SendMessageW(g_hLog, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(S(6), S(6)));
     SendMessageW(g_hLog, EM_AUTOURLDETECT, FALSE, 0);
+    if (g_hLog) {
+        HMODULE hOle = GetModuleHandleW(L"ole32.dll");
+        if (hOle) {
+            typedef HRESULT (WINAPI *PfnRevokeDragDrop)(HWND);
+            PfnRevokeDragDrop pRevoke = reinterpret_cast<PfnRevokeDragDrop>(reinterpret_cast<void*>(GetProcAddress(hOle, "RevokeDragDrop")));
+            if (pRevoke) pRevoke(g_hLog);
+        }
+    }
     g_hCmd = MakeEdit(ID_EDIT_CMD);
     g_hBtnSend = MakeBtn(ID_BTN_SEND, L().btnSend);
 
@@ -5976,7 +6151,8 @@ static void HandleServerEvent(SrvEvent* e) {
         case EV_MC_VER:
             g_mcVersion = e->text;
             {
-                RECT rHead = { 0, S(46), 4000, HeaderH() };
+                RECT cr; GetClientRect(g_hwnd, &cr);
+                RECT rHead = { 0, S(46), cr.right, HeaderH() };
                 InvalidateRect(g_hwnd, &rHead, FALSE);
             }
             break;
@@ -6034,6 +6210,16 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
 
+        case WM_DISPLAYCHANGE: {
+            RECT cr; GetClientRect(hwnd, &cr);
+            if (cr.right > 0 && cr.bottom > 0) Layout(cr.right, cr.bottom);
+            return 0;
+        }
+
+        case WM_APP_ANIM:
+            StepAnimations(hwnd);
+            return 0;
+
         case WM_ERASEBKGND: return 1;
         case WM_PAINT: PaintMain(hwnd); return 0;
 
@@ -6054,7 +6240,8 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (hoverTab != g_tabHover) { g_tabHover = hoverTab; changed = true; }
             if (hoverSub != g_subTabHover) { g_subTabHover = hoverSub; changed = true; }
             if (changed) {
-                RECT rHead = { 0, 0, 4000, HeaderH() + S(46) };
+                RECT cr; GetClientRect(hwnd, &cr);
+                RECT rHead = { 0, 0, cr.right, HeaderH() + S(46) };
                 InvalidateRect(hwnd, &rHead, FALSE);
             }
             TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
@@ -6065,7 +6252,8 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (g_tabHover != -1 || g_subTabHover != -1) {
                 g_tabHover = -1;
                 g_subTabHover = -1;
-                RECT rHead = { 0, 0, 4000, HeaderH() + S(46) };
+                RECT cr; GetClientRect(hwnd, &cr);
+                RECT rHead = { 0, 0, cr.right, HeaderH() + S(46) };
                 InvalidateRect(hwnd, &rHead, FALSE);
             }
             break;
@@ -6076,7 +6264,16 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             for (int i = 0; i < PG_COUNT; i++) if (PtInRect(&g_rcTab[i], pt)) { NavigateTo(i); return 0; }
             if (g_page == PG_SETTINGS)
                 for (int i = 0; i < 2; i++) if (PtInRect(&g_rcSub[i], pt)) {
-                    if (g_subTab != i) { g_subTab = i; ShowPage(); }
+                    if (g_subTab != i) {
+                        if (g_subCurX < 0 && g_rcSub[g_subTab].right > g_rcSub[g_subTab].left) {
+                            g_subCurX = (float)g_rcSub[g_subTab].left;
+                        }
+                        g_subTab = i;
+                        g_subTargetX = (float)g_rcSub[i].left;
+                        g_animatingSubTab = true;
+                        StartUiAnimation();
+                        ShowPage();
+                    }
                     return 0;
                 }
             return 0;
@@ -6368,31 +6565,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_TIMER:
             if (wp == TID_ANIM) {
-                LARGE_INTEGER now;
-                QueryPerformanceCounter(&now);
-                float dt = 0.016f;
-                if (g_animPerfFreq.QuadPart > 0 && g_animLastTime.QuadPart > 0) {
-                    dt = (float)(now.QuadPart - g_animLastTime.QuadPart) / (float)g_animPerfFreq.QuadPart;
-                }
-                g_animLastTime = now;
-                if (dt <= 0.0f) dt = 0.001f;
-                if (dt > 0.05f) dt = 0.05f;
-
-                float alpha = 1.0f - expf(-24.0f * dt);
-                float dx = g_tabTargetX - g_tabCurX;
-                float dw = g_tabTargetW - g_tabCurW;
-
-                if (fabs(dx) < 0.5f && fabs(dw) < 0.5f) {
-                    g_tabCurX = g_tabTargetX;
-                    g_tabCurW = g_tabTargetW;
-                    g_animatingTab = false;
-                    KillTimer(hwnd, TID_ANIM);
-                } else {
-                    g_tabCurX += dx * alpha;
-                    g_tabCurW += dw * alpha;
-                }
-                RECT rHead = { 0, 0, 4000, HeaderH() };
-                InvalidateRect(hwnd, &rHead, FALSE);
+                StepAnimations(hwnd);
                 return 0;
             }
             if (wp == TID_STATS) {
@@ -6609,7 +6782,19 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_DESTROY: {
-            KillTimer(hwnd, TID_STATS); KillTimer(hwnd, TID_TIME); KillTimer(hwnd, TID_STOPWATCH); KillTimer(hwnd, TID_RESTART); KillTimer(hwnd, TID_ANIM);
+            KillTimer(hwnd, TID_STATS); KillTimer(hwnd, TID_TIME); KillTimer(hwnd, TID_STOPWATCH); KillTimer(hwnd, TID_RESTART); KillTimer(hwnd, TID_ANIM); KillTimer(hwnd, TID_ACCESS_SYNC);
+            g_animStop = true;
+            g_animActive = false;
+            if (g_hAnimWake) SetEvent(g_hAnimWake);
+            if (g_hAnimThread) {
+                WaitForSingleObject(g_hAnimThread, 1000);
+                CloseHandle(g_hAnimThread);
+                g_hAnimThread = NULL;
+            }
+            if (g_hAnimWake) {
+                CloseHandle(g_hAnimWake);
+                g_hAnimWake = NULL;
+            }
             HMODULE hMm = GetModuleHandleW(L"winmm.dll");
             if (hMm) {
                 typedef MMRESULT (WINAPI *PfnTimeEndPeriod)(UINT);

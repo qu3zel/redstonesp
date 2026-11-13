@@ -555,6 +555,10 @@ const i18n = {
 
 // Selectors
 const winWindow = document.getElementById('winWindow');
+const winTabbar = document.getElementById('winTabbar');
+const tabIndicator = document.getElementById('tabIndicator');
+const settingsSubtabs = document.getElementById('settingsSubtabs');
+const subtabIndicator = document.getElementById('subtabIndicator');
 const winTitleText = document.getElementById('winTitleText');
 const subbarTitle = document.getElementById('subbarTitle');
 const consoleBody = document.getElementById('consoleBody');
@@ -839,6 +843,129 @@ function formatUptime(sec) {
   return `${h}:${m}:${s}`;
 }
 
+// Monitor-Hz VSync animation engine (requestAnimationFrame adapts automatically to 60/120/144/240Hz+)
+const navAnim = {
+  rafId: 0,
+  lastTs: 0,
+  reducedMotion: typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false,
+  tab: { curX: -1, curW: 0, targetX: 0, targetW: 0, active: false },
+  sub: { curX: -1, curW: 0, targetX: 0, targetW: 0, y: 0, h: 0, active: false }
+};
+
+function applyTabIndicatorDom() {
+  if (!tabIndicator || navAnim.tab.curX < 0) return;
+  tabIndicator.style.transform = `translate3d(${navAnim.tab.curX.toFixed(2)}px, 0, 0)`;
+  tabIndicator.style.width = `${Math.max(0, navAnim.tab.curW).toFixed(2)}px`;
+}
+
+function applySubtabIndicatorDom() {
+  if (!subtabIndicator || navAnim.sub.curX < 0) return;
+  subtabIndicator.style.transform = `translate3d(${navAnim.sub.curX.toFixed(2)}px, ${navAnim.sub.y.toFixed(2)}px, 0)`;
+  subtabIndicator.style.width = `${Math.max(0, navAnim.sub.curW).toFixed(2)}px`;
+  subtabIndicator.style.height = `${Math.max(0, navAnim.sub.h).toFixed(2)}px`;
+}
+
+function stepNavAnimations(ts) {
+  const dt = navAnim.lastTs ? Math.min(0.05, Math.max(0.001, (ts - navAnim.lastTs) / 1000)) : 0.016;
+  navAnim.lastTs = ts;
+  const alpha = 1 - Math.exp(-24 * dt);
+  let keepGoing = false;
+
+  if (navAnim.tab.active) {
+    const dx = navAnim.tab.targetX - navAnim.tab.curX;
+    const dw = navAnim.tab.targetW - navAnim.tab.curW;
+    if (Math.abs(dx) < 0.35 && Math.abs(dw) < 0.35) {
+      navAnim.tab.curX = navAnim.tab.targetX;
+      navAnim.tab.curW = navAnim.tab.targetW;
+      navAnim.tab.active = false;
+    } else {
+      navAnim.tab.curX += dx * alpha;
+      navAnim.tab.curW += dw * alpha;
+      keepGoing = true;
+    }
+    applyTabIndicatorDom();
+  }
+
+  if (navAnim.sub.active) {
+    const sx = navAnim.sub.targetX - navAnim.sub.curX;
+    const sw = navAnim.sub.targetW - navAnim.sub.curW;
+    if (Math.abs(sx) < 0.35 && Math.abs(sw) < 0.35) {
+      navAnim.sub.curX = navAnim.sub.targetX;
+      navAnim.sub.curW = navAnim.sub.targetW;
+      navAnim.sub.active = false;
+    } else {
+      navAnim.sub.curX += sx * alpha;
+      navAnim.sub.curW += sw * alpha;
+      keepGoing = true;
+    }
+    applySubtabIndicatorDom();
+  }
+
+  if (keepGoing) {
+    navAnim.rafId = requestAnimationFrame(stepNavAnimations);
+  } else {
+    navAnim.rafId = 0;
+    navAnim.lastTs = 0;
+  }
+}
+
+function ensureNavAnimRunning() {
+  if (!navAnim.rafId) {
+    navAnim.lastTs = 0;
+    navAnim.rafId = requestAnimationFrame(stepNavAnimations);
+  }
+}
+
+function syncTabIndicator(animate = true) {
+  if (!tabIndicator) return;
+  const activeTab = document.querySelector('.win-tab.active');
+  if (!activeTab) return;
+  const tx = activeTab.offsetLeft;
+  const tw = activeTab.offsetWidth;
+  if (tw <= 0) return;
+
+  navAnim.tab.targetX = tx;
+  navAnim.tab.targetW = tw;
+
+  if (!animate || navAnim.reducedMotion || navAnim.tab.curX < 0) {
+    navAnim.tab.curX = tx;
+    navAnim.tab.curW = tw;
+    navAnim.tab.active = false;
+    applyTabIndicatorDom();
+  } else {
+    navAnim.tab.active = true;
+    ensureNavAnimRunning();
+  }
+}
+
+function syncSubtabIndicator(animate = true) {
+  if (!subtabIndicator) return;
+  const activeBtn = document.querySelector('.subtab-btn.active');
+  if (!activeBtn) return;
+  const bx = activeBtn.offsetLeft;
+  const bw = activeBtn.offsetWidth;
+  const by = activeBtn.offsetTop;
+  const bh = activeBtn.offsetHeight;
+  if (bw <= 0 || bh <= 0) return;
+
+  navAnim.sub.targetX = bx;
+  navAnim.sub.targetW = bw;
+  navAnim.sub.y = by;
+  navAnim.sub.h = bh;
+
+  if (!animate || navAnim.reducedMotion || navAnim.sub.curX < 0) {
+    navAnim.sub.curX = bx;
+    navAnim.sub.curW = bw;
+    navAnim.sub.active = false;
+    applySubtabIndicatorDom();
+  } else {
+    navAnim.sub.active = true;
+    ensureNavAnimRunning();
+  }
+}
+
 // Tab navigation
 document.querySelectorAll('.win-tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -848,6 +975,7 @@ document.querySelectorAll('.win-tab').forEach(tab => {
 });
 
 function setPage(pageName) {
+  const pageChanged = state.page !== pageName;
   state.page = pageName;
   document.querySelectorAll('.win-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.page === pageName);
@@ -866,16 +994,30 @@ function setPage(pageName) {
     settings: t.tabSettings
   };
   subbarTitle.textContent = (tabNames[pageName] || pageName).toUpperCase();
+
+  syncTabIndicator(pageChanged);
+  if (pageChanged) {
+    const activeTab = document.querySelector('.win-tab.active');
+    if (activeTab && activeTab.scrollIntoView) {
+      activeTab.scrollIntoView({ behavior: navAnim.reducedMotion ? 'auto' : 'smooth', inline: 'nearest', block: 'nearest' });
+    }
+  }
+  if (pageName === 'settings') {
+    syncSubtabIndicator(false);
+  }
 }
 
 // Settings Sub-Tabs
 function setSettingsSubTab(subtab) {
+  const changed = state.settingsSubTab !== subtab;
   state.settingsSubTab = subtab;
   document.querySelectorAll('.subtab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.subtab === subtab);
   });
   const subGen = document.getElementById('subpage-gen');
   const subSrv = document.getElementById('subpage-srv');
+  if (subGen) subGen.style.display = '';
+  if (subSrv) subSrv.style.display = '';
   if (subtab === 'srv') {
     if (subGen) subGen.classList.remove('active');
     if (subSrv) subSrv.classList.add('active');
@@ -883,8 +1025,36 @@ function setSettingsSubTab(subtab) {
     if (subGen) subGen.classList.add('active');
     if (subSrv) subSrv.classList.remove('active');
   }
+  syncSubtabIndicator(changed && state.page === 'settings');
 }
 window.setSettingsSubTab = setSettingsSubTab;
+
+if (typeof ResizeObserver !== 'undefined') {
+  const navResizeObs = new ResizeObserver(() => {
+    syncTabIndicator(false);
+    if (state.page === 'settings') syncSubtabIndicator(false);
+  });
+  if (winTabbar) navResizeObs.observe(winTabbar);
+  if (settingsSubtabs) navResizeObs.observe(settingsSubtabs);
+} else if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => {
+    syncTabIndicator(false);
+    if (state.page === 'settings') syncSubtabIndicator(false);
+  });
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('load', () => {
+    syncTabIndicator(false);
+    if (state.page === 'settings') syncSubtabIndicator(false);
+  });
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => {
+      syncTabIndicator(false);
+      if (state.page === 'settings') syncSubtabIndicator(false);
+    });
+  }
+}
 
 // Theme change
 function setTheme(themeName) {
@@ -997,6 +1167,8 @@ function setLanguage(langCode) {
 
   renderDashboardPlayers();
   setPage(state.page);
+  syncTabIndicator(false);
+  if (state.page === 'settings') syncSubtabIndicator(false);
 }
 window.setLanguage = setLanguage;
 
