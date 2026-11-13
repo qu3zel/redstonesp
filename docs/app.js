@@ -996,10 +996,24 @@ function setPage(pageName) {
   subbarTitle.textContent = (tabNames[pageName] || pageName).toUpperCase();
 
   syncTabIndicator(pageChanged);
-  if (pageChanged) {
+  if (pageChanged && winTabbar) {
     const activeTab = document.querySelector('.win-tab.active');
-    if (activeTab && activeTab.scrollIntoView) {
-      activeTab.scrollIntoView({ behavior: navAnim.reducedMotion ? 'auto' : 'smooth', inline: 'nearest', block: 'nearest' });
+    if (activeTab && typeof winTabbar.scrollTo === 'function') {
+      const barRect = winTabbar.getBoundingClientRect();
+      const tabRect = activeTab.getBoundingClientRect();
+      const pad = 12;
+      let targetLeft = null;
+      if (tabRect.left < barRect.left + pad) {
+        targetLeft = winTabbar.scrollLeft + (tabRect.left - barRect.left) - pad;
+      } else if (tabRect.right > barRect.right - pad) {
+        targetLeft = winTabbar.scrollLeft + (tabRect.right - barRect.right) + pad;
+      }
+      if (targetLeft !== null) {
+        winTabbar.scrollTo({
+          left: Math.max(0, targetLeft),
+          behavior: navAnim.reducedMotion ? 'auto' : 'smooth'
+        });
+      }
     }
   }
   if (pageName === 'settings') {
@@ -1100,10 +1114,13 @@ function renderDashboardPlayers() {
     if (isSel) state.selectedPlayer = p.name;
     div.className = `player-item${isSel ? ' selected' : ''}`;
     div.dataset.player = p.name;
-    div.innerHTML = `
-      <div class="skin-head" style="background: ${p.color || '#4ade80'};"></div>
-      <strong>${p.name}</strong>
-    `;
+    const skinHead = document.createElement('div');
+    skinHead.className = 'skin-head';
+    skinHead.style.background = p.color || '#4ade80';
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = p.name;
+    div.appendChild(skinHead);
+    div.appendChild(nameEl);
     div.addEventListener('click', () => {
       container.querySelectorAll('.player-item').forEach(it => it.classList.remove('selected'));
       div.classList.add('selected');
@@ -1175,6 +1192,7 @@ window.setLanguage = setLanguage;
 function launchServerWithUi() {
   if (state.restartPending) state.restartPending = false;
   startServer();
+  if (btnStartStop) btnStartStop.disabled = false;
   const t = i18n[state.lang];
   if (btnRestartServer) btnRestartServer.disabled = !state.isRunning;
   if (chartCpuTitle && state.isRunning) {
@@ -1188,6 +1206,7 @@ function restartServer() {
   const t = i18n[state.lang];
   state.restartPending = true;
   if (btnRestartServer) btnRestartServer.disabled = true;
+  if (btnStartStop) btnStartStop.disabled = true;
   appendLog(t.consoleRestarting, 'warn');
   stopServer();
   setTimeout(() => {
@@ -1464,7 +1483,7 @@ function sendCommand() {
         break;
       case 'list': {
         const names = state.onlinePlayers.map(p => p.name).join(', ');
-        appendLog(`[${now()}] [Server thread/INFO]: There are ${state.onlinePlayers.length} of a max of 20 players online${names ? ': ' + names : ''}`, 'info');
+        appendLog(`[${now()}] [Server thread/INFO]: There are ${state.onlinePlayers.length} of a max of ${state.maxPlayers} players online${names ? ': ' + names : ''}`, 'info');
         break;
       }
       case 'say': {
@@ -1778,6 +1797,12 @@ document.querySelectorAll('[data-i18n="btnNewBackup"]').forEach(btn => {
 
 document.querySelectorAll('[data-i18n="btnRestoreBackup"]').forEach(btn => {
   btn.addEventListener('click', () => {
+    const bkList = document.getElementById('listBackups');
+    const sel = bkList ? (bkList.querySelector('.selected') || bkList.firstElementChild) : null;
+    if (!sel) {
+      showToast(state.lang === 'en' ? 'No backup selected to restore.' : 'Geri yüklenecek yedek bulunamadı.');
+      return;
+    }
     const t = i18n[state.lang];
     appendLog(t.logBackupRestored, 'sys');
     showToast(t.logBackupRestored.replace('» ', ''));

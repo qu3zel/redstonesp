@@ -5622,7 +5622,15 @@ static DWORD WINAPI AnimVSyncThreadProc(LPVOID) {
         if (pDwmFlush) {
             BOOL compOn = TRUE;
             if (!pDwmComp || (SUCCEEDED(pDwmComp(&compOn)) && compOn)) {
-                if (SUCCEEDED(pDwmFlush())) flushed = true;
+                LARGE_INTEGER t0 = {}, t1 = {}, freq = {};
+                QueryPerformanceFrequency(&freq);
+                QueryPerformanceCounter(&t0);
+                if (SUCCEEDED(pDwmFlush())) {
+                    QueryPerformanceCounter(&t1);
+                    double elapsedMs = (freq.QuadPart > 0) ? ((double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart) : 0.0;
+                    // Guard against immediate DwmFlush returns when display is asleep/locked/RDP
+                    if (elapsedMs >= 1.0) flushed = true;
+                }
             }
         }
         if (!flushed) {
@@ -5657,11 +5665,12 @@ static void StartUiAnimation() {
     InitHighResTimer();
     if (g_animPerfFreq.QuadPart == 0) QueryPerformanceFrequency(&g_animPerfFreq);
     QueryPerformanceCounter(&g_animLastTime);
-    g_animActive = true;
-    g_animFramePending = false;
+    bool wasActive = g_animActive.exchange(true);
+    if (!wasActive) g_animFramePending = false;
     if (!g_hAnimWake) g_hAnimWake = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (!g_hAnimThread && g_hAnimWake) {
         g_animStop = false;
+        g_animFramePending = false;
         g_hAnimThread = CreateThread(NULL, 0, AnimVSyncThreadProc, NULL, 0, NULL);
     }
     if (g_hAnimThread && g_hAnimWake) {
@@ -6212,7 +6221,10 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_DISPLAYCHANGE: {
             RECT cr; GetClientRect(hwnd, &cr);
-            if (cr.right > 0 && cr.bottom > 0) Layout(cr.right, cr.bottom);
+            if (cr.right > 0 && cr.bottom > 0) {
+                Layout(cr.right, cr.bottom);
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
             return 0;
         }
 
@@ -6337,6 +6349,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         SaveSettings();
                         RefreshMaxPlayersFromProps();
                         LoadServerPropertiesToUi();
+                        InvalidateRect(hwnd, &g_rcStats, FALSE);
                     }
                     break;
                 }
@@ -6706,8 +6719,9 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     DragQueryFileW(hDrop, i, &fp[0], len + 1);
                     fp.resize(len);
                     std::wstring low = ToLowerW(fp);
-                    if ((low.size() >= 4 && low.compare(low.size() - 4, 4, L".jar") == 0) ||
-                        (low.size() >= 13 && low.compare(low.size() - 13, 13, L".jar.disabled") == 0)) {
+                    if (FileExists(fp) &&
+                        ((low.size() >= 4 && low.compare(low.size() - 4, 4, L".jar") == 0) ||
+                         (low.size() >= 13 && low.compare(low.size() - 13, 13, L".jar.disabled") == 0))) {
                         jars.push_back(fp);
                     }
                 }
@@ -6729,6 +6743,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         if (g_page == PG_PROPS) LoadServerPropertiesToUi();
                         if (g_page == PG_ACCESS) LoadAccessListsToUi();
                         if (g_page == PG_BACKUPS) LoadBackupsListToUi();
+                        InvalidateRect(hwnd, &g_rcStats, FALSE);
                         AppLog(Tx(L"Sunucu JAR seçildi: ", L"Server JAR selected: ") + jars[0]);
                     }
                 } else {
