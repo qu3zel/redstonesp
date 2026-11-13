@@ -554,7 +554,7 @@ static int g_textH = 16;
 static WNDPROC g_oldEdit = NULL, g_oldBtn = NULL;
 
 static SrvState g_state = SrvState::Stopped;
-static HANDLE g_hProc = NULL, g_hStdinWr = NULL;
+static HANDLE g_hProc = NULL, g_hStdinWr = NULL, g_hJob = NULL;
 static int g_gen = 0;
 static std::atomic<int> g_pendingTime{0};
 static std::atomic<bool> g_useTimelineCmd{false};
@@ -3744,6 +3744,49 @@ static void SaveJavaFromUi() {
         : (Tx(L"Özel Java yolu kaydedildi: ", L"Custom Java path saved: ") + g_javaPath));
 }
 
+static bool IsFileLockedByProcess(const std::wstring& path, bool checkByteLock) {
+    if (!FileExists(path)) return false;
+    HANDLE hEx = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hEx == INVALID_HANDLE_VALUE) {
+        if (GetLastError() == ERROR_SHARING_VIOLATION) return true;
+    } else {
+        CloseHandle(hEx);
+    }
+    if (checkByteLock) {
+        HANDLE hSh = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                 NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hSh != INVALID_HANDLE_VALUE) {
+            bool locked = false;
+            if (!LockFile(hSh, 0, 0, 1, 0)) {
+                if (GetLastError() == ERROR_LOCK_VIOLATION) locked = true;
+            } else {
+                UnlockFile(hSh, 0, 0, 1, 0);
+            }
+            CloseHandle(hSh);
+            if (locked) return true;
+        }
+    }
+    return false;
+}
+
+static bool IsServerDirLocked(const std::wstring& dir, bool* worldLockOut) {
+    if (worldLockOut) *worldLockOut = false;
+    std::wstring levelName = L"world";
+    auto props = ReadPropertiesMap(dir);
+    auto it = props.find("level-name");
+    if (it != props.end()) {
+        std::wstring ln = Trim(FromUtf8(it->second));
+        if (!ln.empty() && ln.find(L"..") == std::wstring::npos && ln.find_first_of(L"\\/") == std::wstring::npos) {
+            levelName = ln;
+        }
+    }
+    if (IsFileLockedByProcess(dir + L"\\" + levelName + L"\\session.lock", true)) {
+        if (worldLockOut) *worldLockOut = true;
+        return true;
+    }
+    return IsFileLockedByProcess(dir + L"\\logs\\latest.log", false);
+}
+
 static void StartServer() {
     if (g_backupBusy.load()) {
         Msg(Tx(L"Dünya yedeği veya geri yükleme devam ederken sunucu başlatılamaz.",
@@ -3792,6 +3835,27 @@ static void StartServer() {
     size_t sl = jar.find_last_of(L"\\/");
     std::wstring dir = sl == std::wstring::npos ? L"." : jar.substr(0, sl);
 
+    bool worldLocked = false;
+    if (IsServerDirLocked(dir, &worldLocked)) {
+        if (worldLocked) {
+            AppLog(Tx(L"Başlatma iptal edildi: Sunucu dünyası (session.lock) başka bir çalışan Java/sunucu işlemi tarafından kilitli.",
+                      L"Start aborted: Server world (session.lock) is locked by another running Java/server process."));
+            Msg(Tx(L"Bu sunucu dünyası (session.lock) şu anda başka bir çalışan sunucu / Java işlemi tarafından kilitli.\n\n"
+                   L"Arka planda takılı kalmış eski bir Java/Minecraft sunucusu varsa Görev Yöneticisi'nden ilgili java.exe işlemini kapatıp tekrar deneyin.",
+                   L"This server world (session.lock) is currently locked by another running server / Java process.\n\n"
+                   L"If an orphaned Java/Minecraft server process is still running in the background, end that java.exe process in Task Manager and try again."),
+                L().titleError, MB_OK | MB_ICONWARNING);
+            return;
+        }
+        if (Msg(Tx(L"logs\\latest.log dosyası şu anda başka bir işlem tarafından kullanılıyor.\n"
+                   L"Başka bir sunucu hâlâ başlatılıyor veya çalışıyor olabilir. Yine de başlatılsın mı?",
+                   L"logs\\latest.log is currently in use by another process.\n"
+                   L"Another server may still be starting or running. Start anyway?"),
+                L().titleError, MB_YESNO | MB_ICONWARNING) != IDYES) {
+            return;
+        }
+    }
+
     if (!EulaAccepted(dir)) {
         if (Msg(L().msgEulaPrompt, L().titleEula, MB_YESNO | MB_ICONQUESTION) != IDYES) return;
         WriteAll(dir + L"\\eula.txt", "# Accepted via Redstone Server Panel\neula=true\n");
@@ -3828,20 +3892,39 @@ static void StartServer() {
     si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION pi = {};
 
-    BOOL ok = CreateProcessW(NULL, cmdBuf.data(), NULL, NULL, TRUE, CREATE_NO_WINDOW,
+    HANDLE hJob = CreateJobObjectW(NULL, NULL);
+    if (hJob) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {};
+        jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (!SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli))) {
+            CloseHandle(hJob);
+            hJob = NULL;
+        }
+    }
+
+    BOOL ok = CreateProcessW(NULL, cmdBuf.data(), NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
                              NULL, dir.c_str(), &si, &pi);
     DWORD err = GetLastError();
     CloseHandle(outWr); CloseHandle(inRd);
     if (!ok) {
+        if (hJob) CloseHandle(hJob);
         CloseHandle(outRd); CloseHandle(inWr);
         Msg(std::wstring(L().msgStartErr) + SysError(err), L().titleError, MB_OK | MB_ICONERROR);
         return;
     }
-    if (pi.hThread) CloseHandle(pi.hThread);
+    if (hJob && !AssignProcessToJobObject(hJob, pi.hProcess)) {
+        CloseHandle(hJob);
+        hJob = NULL;
+    }
+    if (pi.hThread) {
+        ResumeThread(pi.hThread);
+        CloseHandle(pi.hThread);
+    }
 
     if (g_hProc) { CloseHandle(g_hProc); g_hProc = NULL; }
     if (g_hStdinWr) { CloseHandle(g_hStdinWr); g_hStdinWr = NULL; }
-    g_hProc = pi.hProcess; g_hStdinWr = inWr;
+    if (g_hJob) { CloseHandle(g_hJob); g_hJob = NULL; }
+    g_hProc = pi.hProcess; g_hStdinWr = inWr; g_hJob = hJob;
     ++g_gen; g_pendingTime = 0; g_useTimelineCmd = false; g_suppressErrLines = 0;
     KillTimer(g_hwnd, TID_RESTART);
     KillTimer(g_hwnd, TID_STOP_RETRY);
@@ -3866,7 +3949,9 @@ static void StartServer() {
     ReaderArgs* ra = new (std::nothrow) ReaderArgs{ g_hwnd, outRd, g_gen };
     HANDLE t = ra ? CreateThread(NULL, 0, ReaderThread, ra, 0, NULL) : NULL;
     if (!t) {
-        delete ra; CloseHandle(outRd); TerminateProcess(g_hProc, 1);
+        delete ra; CloseHandle(outRd);
+        if (g_hJob) { TerminateJobObject(g_hJob, 1); CloseHandle(g_hJob); g_hJob = NULL; }
+        TerminateProcess(g_hProc, 1);
         CloseHandle(g_hProc); g_hProc = NULL; CloseHandle(g_hStdinWr); g_hStdinWr = NULL;
         g_state = SrvState::Stopped; UpdateTelemetryStats(); UpdateUi();
         Msg(L().msgThreadErr, L().titleError, MB_OK | MB_ICONERROR);
@@ -3883,6 +3968,7 @@ static void StartServer() {
 
 static void TerminateServerTree() {
     if (g_hStdinWr) { CloseHandle(g_hStdinWr); g_hStdinWr = NULL; }
+    if (g_hJob) TerminateJobObject(g_hJob, 1);
     if (!g_hProc) return;
     DWORD selfPid = GetCurrentProcessId();
     DWORD srvPid = GetProcessId(g_hProc);
@@ -3944,6 +4030,7 @@ static void OnServerExited() {
     DWORD code = 0;
     if (g_hProc) { WaitForSingleObject(g_hProc, 3000); GetExitCodeProcess(g_hProc, &code); CloseHandle(g_hProc); g_hProc = NULL; }
     if (g_hStdinWr) { CloseHandle(g_hStdinWr); g_hStdinWr = NULL; }
+    if (g_hJob) { CloseHandle(g_hJob); g_hJob = NULL; }
     bool expected = (g_state == SrvState::Stopping);
     ULONGLONG upSec = (GetTickCount64() - g_startTick) / 1000;
     KillTimer(g_hwnd, TID_TIME); KillTimer(g_hwnd, TID_STOPWATCH); KillTimer(g_hwnd, TID_STOP_RETRY);
@@ -6894,11 +6981,17 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_ENDSESSION:
             if (wp && g_state != SrvState::Stopped && g_hProc) {
                 WriteToConsole(L"stop");
-                WaitForSingleObject(g_hProc, 10000);
+                if (WaitForSingleObject(g_hProc, 10000) == WAIT_TIMEOUT) {
+                    TerminateServerTree();
+                    WaitForSingleObject(g_hProc, 2000);
+                }
                 CloseHandle(g_hProc); g_hProc = NULL;
             }
             if (wp && g_hStdinWr) {
                 CloseHandle(g_hStdinWr); g_hStdinWr = NULL;
+            }
+            if (wp && g_hJob) {
+                CloseHandle(g_hJob); g_hJob = NULL;
             }
             return 0;
 
@@ -6926,7 +7019,10 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (g_hProc) {
                 if (WaitForSingleObject(g_hProc, 0) == WAIT_TIMEOUT) {
                     WriteToConsole(L"stop");
-                    WaitForSingleObject(g_hProc, 15000);
+                    if (WaitForSingleObject(g_hProc, 15000) == WAIT_TIMEOUT) {
+                        TerminateServerTree();
+                        WaitForSingleObject(g_hProc, 3000);
+                    }
                 }
                 CloseHandle(g_hProc);
                 g_hProc = NULL;
@@ -6934,6 +7030,10 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (g_hStdinWr) {
                 CloseHandle(g_hStdinWr);
                 g_hStdinWr = NULL;
+            }
+            if (g_hJob) {
+                CloseHandle(g_hJob);
+                g_hJob = NULL;
             }
             MSG pendingMsg;
             while (PeekMessageW(&pendingMsg, NULL, WM_SC_EVENT, WM_SC_EVENT, PM_REMOVE)) {
