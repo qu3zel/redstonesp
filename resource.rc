@@ -15,12 +15,12 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "CompanyName",      "Redstone Server Panel"
-            VALUE "FileDescription",  "Redstone Server Panel"
+            VALUE "CompanyName",      "RedstoneSP"
+            VALUE "FileDescription",  "RedstoneSP"
             VALUE "FileVersion",      "1.2.0"
             VALUE "InternalName",     "RedstoneSP"
             VALUE "OriginalFilename", "RedstoneSP.exe"
-            VALUE "ProductName",      "Redstone Server Panel"
+            VALUE "ProductName",      "RedstoneSP"
             VALUE "ProductVersion",   "1.2.0"
         END
     END

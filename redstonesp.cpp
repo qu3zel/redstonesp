@@ -5,13 +5,13 @@
 //
 //  Build (MSVC):
 //    rc resource.rc
-//    cl /utf-8 /EHsc /O2 redstonesp.cpp resource.res /Fe:RedstoneServerPanel.exe ^
+//    cl /utf-8 /EHsc /O2 redstonesp.cpp resource.res /Fe:RedstoneSP.exe ^
 //       /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib comdlg32.lib shell32.lib ^
 //       advapi32.lib psapi.lib winhttp.lib gdiplus.lib shlwapi.lib
 //
 //  Build (MinGW-w64):
 //    windres resource.rc -O coff -o resource.o
-//    g++ -O2 -s -std=c++17 redstonesp.cpp resource.o -o RedstoneServerPanel.exe
+//    g++ -O2 -s -std=c++17 redstonesp.cpp resource.o -o RedstoneSP.exe
 //        -mwindows -static -lcomdlg32 -lpsapi -lshell32 -ladvapi32 -lgdi32
 //        -luser32 -lwinhttp -lgdiplus -lshlwapi
 // ============================================================================
@@ -336,7 +336,7 @@ struct Strings {
 };
 
 static const Strings STR_TR = {
-    L"Redstone Server Panel",
+    L"RedstoneSP",
     L"SUNUCU AYARLARI",
     L"OYUNCULAR",
     L"KONSOL",
@@ -435,7 +435,7 @@ static const Strings STR_TR = {
 };
 
 static const Strings STR_EN = {
-    L"Redstone Server Panel",
+    L"RedstoneSP",
     L"SERVER SETTINGS",
     L"PLAYERS",
     L"CONSOLE",
@@ -1082,7 +1082,46 @@ static void SetAutoStart(bool on) {
 // ----------------------------------------------------------------------------
 //  Procedural Icons & Minecraft Skinheads
 // ----------------------------------------------------------------------------
+// Extracts native 32bpp straight-ARGB pixels from hIcon into top-down dstBits (size x size).
+static bool ExtractIconArgbBits(HICON hIcon, int size, void* dstBits) {
+    if (!hIcon || size <= 0 || !dstBits) return false;
+    ICONINFO ii = {};
+    if (!GetIconInfo(hIcon, &ii)) return false;
+    bool ok = false;
+    BITMAP bm = {};
+    if (ii.hbmColor && GetObjectW(ii.hbmColor, sizeof(bm), &bm) == sizeof(bm) &&
+        bm.bmBitsPixel == 32 && bm.bmWidth == size && bm.bmHeight == size) {
+        BITMAPINFO bmi = {};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = size;
+        bmi.bmiHeader.biHeight = -size;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        HDC scrDc = GetDC(NULL);
+        if (scrDc) {
+            if (GetDIBits(scrDc, ii.hbmColor, 0, static_cast<UINT>(size), dstBits, &bmi, DIB_RGB_COLORS) == size) {
+                const DWORD* px = static_cast<const DWORD*>(dstBits);
+                const size_t nPx = static_cast<size_t>(size) * static_cast<size_t>(size);
+                for (size_t i = 0; i < nPx; ++i) {
+                    if ((px[i] & 0xFF000000u) != 0u) { ok = true; break; }
+                }
+            }
+            ReleaseDC(NULL, scrDc);
+        }
+    }
+    if (ii.hbmMask) DeleteObject(ii.hbmMask);
+    if (ii.hbmColor) DeleteObject(ii.hbmColor);
+    return ok;
+}
+
 static HICON MakeIcon(int size, int dot /*0 none, 1 gray, 2 green, 3 amber*/) {
+    if (size <= 0) return NULL;
+    HICON hRes = g_hInst
+        ? reinterpret_cast<HICON>(LoadImageW(g_hInst, MAKEINTRESOURCEW(1), IMAGE_ICON, size, size, LR_DEFAULTCOLOR))
+        : NULL;
+    if (hRes && dot == 0) return hRes;
+
     BITMAPINFO bi = {};
     bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bi.bmiHeader.biWidth = size; bi.bmiHeader.biHeight = -size;
@@ -1093,33 +1132,89 @@ static HICON MakeIcon(int size, int dot /*0 none, 1 gray, 2 green, 3 amber*/) {
     if (dc) ReleaseDC(NULL, dc);
     if (!color || !bits) {
         if (color) DeleteObject(color);
-        return NULL;
+        return hRes;
     }
-    DWORD* px = (DWORD*)bits;
-    auto pack = [](int r, int g, int b) -> DWORD { return 0xFF000000u | (r << 16) | (g << 8) | b; };
-    for (int y = 0; y < size; y++) for (int x = 0; x < size; x++) {
-        int u = x * 16 / size, v = y * 16 / size;
-        unsigned n = (unsigned)((u * 73856093) ^ (v * 19349663)) & 0xFF;
-        DWORD c;
-        bool corner = (u == 0 || u == 15) && (v == 0 || v == 15);
-        if (corner) c = 0;
-        else if (u == 0 || u == 15 || v == 0 || v == 15) c = pack(30, 24, 18);
-        else if (v <= 4 || (v == 5 && n % 100 < 50)) {
-            int d = (n % 3 == 0) ? -16 : (n % 3 == 1 ? 0 : 14);
-            c = pack(86 + d, 160 + d, 58 + d);
-        } else {
-            int d = (n % 3 == 0) ? -12 : (n % 3 == 1 ? 0 : 10);
-            c = (n % 23 == 0) ? pack(112, 112, 116) : pack(134 + d, 96 + d, 66 + d);
-        }
-        if (dot > 0) {
-            double fx = x * 16.0 / size - 12.0, fy = y * 16.0 / size - 12.0;
-            double dist = fx * fx + fy * fy;
-            if (dist <= 3.6 * 3.6) {
-                if (dist > 2.6 * 2.6) c = pack(16, 18, 24);
-                else c = dot == 1 ? pack(150, 156, 168) : dot == 2 ? pack(60, 224, 112) : pack(250, 190, 40);
+
+    bool drawn = false;
+    DWORD* px = static_cast<DWORD*>(bits);
+    if (hRes) {
+        if (ExtractIconArgbBits(hRes, size, bits)) {
+            if (dot > 0) {
+                const float dotX = static_cast<float>(size) * 0.78f;
+                const float dotY = static_cast<float>(size) * 0.78f;
+                const float rOuter = std::max(2.7f, static_cast<float>(size) * 0.165f);
+                const float rInner = std::max(1.7f, rOuter * 0.66f);
+                const float dR = (dot == 1) ? 150.0f : (dot == 2) ? 60.0f  : 250.0f;
+                const float dG = (dot == 1) ? 156.0f : (dot == 2) ? 224.0f : 190.0f;
+                const float dB = (dot == 1) ? 168.0f : (dot == 2) ? 112.0f : 40.0f;
+                const int x0 = std::max(0, static_cast<int>(std::floor(dotX - rOuter - 1.0f)));
+                const int y0 = std::max(0, static_cast<int>(std::floor(dotY - rOuter - 1.0f)));
+                const int x1 = std::min(size - 1, static_cast<int>(std::ceil(dotX + rOuter + 1.0f)));
+                const int y1 = std::min(size - 1, static_cast<int>(std::ceil(dotY + rOuter + 1.0f)));
+                for (int y = y0; y <= y1; ++y) {
+                    for (int x = x0; x <= x1; ++x) {
+                        float dx = (static_cast<float>(x) + 0.5f) - dotX;
+                        float dy = (static_cast<float>(y) + 0.5f) - dotY;
+                        float dist = std::sqrt(dx * dx + dy * dy);
+                        float ringCov = std::clamp(rOuter + 0.5f - dist, 0.0f, 1.0f);
+                        if (ringCov <= 0.0f) continue;
+                        float dotCov = std::clamp(rInner + 0.5f - dist, 0.0f, 1.0f);
+                        float fgR = 16.0f * (ringCov - dotCov) + dR * dotCov;
+                        float fgG = 18.0f * (ringCov - dotCov) + dG * dotCov;
+                        float fgB = 24.0f * (ringCov - dotCov) + dB * dotCov;
+                        DWORD bg = px[y * size + x];
+                        float bgA = static_cast<float>((bg >> 24) & 0xFFu) / 255.0f;
+                        float bgR = static_cast<float>((bg >> 16) & 0xFFu);
+                        float bgG = static_cast<float>((bg >> 8)  & 0xFFu);
+                        float bgB = static_cast<float>(bg & 0xFFu);
+                        float inv = 1.0f - ringCov;
+                        float outA = ringCov + bgA * inv;
+                        float outPrR = fgR + bgR * bgA * inv;
+                        float outPrG = fgG + bgG * bgA * inv;
+                        float outPrB = fgB + bgB * bgA * inv;
+                        int oA = std::clamp(static_cast<int>(std::lround(outA * 255.0f)), 0, 255);
+                        int oR = outA > 1e-4f ? std::clamp(static_cast<int>(std::lround(outPrR / outA)), 0, 255) : 0;
+                        int oG = outA > 1e-4f ? std::clamp(static_cast<int>(std::lround(outPrG / outA)), 0, 255) : 0;
+                        int oB = outA > 1e-4f ? std::clamp(static_cast<int>(std::lround(outPrB / outA)), 0, 255) : 0;
+                        px[y * size + x] = (static_cast<DWORD>(oA) << 24) |
+                                           (static_cast<DWORD>(oR) << 16) |
+                                           (static_cast<DWORD>(oG) << 8)  |
+                                           static_cast<DWORD>(oB);
+                    }
+                }
             }
+            drawn = true;
         }
-        px[y * size + x] = c;
+        DestroyIcon(hRes);
+        hRes = NULL;
+    }
+
+    if (!drawn) {
+        auto pack = [](int r, int g, int b) -> DWORD { return 0xFF000000u | (r << 16) | (g << 8) | b; };
+        for (int y = 0; y < size; y++) for (int x = 0; x < size; x++) {
+            int u = x * 16 / size, v = y * 16 / size;
+            unsigned n = (unsigned)((u * 73856093) ^ (v * 19349663)) & 0xFF;
+            DWORD c;
+            bool corner = (u == 0 || u == 15) && (v == 0 || v == 15);
+            if (corner) c = 0;
+            else if (u == 0 || u == 15 || v == 0 || v == 15) c = pack(30, 24, 18);
+            else if (v <= 4 || (v == 5 && n % 100 < 50)) {
+                int d = (n % 3 == 0) ? -16 : (n % 3 == 1 ? 0 : 14);
+                c = pack(86 + d, 160 + d, 58 + d);
+            } else {
+                int d = (n % 3 == 0) ? -12 : (n % 3 == 1 ? 0 : 10);
+                c = (n % 23 == 0) ? pack(112, 112, 116) : pack(134 + d, 96 + d, 66 + d);
+            }
+            if (dot > 0) {
+                double fx = x * 16.0 / size - 12.0, fy = y * 16.0 / size - 12.0;
+                double dist = fx * fx + fy * fy;
+                if (dist <= 3.6 * 3.6) {
+                    if (dist > 2.6 * 2.6) c = pack(16, 18, 24);
+                    else c = dot == 1 ? pack(150, 156, 168) : dot == 2 ? pack(60, 224, 112) : pack(250, 190, 40);
+                }
+            }
+            px[y * size + x] = c;
+        }
     }
     std::vector<BYTE> maskBits(((size + 15) / 16) * 2 * size, 0);
     HBITMAP mask = CreateBitmap(size, size, 1, 1, maskBits.data());
@@ -1637,14 +1732,14 @@ static void TrayAdd() {
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
     g_nid.hIcon = g_trayIco[1];
-    lstrcpynW(g_nid.szTip, L"Redstone Server Panel", ARRAYSIZE(g_nid.szTip));
+    lstrcpynW(g_nid.szTip, L"RedstoneSP", ARRAYSIZE(g_nid.szTip));
     Shell_NotifyIconW(NIM_ADD, &g_nid);
     g_lastTip.clear(); g_lastTrayIcon = -1;
 }
 static void TrayUpdate() {
     int ico = g_state == SrvState::Running ? 2 : g_state == SrvState::Stopped ? 1 :
               (g_state == SrvState::Starting || g_state == SrvState::Stopping) ? 3 : 1;
-    std::wstring tip = L"Redstone Server Panel — ";
+    std::wstring tip = L"RedstoneSP — ";
     switch (g_state) {
         case SrvState::Stopped:  tip += L().tipStopped; break;
         case SrvState::Starting: tip += L().tipStarting; break;
@@ -1679,7 +1774,7 @@ static void HideMain() {
     ShowWindow(g_hwnd, SW_HIDE);
     if (!g_trayHintShown) {
         g_trayHintShown = true;
-        Balloon(L"Redstone Server Panel", L().balloonTrayBg);
+        Balloon(L"RedstoneSP", L().balloonTrayBg);
     }
 }
 
@@ -4199,7 +4294,7 @@ static void StartServer() {
             Tx(L"Yedekleme Devam Ediyor", L"Backup In Progress"), MB_OK | MB_ICONWARNING);
         return;
     }
-    if (g_state != SrvState::Stopped) { Msg(L().msgAlreadyRunning, L"Redstone Server Panel"); return; }
+    if (g_state != SrvState::Stopped) { Msg(L().msgAlreadyRunning, L"RedstoneSP"); return; }
 
     std::wstring jar = GetJarPath(), ip = Trim(GetText(g_hIp));
     std::wstring port = Trim(GetText(g_hPort)), ram = Trim(GetText(g_hRam));
@@ -4368,7 +4463,7 @@ static void StartServer() {
     SaveSettings();
     AppLog(std::wstring(L().logStarting) + ram + L().logWorkDir + dir + L")");
     UpdateUi();
-    Balloon(L"Redstone Server Panel", L().balloonStarting);
+    Balloon(L"RedstoneSP", L().balloonStarting);
 }
 
 static void TerminateServerTree() {
@@ -4459,7 +4554,7 @@ static void OnServerExited() {
         g_schedRestartPending = false;
         g_manualRestartPending = false;
         AppLog(std::wstring(L().logCrashed) + std::to_wstring((long long)(int)code) + L").");
-        Balloon(L"Redstone Server Panel", L().balloonCrashed);
+        Balloon(L"RedstoneSP", L().balloonCrashed);
         if (g_autoRestart && !g_quitPending) {
             // Servers that die within 2 minutes count as a crash loop; give up after 3 tries.
             g_crashCount = (upSec < 120) ? g_crashCount + 1 : 1;
@@ -4476,7 +4571,7 @@ static void OnServerExited() {
     } else {
         g_crashCount = 0;
         AppLog(L().logStopped);
-        Balloon(L"Redstone Server Panel", L().balloonStopped);
+        Balloon(L"RedstoneSP", L().balloonStopped);
         if (g_manualRestartPending && !g_quitPending) {
             g_manualRestartPending = false;
             g_scheduledRestartTrigger = true;
@@ -6822,7 +6917,7 @@ static void HandleServerEvent(SrvEvent* e) {
                 SetTimer(g_hwnd, TID_TIME, 15000, NULL);
                 QueryTime();
                 AppLog(L().logReady);
-                Balloon(L"Redstone Server Panel", L().balloonReady);
+                Balloon(L"RedstoneSP", L().balloonReady);
                 UpdateUi();
             } else if (g_state == SrvState::Stopping && !g_srvStopAck) {
                 // Server ignored early "stop" while booting; now that console command loop is live, re-send.
@@ -7675,7 +7770,7 @@ static void RunStartupSplash(HINSTANCE hInst, HWND mainHwnd, int nCmdShow, bool*
 
     HWND hSplash = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-        kSplashClass, L"Redstone Server Panel", WS_POPUP,
+        kSplashClass, L"RedstoneSP", WS_POPUP,
         sx, sy, surfW, surfH, mainHwnd, NULL, hInst, NULL);
     if (!hSplash) {
         UnregisterClassW(kSplashClass, hInst);
@@ -7711,10 +7806,41 @@ static void RunStartupSplash(HINSTANCE hInst, HWND mainHwnd, int nCmdShow, bool*
     }
 
     HGDIOBJ oldBmp = SelectObject(hdcMem, hBmp);
-    int iconPx = S(64);
+    int iconPx = S(72);
+    int srcIconPx = iconPx <= 128 ? 128 : 256;
     HICON hSplashIcon = reinterpret_cast<HICON>(
-        LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON, iconPx, iconPx, LR_DEFAULTCOLOR));
-    std::unique_ptr<Gdiplus::Bitmap> logoBmp(hSplashIcon ? Gdiplus::Bitmap::FromHICON(hSplashIcon) : NULL);
+        LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON, srcIconPx, srcIconPx, LR_DEFAULTCOLOR));
+    std::unique_ptr<Gdiplus::Bitmap> logoBmp;
+    if (hSplashIcon) {
+        auto nativeBmp = std::make_unique<Gdiplus::Bitmap>(srcIconPx, srcIconPx, PixelFormat32bppARGB);
+        Gdiplus::BitmapData bd = {};
+        Gdiplus::Rect fullRc(0, 0, srcIconPx, srcIconPx);
+        bool extracted = false;
+        if (nativeBmp->GetLastStatus() == Gdiplus::Ok &&
+            nativeBmp->LockBits(&fullRc, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bd) == Gdiplus::Ok) {
+            if (bd.Stride > 0 && bd.Stride == srcIconPx * 4) {
+                extracted = ExtractIconArgbBits(hSplashIcon, srcIconPx, bd.Scan0);
+            } else if (bd.Stride > 0) {
+                std::vector<DWORD> tmp(static_cast<size_t>(srcIconPx) * static_cast<size_t>(srcIconPx));
+                if (ExtractIconArgbBits(hSplashIcon, srcIconPx, tmp.data())) {
+                    BYTE* dstRow = static_cast<BYTE*>(bd.Scan0);
+                    const BYTE* srcRow = reinterpret_cast<const BYTE*>(tmp.data());
+                    const size_t rowBytes = static_cast<size_t>(srcIconPx) * 4u;
+                    for (int row = 0; row < srcIconPx; ++row) {
+                        CopyMemory(dstRow + static_cast<size_t>(row) * static_cast<size_t>(bd.Stride),
+                                   srcRow + static_cast<size_t>(row) * rowBytes, rowBytes);
+                    }
+                    extracted = true;
+                }
+            }
+            nativeBmp->UnlockBits(&bd);
+        }
+        if (extracted) {
+            logoBmp = std::move(nativeBmp);
+        } else {
+            logoBmp.reset(Gdiplus::Bitmap::FromHICON(hSplashIcon));
+        }
+    }
     bool hasLogo = logoBmp && logoBmp->GetLastStatus() == Gdiplus::Ok && logoBmp->GetWidth() > 0;
 
     Gdiplus::FontFamily ffSegoe(L"Segoe UI");
@@ -7748,7 +7874,7 @@ static void RunStartupSplash(HINSTANCE hInst, HWND mainHwnd, int nCmdShow, bool*
     double fadeOutDur = kNormalFadeOutSec;
     bool shownSplash = false;
 
-    const wchar_t* txtTitle = L"Redstone Server Panel";
+    const wchar_t* txtTitle = L"RedstoneSP";
     const wchar_t* txtStarting = Tx(L"Başlatılıyor…", L"Starting…");
     const wchar_t* txtReady = Tx(L"Hazır", L"Ready");
 
@@ -7840,17 +7966,17 @@ static void RunStartupSplash(HINSTANCE hInst, HWND mainHwnd, int nCmdShow, bool*
 
             // Hero logo center + pulsing glow + orbital spinner
             float centerX = cx + cw * 0.5f;
-            float iconCenterY = cy + (float)S(88);
+            float iconCenterY = cy + (float)S(84);
             float pulse = 0.5f + 0.5f * sinf((float)elapsed * 5.5f);
-            float haloR = (float)S(54) + pulse * (float)S(5);
+            float haloR = (float)S(57) + pulse * (float)S(5);
             Gdiplus::SolidBrush haloOuter(GpCol(P.accent, (BYTE)(18 + (int)(pulse * 16.0f))));
             g.FillEllipse(&haloOuter, centerX - haloR, iconCenterY - haloR, haloR * 2.0f, haloR * 2.0f);
-            float haloInner = (float)S(42);
+            float haloInner = (float)S(44);
             Gdiplus::SolidBrush haloInnerBr(GpCol(P.accent, 34));
             g.FillEllipse(&haloInnerBr, centerX - haloInner, iconCenterY - haloInner, haloInner * 2.0f, haloInner * 2.0f);
 
             // Orbital accent arc around the icon
-            float ringR = (float)S(46);
+            float ringR = (float)S(49);
             Gdiplus::Pen trackRingPen(GpCol(P.border, 95), (Gdiplus::REAL)S(2));
             g.DrawEllipse(&trackRingPen, centerX - ringR, iconCenterY - ringR, ringR * 2.0f, ringR * 2.0f);
             Gdiplus::Pen spinPen(GpCol(P.accent, 230), (Gdiplus::REAL)std::max(2, S(2)));
@@ -7864,11 +7990,10 @@ static void RunStartupSplash(HINSTANCE hInst, HWND mainHwnd, int nCmdShow, bool*
             float logoScale = 0.84f + 0.16f * easeIn;
             float logoSz = (float)iconPx * logoScale;
             if (hasLogo) {
-                if (easeIn >= 0.995f) g.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
+                g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
                 g.DrawImage(logoBmp.get(),
                             centerX - logoSz * 0.5f, iconCenterY + logoOffY - logoSz * 0.5f,
                             logoSz, logoSz);
-                g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
             } else {
                 Gdiplus::GraphicsPath badgePath;
                 AddRoundPath(badgePath, centerX - logoSz * 0.5f, iconCenterY + logoOffY - logoSz * 0.5f,
@@ -8009,7 +8134,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     bool startHidden = wcsstr(GetCommandLineW(), L"--tray") != NULL || wcsstr(GetCommandLineW(), L"/tray") != NULL;
     if (startHidden) {
         g_trayHintShown = true;
-        Balloon(L"Redstone Server Panel", L().balloonTrayStart);
+        Balloon(L"RedstoneSP", L().balloonTrayStart);
     } else {
         bool wantSplash = g_splashEnabled &&
             nCmdShow != SW_HIDE && nCmdShow != SW_MINIMIZE &&

@@ -127,7 +127,7 @@ const i18n = {
     statLang: "Çift Dil",
 
     // Desktop Window Title & Tabs
-    wndTitle: "Redstone Server Panel",
+    wndTitle: "RedstoneSP",
     tabDashboard: "Panel",
     tabProperties: "Özellikler",
     tabAccess: "Yetkiler",
@@ -379,7 +379,7 @@ const i18n = {
     statLang: "Bilingual",
 
     // Desktop Window Title & Tabs
-    wndTitle: "Redstone Server Panel",
+    wndTitle: "RedstoneSP",
     tabDashboard: "Dashboard",
     tabProperties: "Properties",
     tabAccess: "Access",

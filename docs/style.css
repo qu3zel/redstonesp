@@ -84,10 +84,11 @@ body {
 }
 
 .brand-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  box-shadow: 0 0 12px rgba(255, 68, 68, 0.4);
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 8px rgba(255, 68, 68, 0.45));
 }
 
 .nav-links {
@@ -432,6 +433,11 @@ body {
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--w-muted);
+}
+
+.win-title img {
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .win-controls-box {

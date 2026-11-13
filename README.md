@@ -129,7 +129,7 @@ build.bat
 or manually:
 ```bash
 windres resource.rc -O coff -o resource.o
-g++ -O2 -s -std=c++17 redstonesp.cpp resource.o -o RedstoneServerPanel.exe \
+g++ -O2 -s -std=c++17 redstonesp.cpp resource.o -o RedstoneSP.exe \
     -mwindows -static -lcomdlg32 -lpsapi -lshell32 -ladvapi32 -lgdi32 \
     -luser32 -lwinhttp -lgdiplus -lshlwapi
 ```
@@ -137,7 +137,7 @@ g++ -O2 -s -std=c++17 redstonesp.cpp resource.o -o RedstoneServerPanel.exe \
 ### MSVC (Visual Studio Developer Command Prompt)
 ```bat
 rc resource.rc
-cl /utf-8 /EHsc /O2 redstonesp.cpp resource.res /Fe:RedstoneServerPanel.exe ^
+cl /utf-8 /EHsc /O2 redstonesp.cpp resource.res /Fe:RedstoneSP.exe ^
    /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib comdlg32.lib shell32.lib ^
    advapi32.lib psapi.lib winhttp.lib gdiplus.lib shlwapi.lib
 ```
