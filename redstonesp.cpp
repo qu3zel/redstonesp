@@ -7632,7 +7632,7 @@ static LRESULT CALLBACK SplashWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-// Discord-style display-paced startup splash overlay shown before revealing the main window.
+// Display-paced layered startup splash overlay shown before revealing the main window.
 static void RunStartupSplash(HINSTANCE hInst, HWND mainHwnd, int nCmdShow, bool* outQuit) {
     if (outQuit) *outQuit = false;
     bool mainShown = false;
