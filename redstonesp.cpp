@@ -91,6 +91,9 @@ enum {
     ID_BTN_MOD_TOGGLE, ID_BTN_MOD_ADD, ID_BTN_MOD_DEL, ID_BTN_MOD_OPEN, ID_BTN_MOD_RELOAD,
     ID_CHK_SCHED_BK, ID_BTN_SCHED_BK_SAVE,
     ID_CHK_SCHED_RESTART, ID_BTN_SCHED_RESTART_SAVE,
+    ID_BTN_OPEN_SRVDIR, ID_BTN_FILT_ALL, ID_BTN_FILT_WARN, ID_BTN_FILT_CHAT,
+    ID_BTN_CON_SAVE, ID_BTN_CON_CLEAR, ID_BTN_JAVA_BROWSE, ID_BTN_JAVA_AUTO, ID_BTN_JAVA_SAVE,
+    ID_CHK_MIN_TRAY, ID_BTN_APP_EXIT,
     ID_EDIT_JAR = 1101, ID_EDIT_IP, ID_EDIT_PORT, ID_EDIT_RAM, ID_EDIT_UNBAN,
     ID_EDIT_CMD, ID_EDIT_LOG, ID_LIST_PLAYERS, ID_EDIT_JVM,
     ID_EDIT_MOTD, ID_EDIT_MAXPL, ID_EDIT_VIEWDIST, ID_EDIT_SPAWNPROT,
@@ -98,17 +101,19 @@ enum {
     ID_EDIT_WL, ID_EDIT_OP, ID_LIST_WL, ID_LIST_OP,
     ID_EDIT_BK_TAG, ID_LIST_BK, ID_EDIT_PROF_NAME, ID_LIST_PROF,
     ID_LIST_PLUGINS, ID_LIST_MODS, ID_EDIT_BK_HOURS, ID_EDIT_RESTART_TIME,
-    ID_TRAY_SHOW = 2001, ID_TRAY_START, ID_TRAY_STOP, ID_TRAY_AUTOSTART, ID_TRAY_EXIT,
+    ID_EDIT_JAVA_PATH, ID_EDIT_BK_KEEP,
+    ID_TRAY_SHOW = 2001, ID_TRAY_START, ID_TRAY_STOP, ID_TRAY_AUTOSTART, ID_TRAY_EXIT, ID_TRAY_RESTART,
     ID_MENU_LANG_TR = 2101, ID_MENU_LANG_EN, ID_MENU_THEME_DARK, ID_MENU_THEME_LIGHT,
     ID_MENU_THEME_REDSTONE, ID_MENU_THEME_MC,
-    ID_MENU_AUTORESTART, ID_MENU_OPENLOGS
+    ID_MENU_AUTORESTART, ID_MENU_OPENLOGS,
+    ID_CTX_KICK = 2201, ID_CTX_BAN, ID_CTX_OP, ID_CTX_DEOP, ID_CTX_WHITELIST, ID_CTX_COPY_NAME
 };
-enum { TID_STATS = 1, TID_TIME = 2, TID_STOPWATCH = 3, TID_RESTART = 4, TID_ANIM = 5 };
+enum { TID_STATS = 1, TID_TIME = 2, TID_STOPWATCH = 3, TID_RESTART = 4, TID_ANIM = 5, TID_ACCESS_SYNC = 6 };
 
 enum class SrvState { Stopped, Starting, Running, Stopping };
 enum class Lang { TR, EN };
 enum class Theme { Dark, Light, Redstone, Minecraft };
-enum EvType { EV_LOG, EV_JOIN, EV_LEAVE, EV_TIME, EV_RETRY_TIME, EV_READY, EV_STOPPING, EV_EXITED, EV_SKIN, EV_SYNC_LIST, EV_BACKUP_DONE };
+enum EvType { EV_LOG, EV_JOIN, EV_LEAVE, EV_TIME, EV_RETRY_TIME, EV_READY, EV_STOPPING, EV_EXITED, EV_SKIN, EV_SYNC_LIST, EV_BACKUP_DONE, EV_MC_VER };
 
 struct SrvEvent {
     int type;
@@ -320,6 +325,9 @@ struct Strings {
     const wchar_t* balloonReady;
     const wchar_t* msgTimeoutKill;
     const wchar_t* titleTimeout;
+    const wchar_t* btnRestart;
+    const wchar_t* trayRestart;
+    const wchar_t* logRestarting;
 };
 
 static const Strings STR_TR = {
@@ -411,7 +419,10 @@ static const Strings STR_TR = {
     L"Sunucu hazır, oyuncular bağlanabilir.",
     L"Sunucu hazır — oyuncular bağlanabilir!",
     L"Sunucu 60 saniyedir kapanmadı. Zorla sonlandırılsın mı?\n(Kaydedilmemiş dünya verileri kaybolabilir.)",
-    L"Kapanma zaman aşımı"
+    L"Kapanma zaman aşımı",
+    L"Yeniden Başlat",
+    L"Sunucuyu Yeniden Başlat",
+    L"Sunucu yeniden başlatılıyor…"
 };
 
 static const Strings STR_EN = {
@@ -503,7 +514,10 @@ static const Strings STR_EN = {
     L"Server is ready, players can now connect.",
     L"Server is ready — players can now join!",
     L"The server has not stopped after 60 seconds. Force terminate?\n(Unsaved world data may be lost.)",
-    L"Shutdown Timeout"
+    L"Shutdown Timeout",
+    L"Restart",
+    L"Restart Server",
+    L"Restarting server…"
 };
 
 static const Strings& L() { return g_lang == Lang::TR ? STR_TR : STR_EN; }
@@ -565,11 +579,28 @@ static std::wstring g_lastTip;
 static int g_lastTrayIcon = -1;
 
 // Layout
-enum { F_JAR, F_IP, F_PORT, F_RAM, F_UNBAN, F_CMD, F_JVM, F_MOTD, F_MAXPL, F_VIEWDIST, F_SIMDIST, F_SPAWNPROT, F_LEVELNAME, F_LEVELSEED, F_WL, F_OP, F_BK_TAG, F_PROF_NAME, F_BK_HOURS, F_RESTART_TIME, F_COUNT };
+enum { F_JAR, F_IP, F_PORT, F_RAM, F_UNBAN, F_CMD, F_JVM, F_MOTD, F_MAXPL, F_VIEWDIST, F_SIMDIST, F_SPAWNPROT, F_LEVELNAME, F_LEVELSEED, F_WL, F_OP, F_BK_TAG, F_PROF_NAME, F_BK_HOURS, F_RESTART_TIME, F_JAVA_PATH, F_BK_KEEP, F_COUNT };
 struct Field { HWND h; RECT rc; const wchar_t* caption; };
 static Field g_f[F_COUNT];
 static RECT g_rcSet, g_rcPl, g_rcCon, g_rcStats, g_rcTile[4], g_rcChart[2], g_rcListBg, g_rcLogBg;
 static RECT g_rcWlBg, g_rcOpBg, g_rcBkBg, g_rcProfBg, g_rcPlugBg, g_rcModBg;
+
+// Console structured log buffer & filter
+enum LogCat { LCAT_INFO = 0, LCAT_WARN = 1, LCAT_ERR = 2, LCAT_CHAT = 3, LCAT_EVENT = 4, LCAT_SYS = 5, LCAT_CMD = 6, LCAT_DEBUG = 7 };
+struct LogEntry { std::wstring text; int cat; };
+static std::vector<LogEntry> g_logLines;
+static constexpr size_t MAX_LOG_LINES = 2500;
+static int g_logFilter = 0; // 0=All, 1=Warn&Err, 2=Chat
+
+// New panel & settings controls / state
+static std::wstring g_javaPath, g_mcVersion, g_detectedJavaLabel;
+static int  g_schedBkKeep = 10;
+static bool g_minimizeToTray = true;
+static bool g_manualRestartPending = false;
+static HWND g_hBtnOpenSrvDir = NULL, g_hBtnFiltAll = NULL, g_hBtnFiltWarn = NULL, g_hBtnFiltChat = NULL;
+static HWND g_hBtnConSave = NULL, g_hBtnConClear = NULL;
+static HWND g_hEditJavaPath = NULL, g_hBtnJavaBrowse = NULL, g_hBtnJavaAuto = NULL, g_hBtnJavaSave = NULL;
+static HWND g_hEditBkKeep = NULL, g_hChkMinTray = NULL, g_hBtnAppExit = NULL;
 
 // Window / page navigation (tab bar + title bar + sub-tabs + card pages)
 enum { PG_PANEL, PG_PROPS, PG_ACCESS, PG_BACKUPS, PG_PLUGINS, PG_PROFILES, PG_SETTINGS, PG_COUNT };
@@ -585,6 +616,7 @@ static bool  g_logThemeDirty = false;
 static LARGE_INTEGER g_animPerfFreq = {};
 static LARGE_INTEGER g_animLastTime = {};
 static void  ShowPage();
+static void  NavigateTo(int pg);
 static std::vector<TxtBlock> g_scards, g_txts;       // active page cards (title id) and description blocks
 static bool g_autoStartCache = false;
 static HWND g_hJvm, g_hBtnJvmSave, g_hChkAutoStart, g_hChkAutoRestart;
@@ -643,7 +675,7 @@ static HWND g_hListPlugins, g_hBtnPlugToggle, g_hBtnPlugAdd, g_hBtnPlugDel, g_hB
 static HWND g_hListMods,    g_hBtnModToggle,  g_hBtnModAdd,  g_hBtnModDel,  g_hBtnModOpen,  g_hBtnModReload;
 
 // Profiles page controls & state
-struct ServerProfile { std::wstring name, jar, ip, port, ram, jvm; };
+struct ServerProfile { std::wstring name, jar, ip, port, ram, jvm, javaPath; };
 static std::vector<ServerProfile> g_profiles;   // parallel to g_hListProf items
 static HWND g_hEditProfName, g_hBtnProfSave, g_hListProf, g_hBtnProfLoad, g_hBtnProfDel;
 
@@ -683,6 +715,8 @@ static const wchar_t* CardTitle(int id) {
         case 17: return Tx(L"EKLENTİLER (PLUGINS\\)", L"PLUGINS (PLUGINS\\)");
         case 18: return Tx(L"MODLAR (MODS\\)", L"MODS (MODS\\)");
         case 19: return Tx(L"DÜNYA & VARLIKLAR", L"WORLD & ENTITIES");
+        case 20: return Tx(L"JAVA ÇALIŞMA ZAMANI", L"JAVA RUNTIME");
+        case 21: return Tx(L"TEPSİ & ÇIKIŞ", L"TRAY & EXIT");
         default: return L"";
     }
 }
@@ -711,6 +745,10 @@ static const wchar_t* DescText(int id) {
         case 11: return Tx(L"mods\\ klasöründeki modlar. Devre dışı bırakılan modlar .disabled uzantısı alır.",
                            L"Mods in mods\\ folder. Disabled mods get .disabled extension.");
         case 12: return Tx(L"Dünya oluşturma türü (level-type)", L"World generation type (level-type)");
+        case 13: return Tx(L"Otomatik mod sistemdeki en güncel Java'yı seçer. İsterseniz özel bir java.exe yolu da belirtebilirsiniz.",
+                           L"Auto mode selects the newest Java installed on your system, or you can specify a custom java.exe.");
+        case 14: return Tx(L"Pencere kapatma düğmesinin (X) uygulamayı sistem tepsisine küçültüp küçültmeyeceğini seçin.",
+                           L"Choose whether clicking the window close button (X) minimizes to the system tray.");
         default: return L"";
     }
 }
@@ -868,6 +906,12 @@ static void LoadAppPrefs() {
     g_schedRestartEnabled = Trim(IniGet(L"SchedRestartEnabled", L"0")) == L"1";
     g_schedRestartTime = Trim(IniGet(L"SchedRestartTime", L"04:00"));
     if (g_schedRestartTime.empty()) g_schedRestartTime = L"04:00";
+
+    g_javaPath = TrimQuotes(IniGet(L"JavaPath", L""));
+    g_schedBkKeep = _wtoi(IniGet(L"SchedBkKeep", L"10").c_str());
+    if (g_schedBkKeep < 0) g_schedBkKeep = 0;
+    else if (g_schedBkKeep > 50) g_schedBkKeep = 50;
+    g_minimizeToTray = Trim(IniGet(L"MinimizeToTray", L"1")) != L"0";
 }
 static void LoadSettings() {
     SetWindowTextW(g_hJar,  TrimQuotes(IniGet(L"Jar", L"")).c_str());
@@ -875,7 +919,9 @@ static void LoadSettings() {
     SetWindowTextW(g_hPort, IniGet(L"Port", L"25565").c_str());
     SetWindowTextW(g_hRam,  IniGet(L"Ram", L"4G").c_str());
     if (g_hJvm) SetWindowTextW(g_hJvm, g_jvmArgs.c_str());
+    if (g_hEditJavaPath) SetWindowTextW(g_hEditJavaPath, g_javaPath.c_str());
     if (g_hEditBkHours) SetWindowTextW(g_hEditBkHours, std::to_wstring(g_schedBkHours).c_str());
+    if (g_hEditBkKeep) SetWindowTextW(g_hEditBkKeep, std::to_wstring(g_schedBkKeep).c_str());
     if (g_hEditRestartTime) SetWindowTextW(g_hEditRestartTime, g_schedRestartTime.c_str());
 }
 static void SaveSettings() {
@@ -894,10 +940,13 @@ static void SaveSettings() {
     WritePrivateProfileStringW(L"Server", L"Theme", thVal, p.c_str());
     WritePrivateProfileStringW(L"Server", L"AutoRestart", g_autoRestart ? L"1" : L"0", p.c_str());
     WritePrivateProfileStringW(L"Server", L"JvmArgs", g_jvmArgs.c_str(), p.c_str());
+    WritePrivateProfileStringW(L"Server", L"JavaPath", g_javaPath.c_str(), p.c_str());
     WritePrivateProfileStringW(L"Server", L"SchedBkEnabled", g_schedBkEnabled ? L"1" : L"0", p.c_str());
     WritePrivateProfileStringW(L"Server", L"SchedBkHours", std::to_wstring(g_schedBkHours).c_str(), p.c_str());
+    WritePrivateProfileStringW(L"Server", L"SchedBkKeep", std::to_wstring(g_schedBkKeep).c_str(), p.c_str());
     WritePrivateProfileStringW(L"Server", L"SchedRestartEnabled", g_schedRestartEnabled ? L"1" : L"0", p.c_str());
     WritePrivateProfileStringW(L"Server", L"SchedRestartTime", g_schedRestartTime.c_str(), p.c_str());
+    WritePrivateProfileStringW(L"Server", L"MinimizeToTray", g_minimizeToTray ? L"1" : L"0", p.c_str());
 }
 
 // Directory holding settings.ini and console.log (%APPDATA%\RedstoneServerPanel)
@@ -1553,67 +1602,109 @@ static bool IsBlankLineW(const std::wstring& s) {
     return true;
 }
 
-static COLORREF GetConsoleColorForLine(const std::wstring& line, bool isDark) {
+static bool IsMinecraftChatLine(const std::wstring& line) {
+    size_t pos = 0;
+    while (pos < line.size()) {
+        size_t lt = line.find(L'<', pos);
+        if (lt == std::wstring::npos) return false;
+        size_t gt = line.find(L'>', lt + 1);
+        if (gt == std::wstring::npos) return false;
+
+        // Require space, start-of-line, or ']' immediately before '<'
+        bool validPrefix = (lt == 0 || line[lt - 1] == L' ' || line[lt - 1] == L']');
+        // Require space immediately after '>' followed by chat content ("<Player> msg")
+        bool validSuffix = (gt + 1 < line.size() && line[gt + 1] == L' ');
+        size_t tokLen = gt - lt - 1;
+        if (validPrefix && validSuffix && tokLen >= 1 && tokLen <= 32) {
+            std::wstring inside = line.substr(lt + 1, tokLen);
+            std::wstring low = ToLowerW(inside);
+            bool validTok = (low != L"init" && low != L"clinit" && low != L"server" &&
+                             low != L"system" && low != L"info" && low != L"warn" && low != L"error");
+            for (wchar_t c : inside) {
+                if (!((iswalnum(c) && c < 128) || c == L'_' || c == L'.' || c == L'-' || c == L'*')) {
+                    validTok = false;
+                    break;
+                }
+            }
+            if (validTok) return true;
+        }
+        pos = lt + 1;
+    }
+    return false;
+}
+
+static int ClassifyConsoleLine(const std::wstring& line) {
     // 1. Outgoing console command typed by user: e.g. "> help"
-    if (line.size() >= 2 && line[0] == L'>' && line[1] == L' ') {
-        if (!isDark) return RGB(37, 99, 235);
-        if (g_theme == Theme::Redstone) return RGB(255, 120, 120);
-        if (g_theme == Theme::Minecraft) return RGB(110, 245, 160);
-        return RGB(56, 189, 248); // Electric cyan (dark)
-    }
+    if (line.size() >= 2 && line[0] == L'>' && line[1] == L' ') return LCAT_CMD;
     // 2. Internal panel log / event notification: e.g. "» Sunucu başlatılıyor..."
-    if (line.size() >= 2 && (line[0] == L'»' || line[0] == 0x00BB)) {
-        return isDark ? RGB(216, 180, 254) : RGB(124, 58, 237); // Bright orchid (dark) / rich purple (light)
-    }
+    if (line.size() >= 2 && (line[0] == L'»' || line[0] == 0x00BB)) return LCAT_SYS;
 
     std::wstring lower = ToLowerW(line);
 
-    // 3. Stack traces & Exceptions
+    // 3. Stack traces & Exceptions / Errors / Fatal crashes
     if (lower.find(L"\tat ") != std::wstring::npos ||
-        lower.find(L"caused by:") != std::wstring::npos) {
-        return isDark ? RGB(255, 107, 107) : RGB(220, 38, 38);
-    }
-
-    // 4. Server Errors / Fatal crashes
-    if (lower.find(L"error") != std::wstring::npos ||
+        lower.find(L"caused by:") != std::wstring::npos ||
+        lower.find(L"error") != std::wstring::npos ||
         lower.find(L"fatal") != std::wstring::npos ||
         lower.find(L"exception") != std::wstring::npos ||
         lower.find(L"critical") != std::wstring::npos ||
         lower.find(L"failed") != std::wstring::npos) {
-        return isDark ? RGB(255, 107, 107) : RGB(220, 38, 38);
+        return LCAT_ERR;
     }
 
-    // 5. Server Warnings
+    // 4. Server Warnings
     if (lower.find(L"warn") != std::wstring::npos ||
         lower.find(L"warning") != std::wstring::npos) {
-        return isDark ? RGB(251, 191, 36) : RGB(217, 119, 6); // Warm gold (dark) / deep amber (light)
+        return LCAT_WARN;
     }
 
-    // 6. Player in-game chat messages: e.g. "<qu3zel> hello world"
-    size_t lt = line.find(L'<');
-    size_t gt = line.find(L'>', lt == std::wstring::npos ? 0 : lt);
-    if (lt != std::wstring::npos && gt != std::wstring::npos && gt > lt + 1) {
-        return isDark ? RGB(74, 222, 128) : RGB(22, 163, 74); // Vibrant spring green
-    }
+    // 5. Player in-game chat messages: e.g. "<qu3zel> hello world"
+    if (IsMinecraftChatLine(line)) return LCAT_CHAT;
 
-    // 7. Player join, leave, login events & Server Ready
+    // 6. Player join, leave, login events & Server Ready
     if (lower.find(L"joined the game") != std::wstring::npos ||
         lower.find(L"left the game") != std::wstring::npos ||
         lower.find(L"logged in with entity id") != std::wstring::npos ||
         lower.find(L"for help, type") != std::wstring::npos) {
-        return isDark ? RGB(52, 211, 153) : RGB(16, 149, 94); // Mint emerald
+        return LCAT_EVENT;
     }
 
-    // 8. Debug / Trace lines
+    // 7. Debug / Trace lines
     if (lower.find(L"/debug") != std::wstring::npos ||
         lower.find(L"[debug]") != std::wstring::npos ||
         lower.find(L"/trace") != std::wstring::npos ||
         lower.find(L"[trace]") != std::wstring::npos) {
-        return isDark ? RGB(175, 190, 215) : RGB(100, 116, 139); // Clean bright slate (high contrast)
+        return LCAT_DEBUG;
     }
 
-    // 9. Standard log text
-    return isDark ? RGB(245, 248, 252) : P.logText;
+    return LCAT_INFO;
+}
+
+static COLORREF ColorForLogCat(int cat, bool isDark) {
+    switch (cat) {
+        case LCAT_CMD:
+            if (!isDark) return RGB(37, 99, 235);
+            if (g_theme == Theme::Redstone) return RGB(255, 120, 120);
+            if (g_theme == Theme::Minecraft) return RGB(110, 245, 160);
+            return RGB(56, 189, 248);
+        case LCAT_SYS:   return isDark ? RGB(216, 180, 254) : RGB(124, 58, 237);
+        case LCAT_ERR:   return isDark ? RGB(255, 107, 107) : RGB(220, 38, 38);
+        case LCAT_WARN:  return isDark ? RGB(251, 191, 36)  : RGB(217, 119, 6);
+        case LCAT_CHAT:  return isDark ? RGB(74, 222, 128)  : RGB(22, 163, 74);
+        case LCAT_EVENT: return isDark ? RGB(52, 211, 153)  : RGB(16, 149, 94);
+        case LCAT_DEBUG: return isDark ? RGB(175, 190, 215) : RGB(100, 116, 139);
+        default:         return isDark ? RGB(245, 248, 252) : P.logText;
+    }
+}
+
+static COLORREF GetConsoleColorForLine(const std::wstring& line, bool isDark) {
+    return ColorForLogCat(ClassifyConsoleLine(line), isDark);
+}
+
+static bool LogMatchesFilter(int cat, int filter) {
+    if (filter == 1) return (cat == LCAT_WARN || cat == LCAT_ERR);
+    if (filter == 2) return (cat == LCAT_CHAT || cat == LCAT_EVENT || cat == LCAT_CMD);
+    return true;
 }
 
 static void LockConsoleHorizontalScroll() {
@@ -1627,21 +1718,62 @@ static void LockConsoleHorizontalScroll() {
     }
 }
 
+static void RebuildLogView(bool scrollToBottom = true) {
+    if (!g_hLog) return;
+    bool isVisiblePage = (g_page == PG_PANEL);
+    bool isDark = (g_theme != Theme::Light);
+
+    struct ColorSpan { COLORREF color; std::wstring content; };
+    std::vector<ColorSpan> batches;
+    for (const auto& entry : g_logLines) {
+        if (!LogMatchesFilter(entry.cat, g_logFilter)) continue;
+        COLORREF col = ColorForLogCat(entry.cat, isDark);
+        std::wstring richLine = entry.text + L"\r";
+        if (!batches.empty() && batches.back().color == col) batches.back().content += richLine;
+        else batches.push_back({ col, richLine });
+    }
+
+    if (isVisiblePage) SendMessageW(g_hLog, WM_SETREDRAW, FALSE, 0);
+    SetWindowTextW(g_hLog, L"");
+
+    CHARFORMAT2W cf;
+    ZeroMemory(&cf, sizeof(cf));
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR;
+
+    PARAFORMAT2 pf;
+    ZeroMemory(&pf, sizeof(pf));
+    pf.cbSize = sizeof(pf);
+    pf.dwMask = PFM_SPACEBEFORE | PFM_SPACEAFTER | PFM_LINESPACING;
+    pf.dySpaceBefore = 0;
+    pf.dySpaceAfter = 0;
+    pf.bLineSpacingRule = 0;
+
+    for (const auto& b : batches) {
+        CHARRANGE cr = { -1, -1 };
+        SendMessageW(g_hLog, EM_EXSETSEL, 0, (LPARAM)&cr);
+        SendMessageW(g_hLog, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
+        cf.crTextColor = b.color;
+        SendMessageW(g_hLog, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+        SendMessageW(g_hLog, EM_REPLACESEL, FALSE, (LPARAM)b.content.c_str());
+    }
+
+    if (isVisiblePage) {
+        SendMessageW(g_hLog, WM_SETREDRAW, TRUE, 0);
+        if (scrollToBottom) SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
+        LockConsoleHorizontalScroll();
+        InvalidateRect(g_hLog, NULL, TRUE);
+        UpdateWindow(g_hLog);
+    } else {
+        ShowWindow(g_hLog, SW_HIDE);
+    }
+}
+
 static void AppendLogInternal(const std::wstring& text, bool logToFile) {
     if (!g_hLog || text.empty()) return;
     if (logToFile) LogToFile(text);
 
     bool isVisiblePage = (g_page == PG_PANEL);
-
-    int len = GetWindowTextLengthW(g_hLog);
-    if (len > 400000) {
-        if (isVisiblePage) SendMessageW(g_hLog, WM_SETREDRAW, FALSE, 0);
-        CHARRANGE crDel = { 0, 150000 };
-        SendMessageW(g_hLog, EM_EXSETSEL, 0, (LPARAM)&crDel);
-        SendMessageW(g_hLog, EM_REPLACESEL, FALSE, (LPARAM)L"");
-        if (isVisiblePage) SendMessageW(g_hLog, WM_SETREDRAW, TRUE, 0);
-    }
-
     bool isDark = (g_theme != Theme::Light);
 
     struct ColorSpan {
@@ -1649,6 +1781,7 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
         std::wstring content;
     };
     std::vector<ColorSpan> batches;
+    bool overflowed = false;
 
     size_t pos = 0;
     while (pos < text.size()) {
@@ -1662,24 +1795,26 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
             pos = nextN + 1;
         }
 
-        // Strip any trailing \r or \n
         while (!rawLine.empty() && (rawLine.back() == L'\r' || rawLine.back() == L'\n')) {
             rawLine.pop_back();
         }
-
-        // Drop empty or pure-whitespace lines to eliminate blank lines in console
         if (IsBlankLineW(rawLine)) continue;
 
-        // RichEdit treats these as hard/soft line breaks; they would create phantom blank lines
         for (wchar_t& ch : rawLine) {
             if (ch == L'\r' || ch == 0x0B || ch == 0x0C || ch == 0x85 || ch == 0x2028 || ch == 0x2029) ch = L' ';
         }
 
-        COLORREF col = GetConsoleColorForLine(rawLine, isDark);
+        int cat = ClassifyConsoleLine(rawLine);
+        g_logLines.push_back({ rawLine, cat });
+        if (g_logLines.size() > MAX_LOG_LINES) {
+            g_logLines.erase(g_logLines.begin(), g_logLines.begin() + 250);
+            overflowed = true;
+        }
 
-        // RichEdit expects a single '\r' as a clean paragraph break
+        if (!LogMatchesFilter(cat, g_logFilter)) continue;
+
+        COLORREF col = ColorForLogCat(cat, isDark);
         std::wstring richLine = rawLine + L"\r";
-
         if (!batches.empty() && batches.back().color == col) {
             batches.back().content += richLine;
         } else {
@@ -1687,12 +1822,25 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
         }
     }
 
-    // Check if scrollbar is currently at or near the bottom before appending
+    if (overflowed) {
+        if (isVisiblePage) RebuildLogView(true);
+        else g_logThemeDirty = true;
+        return;
+    }
+    if (batches.empty()) return;
+
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
     GetScrollInfo(g_hLog, SB_VERT, &si);
     bool wasAtBottom = (si.nMax <= 0 || (si.nPos + (int)si.nPage >= si.nMax - 14));
+
+    CHARRANGE savedSel = {};
+    POINT savedScroll = {};
+    if (!wasAtBottom) {
+        SendMessageW(g_hLog, EM_EXGETSEL, 0, (LPARAM)&savedSel);
+        SendMessageW(g_hLog, EM_GETSCROLLPOS, 0, (LPARAM)&savedScroll);
+    }
 
     if (isVisiblePage) {
         SendMessageW(g_hLog, WM_SETREDRAW, FALSE, 0);
@@ -1703,21 +1851,27 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
     cf.cbSize = sizeof(cf);
     cf.dwMask = CFM_COLOR;
 
+    PARAFORMAT2 pf;
+    ZeroMemory(&pf, sizeof(pf));
+    pf.cbSize = sizeof(pf);
+    pf.dwMask = PFM_SPACEBEFORE | PFM_SPACEAFTER | PFM_LINESPACING;
+    pf.dySpaceBefore = 0;
+    pf.dySpaceAfter = 0;
+    pf.bLineSpacingRule = 0;
+
     for (const auto& b : batches) {
         CHARRANGE cr = { -1, -1 };
         SendMessageW(g_hLog, EM_EXSETSEL, 0, (LPARAM)&cr);
-        // Force tight single spacing so paragraphs never render with extra gaps
-        PARAFORMAT2 pf;
-        ZeroMemory(&pf, sizeof(pf));
-        pf.cbSize = sizeof(pf);
-        pf.dwMask = PFM_SPACEBEFORE | PFM_SPACEAFTER | PFM_LINESPACING;
-        pf.dySpaceBefore = 0;
-        pf.dySpaceAfter = 0;
-        pf.bLineSpacingRule = 0;
         SendMessageW(g_hLog, EM_SETPARAFORMAT, 0, (LPARAM)&pf);
         cf.crTextColor = b.color;
         SendMessageW(g_hLog, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
         SendMessageW(g_hLog, EM_REPLACESEL, FALSE, (LPARAM)b.content.c_str());
+    }
+
+    if (!wasAtBottom) {
+        SendMessageW(g_hLog, EM_EXSETSEL, 0, (LPARAM)&savedSel);
+        savedScroll.x = 0;
+        SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&savedScroll);
     }
 
     if (isVisiblePage) {
@@ -1725,12 +1879,10 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
         if (wasAtBottom) {
             SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
         }
-        // Lock horizontal scroll to 0 so the beginning of lines is NEVER hidden to the left
         LockConsoleHorizontalScroll();
         InvalidateRect(g_hLog, NULL, FALSE);
         UpdateWindow(g_hLog);
     } else {
-        // Guarantee g_hLog stays completely hidden when not on dashboard
         ShowWindow(g_hLog, SW_HIDE);
     }
 }
@@ -1743,33 +1895,25 @@ static void AppLog(const std::wstring& t) {
     AppendLog(L"» " + t + L"\r\n");
 }
 
+static void ClearConsole() {
+    g_logLines.clear();
+    if (g_hLog) {
+        SetWindowTextW(g_hLog, L"");
+        LockConsoleHorizontalScroll();
+        InvalidateRect(g_hLog, NULL, TRUE);
+    }
+}
+
 static void ReapplyLogColors() {
     if (!g_hLog) return;
     SendMessageW(g_hLog, EM_SETBKGNDCOLOR, 0, (LPARAM)P.logBg);
 
-    // If we're not currently on the dashboard/console page, defer recoloring until navigated to
     if (!IsWindowVisible(g_hLog) || g_page != PG_PANEL) {
         g_logThemeDirty = true;
         return;
     }
 
-    int len = GetWindowTextLengthW(g_hLog);
-    if (len <= 0) return;
-
-    std::wstring all(len + 1, L'\0');
-    GetWindowTextW(g_hLog, &all[0], len + 1);
-    all.resize(len);
-
-    SendMessageW(g_hLog, WM_SETREDRAW, FALSE, 0);
-    SetWindowTextW(g_hLog, L"");
-    AppendLogInternal(all, false);
-    SendMessageW(g_hLog, WM_SETREDRAW, TRUE, 0);
-    if (IsWindowVisible(g_hLog)) {
-        SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
-        LockConsoleHorizontalScroll();
-        InvalidateRect(g_hLog, NULL, TRUE);
-        UpdateWindow(g_hLog);
-    }
+    RebuildLogView(true);
 }
 
 // ----------------------------------------------------------------------------
@@ -1932,8 +2076,11 @@ static void HandleLine(const ReaderArgs& a, std::string line, std::wstring& chun
     // 0. Detect Minecraft version ("Starting minecraft server version X")
     if (StartsWith(msg, "Starting minecraft server version ")) {
         std::string ver = TrimA(msg.substr(34));
-        if (!ver.empty() && !StartsWith(ver, "1.")) {
-            g_useTimelineCmd = true; // Minecraft 26.1+ uses timeline syntax ("time query day")
+        if (!ver.empty()) {
+            PostEv(a.hwnd, a.gen, EV_MC_VER, FromUtf8(ver));
+            if (!StartsWith(ver, "1.")) {
+                g_useTimelineCmd = true; // Minecraft 26.1+ uses timeline syntax ("time query day")
+            }
         }
     }
     // 1. "UUID of player <Name> is <UUID>"
@@ -2076,33 +2223,114 @@ static bool FileExists(const std::wstring& p) {
     DWORD a = GetFileAttributesW(p.c_str());
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
-// Looks for installed JDK/JRE locations in the registry (Oracle, Adoptium, Microsoft, Zulu...)
-// when java.exe is neither on PATH nor referenced by JAVA_HOME.
-static std::wstring FindJavaInRegistry() {
+// Numeric Java version comparator so e.g. jdk-26.0.2.1 reliably beats jre1.8.0_503
+// (which naive string comparison got backwards because 'r' > 'd').
+struct JavaCand {
+    std::wstring exe;
+    int v[4] = { 0, 0, 0, 0 };
+    bool isJdk = false;
+};
+static void ParseJavaVerTokens(const std::string& raw, int out[4]) {
+    int rawNums[5] = { 0, 0, 0, 0, 0 };
+    int cnt = 0;
+    size_t i = 0;
+    while (i < raw.size() && cnt < 5) {
+        if (isdigit((unsigned char)raw[i])) {
+            long long val = 0;
+            while (i < raw.size() && isdigit((unsigned char)raw[i])) {
+                val = val * 10 + (raw[i] - '0');
+                if (val > 999999) val = 999999;
+                i++;
+            }
+            rawNums[cnt++] = (int)val;
+        } else {
+            i++;
+        }
+    }
+    int start = (cnt >= 2 && rawNums[0] == 1 && rawNums[1] > 1) ? 1 : 0;
+    for (int k = 0; k < 4; k++) {
+        out[k] = (start + k < cnt) ? rawNums[start + k] : 0;
+    }
+}
+static bool ReadJavaCandidate(std::wstring home, JavaCand& out) {
+    while (!home.empty() && (home.back() == L'\\' || home.back() == L'/')) home.pop_back();
+    if (home.empty()) return false;
+    std::wstring exe = home + L"\\bin\\java.exe";
+    if (!FileExists(exe)) return false;
+
+    out = {};
+    out.exe = exe;
+    out.isJdk = FileExists(home + L"\\bin\\javac.exe");
+
+    std::string rel;
+    if (ReadAll(home + L"\\release", rel)) {
+        size_t pos = rel.find("JAVA_VERSION=");
+        if (pos != std::string::npos) {
+            size_t lineEnd = rel.find('\n', pos);
+            std::string val = rel.substr(pos + 13, lineEnd == std::string::npos ? std::string::npos : lineEnd - (pos + 13));
+            ParseJavaVerTokens(val, out.v);
+        }
+    }
+    if (out.v[0] == 0) {
+        size_t sl = home.find_last_of(L"\\/");
+        std::wstring base = (sl == std::wstring::npos) ? home : home.substr(sl + 1);
+        ParseJavaVerTokens(ToUtf8(base), out.v);
+    }
+    return true;
+}
+static bool JavaCandBetter(const JavaCand& a, const JavaCand& b) {
+    if (b.exe.empty()) return true;
+    for (int k = 0; k < 4; k++) {
+        if (a.v[k] != b.v[k]) return a.v[k] > b.v[k];
+    }
+    if (a.isJdk != b.isJdk) return a.isJdk > b.isJdk;
+    return false;
+}
+static JavaCand DetectBestAutoJavaCand() {
+    JavaCand best;
+    auto considerHome = [&](const std::wstring& home) {
+        JavaCand c;
+        if (ReadJavaCandidate(home, c) && JavaCandBetter(c, best)) best = c;
+    };
+    auto considerExe = [&](std::wstring exe) {
+        if (!FileExists(exe)) return;
+        std::wstring low = ToLowerW(exe);
+        const std::wstring tail = L"\\bin\\java.exe";
+        if (low.size() > tail.size() && low.compare(low.size() - tail.size(), tail.size(), tail) == 0) {
+            considerHome(exe.substr(0, exe.size() - tail.size()));
+        } else {
+            JavaCand c; c.exe = exe;
+            if (JavaCandBetter(c, best)) best = c;
+        }
+    };
+
+    wchar_t jh[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"JAVA_HOME", jh, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) considerHome(jh);
+
+    wchar_t pathBuf[MAX_PATH];
+    n = SearchPathW(NULL, L"java.exe", NULL, MAX_PATH, pathBuf, NULL);
+    if (n > 0 && n < MAX_PATH) considerExe(pathBuf);
+
     struct Root { const wchar_t* key; const wchar_t* valueName; };
     static const Root roots[] = {
-        { L"SOFTWARE\\JavaSoft\\JDK",                  L"JavaHome" },
-        { L"SOFTWARE\\JavaSoft\\JRE",                  L"JavaHome" },
-        { L"SOFTWARE\\JavaSoft\\Java Development Kit", L"JavaHome" },
-        { L"SOFTWARE\\JavaSoft\\Java Runtime Environment", L"JavaHome" },
+        { L"SOFTWARE\\JavaSoft\\JDK",                     L"JavaHome" },
+        { L"SOFTWARE\\JavaSoft\\JRE",                     L"JavaHome" },
+        { L"SOFTWARE\\JavaSoft\\Java Development Kit",    L"JavaHome" },
+        { L"SOFTWARE\\JavaSoft\\Java Runtime Environment",L"JavaHome" },
     };
     static const wchar_t* msiRoots[] = {
         L"SOFTWARE\\Eclipse Adoptium\\JDK", L"SOFTWARE\\Eclipse Adoptium\\JRE",
-        L"SOFTWARE\\Microsoft\\JDK", L"SOFTWARE\\Azul Systems\\Zulu",
+        L"SOFTWARE\\Microsoft\\JDK",        L"SOFTWARE\\Azul Systems\\Zulu",
+        L"SOFTWARE\\BellSoft\\Liberica",    L"SOFTWARE\\Amazon\\Corretto",
     };
     REGSAM views[] = { KEY_READ | KEY_WOW64_64KEY, KEY_READ | KEY_WOW64_32KEY };
-    std::wstring best;
 
     auto readStr = [](HKEY k, const wchar_t* name) -> std::wstring {
         wchar_t buf[MAX_PATH]; DWORD sz = sizeof(buf), type = 0;
         if (RegQueryValueExW(k, name, NULL, &type, (BYTE*)buf, &sz) != ERROR_SUCCESS || type != REG_SZ) return L"";
         buf[MAX_PATH - 1] = 0;
         return buf;
-    };
-    auto tryHome = [&](std::wstring home) {
-        while (!home.empty() && (home.back() == L'\\' || home.back() == L'/')) home.pop_back();
-        std::wstring p = home + L"\\bin\\java.exe";
-        if (FileExists(p) && p > best) best = p;   // later version strings sort higher
     };
 
     for (REGSAM view : views) {
@@ -2113,7 +2341,16 @@ static std::wstring FindJavaInRegistry() {
             if (!cur.empty()) {
                 HKEY vk;
                 if (RegOpenKeyExW(k, cur.c_str(), 0, view, &vk) == ERROR_SUCCESS) {
-                    tryHome(readStr(vk, r.valueName)); RegCloseKey(vk);
+                    considerHome(readStr(vk, r.valueName)); RegCloseKey(vk);
+                }
+            }
+            wchar_t sub[256];
+            for (DWORD i = 0; ; i++) {
+                DWORD sl = ARRAYSIZE(sub);
+                if (RegEnumKeyExW(k, i, sub, &sl, NULL, NULL, NULL, NULL) != ERROR_SUCCESS) break;
+                HKEY vk;
+                if (RegOpenKeyExW(k, sub, 0, view, &vk) == ERROR_SUCCESS) {
+                    considerHome(readStr(vk, r.valueName)); RegCloseKey(vk);
                 }
             }
             RegCloseKey(k);
@@ -2125,30 +2362,68 @@ static std::wstring FindJavaInRegistry() {
             for (DWORD i = 0; ; i++) {
                 DWORD sl = ARRAYSIZE(sub);
                 if (RegEnumKeyExW(k, i, sub, &sl, NULL, NULL, NULL, NULL) != ERROR_SUCCESS) break;
-                for (const wchar_t* tail : { L"\\hotspot\\MSI", L"\\MSI" }) {
+                for (const wchar_t* tail : { L"\\hotspot\\MSI", L"\\MSI", L"" }) {
                     HKEY mk;
                     std::wstring path = std::wstring(sub) + tail;
                     if (RegOpenKeyExW(k, path.c_str(), 0, view, &mk) == ERROR_SUCCESS) {
-                        tryHome(readStr(mk, L"Path")); RegCloseKey(mk);
+                        considerHome(readStr(mk, L"Path"));
+                        considerHome(readStr(mk, L"JavaHome"));
+                        considerHome(readStr(mk, L"InstallationPath"));
+                        RegCloseKey(mk);
                     }
                 }
             }
             RegCloseKey(k);
         }
     }
+
+    // Also scan standard vendor install roots directly in case registry entries were omitted
+    for (const wchar_t* env : { L"ProgramFiles", L"ProgramFiles(x86)" }) {
+        wchar_t pf[MAX_PATH];
+        if (!GetEnvironmentVariableW(env, pf, MAX_PATH)) continue;
+        for (const wchar_t* vendor : { L"Java", L"Eclipse Adoptium", L"Microsoft", L"Zulu", L"BellSoft", L"Amazon Corretto" }) {
+            std::wstring baseDir = std::wstring(pf) + L"\\" + vendor;
+            WIN32_FIND_DATAW fd = {};
+            HANDLE hf = FindFirstFileW((baseDir + L"\\*").c_str(), &fd);
+            if (hf == INVALID_HANDLE_VALUE) continue;
+            do {
+                if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+                    wcscmp(fd.cFileName, L".") != 0 && wcscmp(fd.cFileName, L"..") != 0) {
+                    considerHome(baseDir + L"\\" + fd.cFileName);
+                }
+            } while (FindNextFileW(hf, &fd));
+            FindClose(hf);
+        }
+    }
     return best;
 }
 static std::wstring FindJava() {
-    wchar_t buf[MAX_PATH];
-    DWORD n = SearchPathW(NULL, L"java.exe", NULL, MAX_PATH, buf, NULL);
-    if (n > 0 && n < MAX_PATH) return buf;
-    wchar_t jh[MAX_PATH];
-    n = GetEnvironmentVariableW(L"JAVA_HOME", jh, MAX_PATH);
-    if (n > 0 && n < MAX_PATH) {
-        std::wstring p = std::wstring(jh) + L"\\bin\\java.exe";
-        if (FileExists(p)) return p;
+    if (!g_javaPath.empty()) return FileExists(g_javaPath) ? g_javaPath : L"";
+    return DetectBestAutoJavaCand().exe;
+}
+static void RefreshDetectedJavaLabel() {
+    if (!g_javaPath.empty()) {
+        JavaCand c;
+        const std::wstring tail = L"\\bin\\java.exe";
+        std::wstring low = ToLowerW(g_javaPath);
+        if (FileExists(g_javaPath) && low.size() > tail.size() && low.compare(low.size() - tail.size(), tail.size(), tail) == 0 &&
+            ReadJavaCandidate(g_javaPath.substr(0, g_javaPath.size() - tail.size()), c) && c.v[0] > 0) {
+            g_detectedJavaLabel = L"Java " + std::to_wstring(c.v[0]);
+        } else if (FileExists(g_javaPath)) {
+            g_detectedJavaLabel = Tx(L"Özel Java", L"Custom Java");
+        } else {
+            g_detectedJavaLabel = Tx(L"Java yok!", L"Java missing!");
+        }
+        return;
     }
-    return FindJavaInRegistry();
+    JavaCand best = DetectBestAutoJavaCand();
+    if (!best.exe.empty() && best.v[0] > 0) {
+        g_detectedJavaLabel = L"Java " + std::to_wstring(best.v[0]);
+    } else if (!best.exe.empty()) {
+        g_detectedJavaLabel = L"Java";
+    } else {
+        g_detectedJavaLabel = Tx(L"Java yok", L"No Java");
+    }
 }
 static bool EulaAccepted(const std::wstring& dir) {
     std::string d;
@@ -2156,9 +2431,15 @@ static bool EulaAccepted(const std::wstring& dir) {
     std::transform(d.begin(), d.end(), d.begin(), [](unsigned char c) { return (char)tolower(c); });
     return d.find("eula=true") != std::string::npos;
 }
+static void StripUtf8Bom(std::string& s) {
+    if (s.size() >= 3 && (unsigned char)s[0] == 0xEF && (unsigned char)s[1] == 0xBB && (unsigned char)s[2] == 0xBF) {
+        s.erase(0, 3);
+    }
+}
 static void UpdateProperties(const std::wstring& dir, const std::vector<std::pair<std::string, std::string>>& kv) {
     std::wstring path = dir + L"\\server.properties";
     std::string data; ReadAll(path, data);
+    StripUtf8Bom(data);
     std::vector<std::string> lines;
     size_t p = 0;
     while (p < data.size()) {
@@ -2204,6 +2485,7 @@ static std::map<std::string, std::string> ReadPropertiesMap(const std::wstring& 
     std::map<std::string, std::string> mp;
     std::string data;
     if (!ReadAll(dir + L"\\server.properties", data)) return mp;
+    StripUtf8Bom(data);
     size_t p = 0;
     while (p < data.size()) {
         size_t e = data.find('\n', p);
@@ -2443,20 +2725,75 @@ static std::vector<JsonPlayerEntry> ReadPlayerJsonList(const std::wstring& path)
     return out;
 }
 
-// Generates deterministic offline-mode UUID v3 style string when UUID isn't known yet
-static std::string OfflineUuidFor(const std::string& name) {
-    unsigned long long h1 = 1469598103934665603ULL, h2 = 1099511628211ULL;
-    std::string s = "OfflinePlayer:" + name;
-    for (unsigned char c : s) {
-        h1 = (h1 ^ c) * 1099511628211ULL;
-        h2 = (h2 ^ (c + 0x9e3779b9ULL)) * 1469598103934665603ULL;
+// Computes RFC 1321 MD5 digest for Mojang's standard offline UUID v3 ("OfflinePlayer:<name>")
+static void Md5Compute(const std::string& input, unsigned char digest[16]) {
+    static const unsigned k[64] = {
+        0xd76aa478u,0xe8c7b756u,0x242070dbu,0xc1bdceeeu,0xf57c0fafu,0x4787c62au,0xa8304613u,0xfd469501u,
+        0x698098d8u,0x8b44f7afu,0xffff5bb1u,0x895cd7beu,0x6b901122u,0xfd987193u,0xa679438eu,0x49b40821u,
+        0xf61e2562u,0xc040b340u,0x265e5a51u,0xe9b6c7aau,0xd62f105du,0x02441453u,0xd8a1e681u,0xe7d3fbc8u,
+        0x21e1cde6u,0xc33707d6u,0xf4d50d87u,0x455a14edu,0xa9e3e905u,0xfcefa3f8u,0x676f02d9u,0x8d2a4c8au,
+        0xfffa3942u,0x8771f681u,0x6d9d6122u,0xfde5380cu,0xa4beea44u,0x4bdecfa9u,0xf6bb4b60u,0xbebfbc70u,
+        0x289b7ec6u,0xeaa127fau,0xd4ef3085u,0x04881d05u,0xd9d4d039u,0xe6db99e5u,0x1fa27cf8u,0xc4ac5665u,
+        0xf4292244u,0x432aff97u,0xab9423a7u,0xfc93a039u,0x655b59c3u,0x8f0ccc92u,0xffeff47du,0x85845dd1u,
+        0x6fa87e4fu,0xfe2ce6e0u,0xa3014314u,0x4e0811a1u,0xf7537e82u,0xbd3af235u,0x2ad7d2bbu,0xeb86d391u
+    };
+    static const unsigned r[64] = {
+        7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+        5, 9,14,20,5, 9,14,20,5, 9,14,20,5, 9,14,20,
+        4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+        6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21
+    };
+    std::vector<unsigned char> msg(input.begin(), input.end());
+    unsigned long long bitLen = (unsigned long long)msg.size() * 8ULL;
+    msg.push_back(0x80);
+    while (msg.size() % 64 != 56) msg.push_back(0x00);
+    for (int i = 0; i < 8; i++) msg.push_back((unsigned char)((bitLen >> (8 * i)) & 0xFF));
+
+    unsigned h0 = 0x67452301u, h1 = 0xefcdab89u, h2 = 0x98badcfeu, h3 = 0x10325476u;
+    auto rotl = [](unsigned x, unsigned c) { return (x << c) | (x >> (32 - c)); };
+
+    for (size_t off = 0; off < msg.size(); off += 64) {
+        unsigned w[16];
+        for (int i = 0; i < 16; i++) {
+            w[i] = (unsigned)msg[off + i * 4] |
+                   ((unsigned)msg[off + i * 4 + 1] << 8) |
+                   ((unsigned)msg[off + i * 4 + 2] << 16) |
+                   ((unsigned)msg[off + i * 4 + 3] << 24);
+        }
+        unsigned a = h0, b = h1, c = h2, d = h3;
+        for (int i = 0; i < 64; i++) {
+            unsigned f, g;
+            if (i < 16)      { f = (b & c) | ((~b) & d); g = (unsigned)i; }
+            else if (i < 32) { f = (d & b) | ((~d) & c); g = (unsigned)((5 * i + 1) % 16); }
+            else if (i < 48) { f = b ^ c ^ d;            g = (unsigned)((3 * i + 5) % 16); }
+            else             { f = c ^ (b | (~d));       g = (unsigned)((7 * i) % 16); }
+            unsigned temp = d;
+            d = c;
+            c = b;
+            b = b + rotl(a + f + k[i] + w[g], r[i]);
+            a = temp;
+        }
+        h0 += a; h1 += b; h2 += c; h3 += d;
     }
-    h1 = (h1 & ~0xF000ULL) | 0x3000ULL;
-    h2 = (h2 & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%08x-%04x-%04x-%04x-%012llx",
-             (unsigned)(h1 >> 32), (unsigned)((h1 >> 16) & 0xFFFF), (unsigned)(h1 & 0xFFFF),
-             (unsigned)(h2 >> 48), (unsigned long long)(h2 & 0xFFFFFFFFFFFFULL));
+    unsigned h[4] = { h0, h1, h2, h3 };
+    for (int i = 0; i < 4; i++) {
+        digest[i * 4 + 0] = (unsigned char)(h[i] & 0xFF);
+        digest[i * 4 + 1] = (unsigned char)((h[i] >> 8) & 0xFF);
+        digest[i * 4 + 2] = (unsigned char)((h[i] >> 16) & 0xFF);
+        digest[i * 4 + 3] = (unsigned char)((h[i] >> 24) & 0xFF);
+    }
+}
+
+static std::string OfflineUuidFor(const std::string& name) {
+    unsigned char d[16];
+    Md5Compute("OfflinePlayer:" + name, d);
+    d[6] = (unsigned char)((d[6] & 0x0F) | 0x30); // UUID v3
+    d[8] = (unsigned char)((d[8] & 0x3F) | 0x80); // RFC 4122 variant
+    char buf[40];
+    snprintf(buf, sizeof(buf),
+             "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+             d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7],
+             d[8], d[9], d[10], d[11], d[12], d[13], d[14], d[15]);
     return buf;
 }
 
@@ -2506,6 +2843,41 @@ static void LoadAccessListsToUi() {
     if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
 }
 
+static void UpdateAccessListForName(const std::wstring& name, bool isOp, bool add) {
+    std::wstring dir = GetServerDir();
+    std::wstring path = dir + (isOp ? L"\\ops.json" : L"\\whitelist.json");
+    auto list = ReadPlayerJsonList(path);
+    std::string targetLow = ToLowerA(ToUtf8(name));
+
+    if (add) {
+        bool exists = false;
+        for (const auto& e : list) if (ToLowerA(e.name) == targetLow) { exists = true; break; }
+        if (!exists) {
+            std::string uuid;
+            EnterCriticalSection(&g_csUuid);
+            auto it = g_playerUuids.find(ToLowerW(name));
+            if (it != g_playerUuids.end()) uuid = ToUtf8(it->second);
+            LeaveCriticalSection(&g_csUuid);
+            list.push_back({ uuid, ToUtf8(name), 4, false });
+            WritePlayerJsonList(path, list, isOp);
+        }
+    } else {
+        std::vector<JsonPlayerEntry> filtered;
+        for (const auto& e : list) if (ToLowerA(e.name) != targetLow) filtered.push_back(e);
+        WritePlayerJsonList(path, filtered, isOp);
+    }
+
+    if (g_state == SrvState::Running) {
+        if (isOp) WriteToConsole((add ? L"op " : L"deop ") + name);
+        else {
+            WriteToConsole((add ? L"whitelist add " : L"whitelist remove ") + name);
+            WriteToConsole(L"whitelist reload");
+        }
+        SetTimer(g_hwnd, TID_ACCESS_SYNC, 700, NULL);
+    }
+    LoadAccessListsToUi();
+}
+
 static void ModifyAccessList(bool isOp, bool add) {
     HWND hList = isOp ? g_hListOp : g_hListWl;
     HWND hEdit = isOp ? g_hEditOp : g_hEditWl;
@@ -2538,38 +2910,16 @@ static void ModifyAccessList(bool isOp, bool add) {
         return;
     }
 
-    std::wstring dir = GetServerDir();
-    std::wstring path = dir + (isOp ? L"\\ops.json" : L"\\whitelist.json");
-    auto list = ReadPlayerJsonList(path);
-    std::string targetLow = ToLowerA(ToUtf8(name));
+    UpdateAccessListForName(name, isOp, add);
+    if (add) SetWindowTextW(hEdit, L"");
+}
 
-    if (add) {
-        bool exists = false;
-        for (const auto& e : list) if (ToLowerA(e.name) == targetLow) { exists = true; break; }
-        if (!exists) {
-            std::string uuid;
-            EnterCriticalSection(&g_csUuid);
-            auto it = g_playerUuids.find(ToLowerW(name));
-            if (it != g_playerUuids.end()) uuid = ToUtf8(it->second);
-            LeaveCriticalSection(&g_csUuid);
-            list.push_back({ uuid, ToUtf8(name), 4, false });
-            WritePlayerJsonList(path, list, isOp);
-        }
-        SetWindowTextW(hEdit, L"");
-    } else {
-        std::vector<JsonPlayerEntry> filtered;
-        for (const auto& e : list) if (ToLowerA(e.name) != targetLow) filtered.push_back(e);
-        WritePlayerJsonList(path, filtered, isOp);
-    }
-
-    if (g_state == SrvState::Running) {
-        if (isOp) WriteToConsole((add ? L"op " : L"deop ") + name);
-        else {
-            WriteToConsole((add ? L"whitelist add " : L"whitelist remove ") + name);
-            WriteToConsole(L"whitelist reload");
-        }
-    }
-    LoadAccessListsToUi();
+static void QuickAccessCommand(const std::wstring& name, bool isOp, bool add) {
+    if (!ValidPlayerName(name)) { AppLog(L().logInvalidPlayer); return; }
+    if (!HasServerJar()) { Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING); return; }
+    UpdateAccessListForName(name, isOp, add);
+    AppLog((isOp ? (add ? Tx(L"OP verildi: ", L"OP granted: ") : Tx(L"OP alındı: ", L"OP revoked: "))
+                 : (add ? Tx(L"Whitelist'e eklendi: ", L"Added to whitelist: ") : Tx(L"Whitelist'ten çıkarıldı: ", L"Removed from whitelist: "))) + name);
 }
 
 // ----------------------------------------------------------------------------
@@ -2628,6 +2978,8 @@ struct BackupTaskArgs {
     HWND hwnd;
     bool restore;
     bool serverWasRunning;
+    bool isAuto;
+    int  keepCount;
     Lang lang;
     std::wstring srvDir;
     std::wstring zipPath;
@@ -2662,6 +3014,28 @@ static DWORD WINAPI BackupWorkerThread(LPVOID param) {
         GetExitCodeProcess(pi.hProcess, &exitCode);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
+    }
+
+    if (exitCode == 0 && !a->restore && a->isAuto && a->keepCount > 0) {
+        std::wstring bkDir = a->srvDir + L"\\backups";
+        WIN32_FIND_DATAW fd = {};
+        HANDLE h = FindFirstFileW((bkDir + L"\\backup_*_auto.zip").c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            struct AutoBk { std::wstring path; FILETIME ft; };
+            std::vector<AutoBk> autos;
+            do {
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                    autos.push_back({ bkDir + L"\\" + fd.cFileName, fd.ftLastWriteTime });
+                }
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+            std::sort(autos.begin(), autos.end(), [](const AutoBk& x, const AutoBk& y) {
+                return CompareFileTime(&x.ft, &y.ft) > 0;
+            });
+            for (size_t i = (size_t)a->keepCount; i < autos.size(); i++) {
+                DeleteFileW(autos[i].path.c_str());
+            }
+        }
     }
 
     std::wstring msg;
@@ -2708,9 +3082,13 @@ static void StartCreateBackup(bool silent = false) {
         return;
     }
 
-    std::wstring tag = Trim(GetText(g_hEditBkTag));
     std::wstring cleanTag;
-    for (wchar_t c : tag) if (iswalnum(c) || c == L'-' || c == L'_') cleanTag.push_back(c);
+    if (silent) {
+        cleanTag = L"auto";
+    } else {
+        std::wstring tag = Trim(GetText(g_hEditBkTag));
+        for (wchar_t c : tag) if (iswalnum(c) || c == L'-' || c == L'_') cleanTag.push_back(c);
+    }
 
     SYSTEMTIME st; GetLocalTime(&st);
     wchar_t ts[64];
@@ -2727,7 +3105,7 @@ static void StartCreateBackup(bool silent = false) {
     EnableWindow(g_hBtnBkCreate, FALSE);
     AppLog(Tx(L"Dünya yedekleniyor, lütfen bekleyin…", L"Creating world backup, please wait…"));
 
-    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, false, running, g_lang, srvDir, zipPath, folders };
+    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, false, running, silent, g_schedBkKeep, g_lang, srvDir, zipPath, folders };
     HANDLE th = args ? CreateThread(NULL, 0, BackupWorkerThread, args, 0, NULL) : NULL;
     if (th) CloseHandle(th);
     else { delete args; g_backupBusy = false; EnableWindow(g_hBtnBkCreate, TRUE); }
@@ -2758,7 +3136,7 @@ static void RestoreSelectedBackup() {
     EnableWindow(g_hBtnBkRestore, FALSE);
     AppLog(Tx(L"Yedek geri yükleniyor…", L"Restoring backup…"));
 
-    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, true, false, g_lang, srvDir, zipPath, {} };
+    BackupTaskArgs* args = new (std::nothrow) BackupTaskArgs{ g_hwnd, true, false, false, 0, g_lang, srvDir, zipPath, {} };
     HANDLE th = args ? CreateThread(NULL, 0, BackupWorkerThread, args, 0, NULL) : NULL;
     if (th) CloseHandle(th);
     else { delete args; g_backupBusy = false; EnableWindow(g_hBtnBkRestore, TRUE); }
@@ -2813,6 +3191,7 @@ static void LoadProfilesListToUi() {
         pr.port = ProfGet(sec, L"Port");
         pr.ram  = ProfGet(sec, L"Ram");
         pr.jvm  = ProfGet(sec, L"Jvm");
+        pr.javaPath = ProfGet(sec, L"Java");
         g_profiles.push_back(pr);
     }
     std::sort(g_profiles.begin(), g_profiles.end(), [](const ServerProfile& a, const ServerProfile& b) {
@@ -2838,6 +3217,7 @@ static void SaveCurrentAsProfile() {
     WritePrivateProfileStringW(sec.c_str(), L"Port", Trim(GetText(g_hPort)).c_str(), path.c_str());
     WritePrivateProfileStringW(sec.c_str(), L"Ram",  Trim(GetText(g_hRam)).c_str(),  path.c_str());
     WritePrivateProfileStringW(sec.c_str(), L"Jvm",  g_jvmArgs.c_str(),              path.c_str());
+    WritePrivateProfileStringW(sec.c_str(), L"Java", g_javaPath.c_str(),             path.c_str());
     SetWindowTextW(g_hEditProfName, L"");
     AppLog(std::wstring(Tx(L"Profil kaydedildi: ", L"Profile saved: ")) + name);
     LoadProfilesListToUi();
@@ -2863,7 +3243,11 @@ static void LoadSelectedProfile() {
         g_jvmArgs = pr.jvm;
         SetWindowTextW(g_hJvm, g_jvmArgs.c_str());
     }
+    g_javaPath = pr.javaPath;
+    if (g_hEditJavaPath) SetWindowTextW(g_hEditJavaPath, g_javaPath.c_str());
+    RefreshDetectedJavaLabel();
     SaveSettings();
+    RefreshMaxPlayersFromProps();
     AppLog(std::wstring(Tx(L"Profil yüklendi: ", L"Profile loaded: ")) + pr.name);
 }
 
@@ -2902,7 +3286,10 @@ static void LoadModFolder(const std::wstring& subDir, std::vector<ModItem>& outL
 
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
+    if (h == INVALID_HANDLE_VALUE) {
+        if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+        return;
+    }
     do {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
         std::wstring fn = fd.cFileName;
@@ -2984,7 +3371,7 @@ static void ToggleModItem(bool isPlugin) {
     }
 }
 
-static void AddModItem(bool isPlugin) {
+static void ImportModFiles(bool isPlugin, const std::vector<std::wstring>& files) {
     if (!HasServerJar()) {
         Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
         return;
@@ -2994,6 +3381,32 @@ static void AddModItem(bool isPlugin) {
     std::wstring destDir = srvDir + L"\\" + subDir;
     CreateDirectoryW(destDir.c_str(), NULL);
 
+    int added = 0;
+    for (const auto& src : files) {
+        size_t sl = src.find_last_of(L"\\/");
+        std::wstring fname = sl == std::wstring::npos ? src : src.substr(sl + 1);
+        std::wstring low = ToLowerW(fname);
+        if (low.size() < 4 || (low.compare(low.size() - 4, 4, L".jar") != 0 &&
+            (low.size() < 13 || low.compare(low.size() - 13, 13, L".jar.disabled") != 0))) {
+            continue;
+        }
+        std::wstring target = destDir + L"\\" + fname;
+        if (CopyFileW(src.c_str(), target.c_str(), FALSE)) {
+            AppLog((isPlugin ? Tx(L"Eklenti eklendi: ", L"Plugin added: ") : Tx(L"Mod eklendi: ", L"Mod added: ")) + fname);
+            added++;
+        } else {
+            AppLog(Tx(L"Dosya kopyalanamadı: ", L"Failed to copy file: ") + fname);
+        }
+    }
+    if (added > 0) LoadModFolder(subDir, isPlugin ? g_pluginsList : g_modsList, isPlugin ? g_hListPlugins : g_hListMods);
+}
+
+static void AddModItem(bool isPlugin) {
+    if (!HasServerJar()) {
+        Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
+        return;
+    }
+
     wchar_t file[MAX_PATH] = {};
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
@@ -3002,20 +3415,10 @@ static void AddModItem(bool isPlugin) {
     ofn.nMaxFile = MAX_PATH;
     ofn.lpstrFilter = L"Java Dosyaları (*.jar)\0*.jar\0Tüm Dosyalar (*.*)\0*.*\0";
     ofn.lpstrTitle = isPlugin ? Tx(L"Eklenti Seç (.jar)", L"Select Plugin (.jar)") : Tx(L"Mod Seç (.jar)", L"Select Mod (.jar)");
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_EXPLORER;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
 
     if (GetOpenFileNameW(&ofn)) {
-        std::wstring src = file;
-        size_t sl = src.find_last_of(L"\\/");
-        std::wstring fname = sl == std::wstring::npos ? src : src.substr(sl + 1);
-        std::wstring target = destDir + L"\\" + fname;
-
-        if (CopyFileW(src.c_str(), target.c_str(), FALSE)) {
-            AppLog((isPlugin ? Tx(L"Eklenti eklendi: ", L"Plugin added: ") : Tx(L"Mod eklendi: ", L"Mod added: ")) + fname);
-            LoadModFolder(subDir, isPlugin ? g_pluginsList : g_modsList, isPlugin ? g_hListPlugins : g_hListMods);
-        } else {
-            AppLog(Tx(L"Dosya kopyalanamadı!", L"Failed to copy file!"));
-        }
+        ImportModFiles(isPlugin, { file });
     }
 }
 
@@ -3060,13 +3463,17 @@ static void UpdateUi() {
     bool stopped = g_state == SrvState::Stopped;
     bool active = g_state == SrvState::Starting || g_state == SrvState::Running;
     bool running = g_state == SrvState::Running;
-    EnableWindow(g_hBtnStart, stopped);
+    if (g_hBtnStart) {
+        SetWindowTextW(g_hBtnStart, running ? L().btnRestart : L().btnStart);
+        EnableWindow(g_hBtnStart, stopped || running);
+    }
     EnableWindow(g_hBtnStop, active);
     EnableWindow(g_hBtnBrowse, stopped);
     EnableWindow(g_hBtnKick, running);
     EnableWindow(g_hBtnBan, running);
     EnableWindow(g_hBtnUnban, running);
     EnableWindow(g_hBtnSend, active || g_state == SrvState::Stopping);
+    if (g_hBtnConSave) EnableWindow(g_hBtnConSave, running);
     HWND ro[4] = { g_hJar, g_hIp, g_hPort, g_hRam };
     for (HWND h : ro) SendMessageW(h, EM_SETREADONLY, !stopped, 0);
     TrayUpdate();
@@ -3141,12 +3548,18 @@ static void ApplyLanguage() {
     if (!g_hwnd) return;
     SetWindowTextW(g_hwnd, L().wndTitle);
     SetWindowTextW(g_hBtnBrowse, L().btnBrowse);
-    SetWindowTextW(g_hBtnStart,  L().btnStart);
+    SetWindowTextW(g_hBtnStart,  (g_state == SrvState::Running) ? L().btnRestart : L().btnStart);
     SetWindowTextW(g_hBtnStop,   L().btnStop);
     SetWindowTextW(g_hBtnKick,   L().btnKick);
     SetWindowTextW(g_hBtnBan,    L().btnBan);
     SetWindowTextW(g_hBtnUnban,  L().btnUnban);
     SetWindowTextW(g_hBtnSend,   L().btnSend);
+    if (g_hBtnOpenSrvDir) SetWindowTextW(g_hBtnOpenSrvDir, Tx(L"Klasör", L"Folder"));
+    if (g_hBtnFiltAll)    SetWindowTextW(g_hBtnFiltAll,    Tx(L"Tümü", L"All"));
+    if (g_hBtnFiltWarn)   SetWindowTextW(g_hBtnFiltWarn,   Tx(L"Uyarı", L"Warn"));
+    if (g_hBtnFiltChat)   SetWindowTextW(g_hBtnFiltChat,   Tx(L"Sohbet", L"Chat"));
+    if (g_hBtnConSave)    SetWindowTextW(g_hBtnConSave,    Tx(L"Kaydet", L"Save"));
+    if (g_hBtnConClear)   SetWindowTextW(g_hBtnConClear,   Tx(L"Temizle", L"Clear"));
 
     g_f[F_JAR].caption   = L().capJar;
     g_f[F_IP].caption    = L().capIp;
@@ -3166,12 +3579,20 @@ static void ApplyLanguage() {
     g_f[F_OP].caption        = Tx(L"Oyuncu adı", L"Player name");
     g_f[F_BK_TAG].caption    = Tx(L"Yedek etiketi (isteğe bağlı, ör: sezon1)", L"Backup label (optional, e.g. pre-update)");
     g_f[F_PROF_NAME].caption = Tx(L"Profil adı (ör: Survival 1.21)", L"Profile name (e.g. Survival 1.21)");
-    g_f[F_BK_HOURS].caption      = Tx(L"Yedekleme aralığı (saat)", L"Backup interval (hours)");
+    g_f[F_BK_HOURS].caption      = Tx(L"Aralık (saat)", L"Interval (hours)");
     g_f[F_RESTART_TIME].caption  = Tx(L"Yeniden başlatma saati (SS:DD)", L"Restart time (HH:MM)");
+    g_f[F_JAVA_PATH].caption     = Tx(L"java.exe yolu (boş = Otomatik algıla)", L"java.exe path (empty = Auto-detect)");
+    g_f[F_BK_KEEP].caption       = Tx(L"Maks. otomatik", L"Max auto keep");
 
     SetWindowTextW(g_hChkAutoStart,   L().menuAutoStart);
     SetWindowTextW(g_hChkAutoRestart, Tx(L"Sunucu çökerse otomatik yeniden başlat", L"Restart the server automatically if it crashes"));
+    if (g_hChkMinTray)   SetWindowTextW(g_hChkMinTray,   Tx(L"Kapatınca sistem tepsisine küçült", L"Minimize to system tray on close"));
+    if (g_hBtnAppExit)   SetWindowTextW(g_hBtnAppExit,   Tx(L"Uygulamadan Çık", L"Exit Application"));
     SetWindowTextW(g_hBtnJvmSave,     Tx(L"Kaydet", L"Save"));
+    if (g_hBtnJavaBrowse) SetWindowTextW(g_hBtnJavaBrowse, Tx(L"Gözat…", L"Browse…"));
+    if (g_hBtnJavaAuto)   SetWindowTextW(g_hBtnJavaAuto,   Tx(L"Otomatik", L"Auto"));
+    if (g_hBtnJavaSave)   SetWindowTextW(g_hBtnJavaSave,   Tx(L"Kaydet", L"Save"));
+    RefreshDetectedJavaLabel();
     SetWindowTextW(g_hBtnLogs,        Tx(L"Log Klasörünü Aç", L"Open Logs Folder"));
     SetWindowTextW(g_hBtnThDark,      L().menuThemeDark);
     SetWindowTextW(g_hBtnThLight,     L().menuThemeLight);
@@ -3249,8 +3670,10 @@ static void ApplyLanguage() {
 // ----------------------------------------------------------------------------
 static std::wstring OpenJarDialog() {
     wchar_t file[MAX_PATH] = {};
-    std::wstring cur = Trim(GetText(g_hJar));
-    if (cur.size() < MAX_PATH) wcscpy(file, cur.c_str());
+    std::wstring cur = TrimQuotes(GetText(g_hJar));
+    if (cur.size() < MAX_PATH && cur.find_first_of(L"<>\"|?*") == std::wstring::npos && FileExists(cur)) {
+        wcscpy(file, cur.c_str());
+    }
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = g_hwnd;
     ofn.lpstrFile = file; ofn.nMaxFile = MAX_PATH;
@@ -3260,7 +3683,45 @@ static std::wstring OpenJarDialog() {
     return GetOpenFileNameW(&ofn) ? std::wstring(file) : L"";
 }
 
+static std::wstring OpenJavaDialog() {
+    wchar_t file[MAX_PATH] = {};
+    if (!g_javaPath.empty() && g_javaPath.size() < MAX_PATH && FileExists(g_javaPath)) {
+        wcscpy(file, g_javaPath.c_str());
+    }
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = g_hwnd;
+    ofn.lpstrFile = file; ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFilter = L"java.exe (java.exe)\0java.exe\0All Executables (*.exe)\0*.exe\0\0";
+    ofn.lpstrTitle = Tx(L"java.exe Dosyasını Seçin", L"Select java.exe Executable");
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
+    return GetOpenFileNameW(&ofn) ? std::wstring(file) : L"";
+}
+
+static void SaveJavaFromUi() {
+    if (!g_hEditJavaPath) return;
+    std::wstring jp = TrimQuotes(GetText(g_hEditJavaPath));
+    if (!jp.empty() && !FileExists(jp)) {
+        Msg(Tx(L"Belirtilen java.exe dosyası bulunamadı:\n", L"Specified java.exe file was not found:\n") + jp,
+            L().titleFileNotFound, MB_OK | MB_ICONWARNING);
+        return;
+    }
+    g_javaPath = jp;
+    SetWindowTextW(g_hEditJavaPath, g_javaPath.c_str());
+    RefreshDetectedJavaLabel();
+    SaveSettings();
+    InvalidateRect(g_hwnd, NULL, FALSE);
+    AppLog(g_javaPath.empty()
+        ? (Tx(L"Java modu: Otomatik (", L"Java mode: Auto (") + g_detectedJavaLabel + L")")
+        : (Tx(L"Özel Java yolu kaydedildi: ", L"Custom Java path saved: ") + g_javaPath));
+}
+
 static void StartServer() {
+    if (g_backupBusy.load()) {
+        Msg(Tx(L"Dünya yedeği veya geri yükleme devam ederken sunucu başlatılamaz.",
+               L"Cannot start the server while a world backup or restore is in progress."),
+            Tx(L"Yedekleme Devam Ediyor", L"Backup In Progress"), MB_OK | MB_ICONWARNING);
+        return;
+    }
     if (g_state != SrvState::Stopped) { Msg(L().msgAlreadyRunning, L"Redstone Server Panel"); return; }
 
     std::wstring jar = GetJarPath(), ip = Trim(GetText(g_hIp));
@@ -3290,7 +3751,12 @@ static void StartServer() {
 
     std::wstring java = FindJava();
     if (java.empty()) {
-        Msg(L().msgJavaNotFound, L().titleJavaMissing, MB_OK | MB_ICONERROR);
+        if (!g_javaPath.empty()) {
+            Msg(Tx(L"Ayarlardaki özel Java yolu bulunamadı:\n", L"Custom Java path in Settings was not found:\n") + g_javaPath,
+                L().titleJavaMissing, MB_OK | MB_ICONERROR);
+        } else {
+            Msg(L().msgJavaNotFound, L().titleJavaMissing, MB_OK | MB_ICONERROR);
+        }
         return;
     }
 
@@ -3350,12 +3816,13 @@ static void StartServer() {
     ++g_gen; g_pendingTime = 0; g_useTimelineCmd = false; g_suppressErrLines = 0;
     KillTimer(g_hwnd, TID_RESTART);
     g_schedRestartPending = false;
+    g_manualRestartPending = false;
     g_scheduledRestartTrigger = false;
     g_lastAutoBackupTime = 0;
     g_restartWarningStep = 0;
     g_startTick = GetTickCount64();
     g_state = SrvState::Starting;
-    g_igTime = L"--:--"; g_upText = L"00:00:00";
+    g_igTime = L"--:--"; g_upText = L"00:00:00"; g_mcVersion.clear();
     std::fill(g_ramHist.begin(), g_ramHist.end(), 0.0f);
     std::fill(g_cpuHist.begin(), g_cpuHist.end(), 0.0f);
     g_srvCpuPrev.clear(); g_srvCpuPrevWall = 0;
@@ -3381,10 +3848,11 @@ static void StartServer() {
     Balloon(L"Redstone Server Panel", L().balloonStarting);
 }
 
-static void StopServer(bool fromScheduledRestart = false) {
+static void StopServer(bool fromRestart = false) {
     if (g_state != SrvState::Starting && g_state != SrvState::Running) return;
-    if (!fromScheduledRestart) {
+    if (!fromRestart) {
         g_schedRestartPending = false;
+        g_manualRestartPending = false;
         g_scheduledRestartTrigger = false;
         KillTimer(g_hwnd, TID_RESTART);
     }
@@ -3393,6 +3861,14 @@ static void StopServer(bool fromScheduledRestart = false) {
     SetTimer(g_hwnd, TID_STOPWATCH, 60000, NULL);
     AppLog(L().logStopping);
     UpdateUi();
+}
+
+static void RestartServer() {
+    if (g_state != SrvState::Running) return;
+    g_manualRestartPending = true;
+    g_schedRestartPending = false;
+    AppLog(L().logRestarting);
+    StopServer(true);
 }
 
 static void OnServerExited() {
@@ -3404,7 +3880,7 @@ static void OnServerExited() {
     KillTimer(g_hwnd, TID_TIME); KillTimer(g_hwnd, TID_STOPWATCH);
     g_state = SrvState::Stopped;
     SendMessageW(g_hList, LB_RESETCONTENT, 0, 0);
-    g_igTime = L"--:--"; g_upText = L"00:00:00";
+    g_igTime = L"--:--"; g_upText = L"00:00:00"; g_mcVersion.clear();
     std::fill(g_cpuHist.begin(), g_cpuHist.end(), 0.0f);
     g_srvCpuPrev.clear(); g_srvCpuPrevWall = 0;
     g_sysCpuPrevIdle = 0; g_sysCpuPrevKernel = 0; g_sysCpuPrevUser = 0;
@@ -3412,6 +3888,7 @@ static void OnServerExited() {
 
     if (!expected && code != 0) {
         g_schedRestartPending = false;
+        g_manualRestartPending = false;
         AppLog(std::wstring(L().logCrashed) + std::to_wstring((long long)(int)code) + L").");
         Balloon(L"Redstone Server Panel", L().balloonCrashed);
         if (g_autoRestart && !g_quitPending) {
@@ -3431,7 +3908,11 @@ static void OnServerExited() {
         g_crashCount = 0;
         AppLog(L().logStopped);
         Balloon(L"Redstone Server Panel", L().balloonStopped);
-        if (g_schedRestartPending && !g_quitPending) {
+        if (g_manualRestartPending && !g_quitPending) {
+            g_manualRestartPending = false;
+            g_scheduledRestartTrigger = true;
+            SetTimer(g_hwnd, TID_RESTART, 1500, NULL);
+        } else if (g_schedRestartPending && !g_quitPending) {
             g_schedRestartPending = false;
             g_scheduledRestartTrigger = true;
             AppLog(Tx(L"[Otomasyon] Planlı yeniden başlatma için sunucu 5 saniye içinde açılacak…",
@@ -3745,7 +4226,40 @@ static void FocusNext(HWND h) {
     HWND n = GetNextDlgTabItem(g_hwnd, h, shift);
     if (n) SetFocus(n);
 }
+static void DeleteWordBackward(HWND h) {
+    DWORD s = 0, e = 0;
+    SendMessageW(h, EM_GETSEL, (WPARAM)&s, (LPARAM)&e);
+    if (s != e) { SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)L""); return; }
+    if (s == 0) return;
+    std::wstring t = GetText(h);
+    size_t pos = std::min((size_t)s, t.size());
+    size_t i = pos;
+    while (i > 0 && iswspace(t[i - 1])) i--;
+    while (i > 0 && !iswspace(t[i - 1])) i--;
+    SendMessageW(h, EM_SETSEL, (WPARAM)i, (LPARAM)pos);
+    SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)L"");
+}
 static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_KEYDOWN) {
+        bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        if (ctrl && w == 'A') {
+            SendMessageW(h, EM_SETSEL, 0, -1);
+            return 0;
+        }
+        if (ctrl && w == VK_BACK) {
+            DeleteWordBackward(h);
+            return 0;
+        }
+        if (ctrl && w == VK_TAB) {
+            bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            NavigateTo((g_page + (shift ? -1 : 1) + PG_COUNT) % PG_COUNT);
+            return 0;
+        }
+    }
+    if (m == WM_CHAR && ((GetKeyState(VK_CONTROL) & 0x8000) != 0)) {
+        if (w == 1 || w == 127) return 0; // suppress Ctrl+A / Ctrl+Backspace control chars
+    }
+
     if (h == g_hCmd) {
         if (m == WM_KEYDOWN) {
             if (w == VK_ESCAPE) {
@@ -3779,11 +4293,15 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (h == g_hCmd) SendCommandFromUi();
                 else if (h == g_hUnban) DoUnban();
                 else if (h == g_hJvm) SaveJvmFromUi();
+                else if (h == g_hEditJavaPath) SaveJavaFromUi();
                 else if (h == g_hEditWl) ModifyAccessList(false, true);
                 else if (h == g_hEditOp) ModifyAccessList(true, true);
+                else if (h == g_hEditBkTag) StartCreateBackup();
                 else if (h == g_hEditProfName) SaveCurrentAsProfile();
-                else if (h == g_hEditBkHours) PostMessageW(g_hwnd, WM_COMMAND, ID_BTN_SCHED_BK_SAVE, 0);
+                else if (h == g_hEditBkHours || h == g_hEditBkKeep) PostMessageW(g_hwnd, WM_COMMAND, ID_BTN_SCHED_BK_SAVE, 0);
                 else if (h == g_hEditRestartTime) PostMessageW(g_hwnd, WM_COMMAND, ID_BTN_SCHED_RESTART_SAVE, 0);
+                else if (h == g_hMotd || h == g_hMaxPl || h == g_hViewDist || h == g_hSimDist ||
+                         h == g_hSpawnProt || h == g_hLevelName || h == g_hLevelSeed) SaveServerPropertiesFromUi();
                 return 0;
             }
             if (h == g_hCmd && (w == VK_UP || w == VK_DOWN)) { HistoryNav(w == VK_UP ? -1 : 1); return 0; }
@@ -3811,6 +4329,11 @@ static LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (IsWindowEnabled(h)) { SetCursor(LoadCursor(NULL, IDC_HAND)); return TRUE; }
             break;
         case WM_KEYDOWN:
+            if (w == VK_TAB && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                NavigateTo((g_page + (shift ? -1 : 1) + PG_COUNT) % PG_COUNT);
+                return 0;
+            }
             if (w == VK_TAB) { FocusNext(h); return 0; }
             break;
         case WM_CHAR:
@@ -3910,6 +4433,7 @@ static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, con
         FillRound(mem, plotRc, P.logBg, P.border, S(8));
     }
 
+    float yMaxRendered = 100.0f;
     {
         Gdiplus::Graphics g(mem);
         g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -3939,6 +4463,7 @@ static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, con
                     for (float hv : hist) if (hv > peak) peak = hv;
                     yMax = std::min(100.0f, std::max(15.0f, peak * 1.3f));
                 }
+                yMaxRendered = yMax;
                 float padY = (float)S(3);
                 float usableH = std::max(4.0f, ph - 2.0f * padY);
                 float baseBottom = py + ph - padY;
@@ -3975,6 +4500,12 @@ static void DrawSparklineCard(HDC mem, const RECT& rc, const wchar_t* title, con
         COLORREF trackCol = BlendCol(P.card, P.border, 0.58f);
         DrawTelemetryBar(g, (float)rc.left + S(12), (float)rc.bottom - S(8),
                          (float)(rc.right - rc.left - S(24)), (float)S(4), curPct, trackCol, col);
+    }
+
+    if (autoScale && plotRc.right > plotRc.left + S(60)) {
+        RECT rtScale = { plotRc.left + S(6), plotRc.top + S(2), plotRc.right - S(6), plotRc.top + S(16) };
+        std::wstring scaleTxt = L"0-" + std::to_wstring((int)(yMaxRendered + 0.5f)) + L"%";
+        DrawTxt(mem, scaleTxt, rtScale, g_fCap, BlendCol(P.logBg, P.muted, 0.65f), DT_LEFT | DT_TOP | DT_SINGLELINE);
     }
 
     RECT rtTitle = { rc.left + S(25), rc.top + S(8), std::max(rc.left + S(40), rc.right - S(105)), rc.top + S(26) };
@@ -4138,6 +4669,15 @@ static void PaintHeader(HDC mem, int W) {
     for (wchar_t& c : up) c = (wchar_t)towupper(c);
     RECT title = { S(40), tabH, W - S(40), tabH + navH };
     DrawTxt(mem, up, title, g_fCap, P.text, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    if (!g_detectedJavaLabel.empty()) {
+        RECT jl = { S(16), tabH, S(240), tabH + navH };
+        DrawTxt(mem, g_detectedJavaLabel, jl, g_fCap, P.muted, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+    if (g_state != SrvState::Stopped && !g_mcVersion.empty()) {
+        RECT mr = { W - S(240), tabH, W - S(16), tabH + navH };
+        DrawTxt(mem, L"Minecraft " + g_mcVersion, mr, g_fCap, P.accent, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    }
 }
 
 static COLORREF ContrastText(COLORREF bg) {
@@ -4346,7 +4886,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
     bool focus = (di->itemState & ODS_FOCUS) && !(di->itemState & ODS_NOFOCUSRECT);
 
     // Checkbox-style toggles on the settings / properties pages
-    if (id == ID_CHK_AUTOSTART || id == ID_MENU_AUTORESTART ||
+    if (id == ID_CHK_AUTOSTART || id == ID_MENU_AUTORESTART || id == ID_CHK_MIN_TRAY ||
         id == ID_CHK_ONLINE || id == ID_CHK_PVP || id == ID_CHK_WHITELIST || id == ID_CHK_FLIGHT || id == ID_CHK_CMDBLOCK ||
         id == ID_CHK_HARDCORE || id == ID_CHK_FORCEGM || id == ID_CHK_SECUREPROF || id == ID_CHK_HIDEPL ||
         id == ID_CHK_NETHER || id == ID_CHK_MONSTERS || id == ID_CHK_ANIMALS || id == ID_CHK_NPCS ||
@@ -4355,6 +4895,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         switch (id) {
             case ID_CHK_AUTOSTART:     on = g_autoStartCache; break;
             case ID_MENU_AUTORESTART:  on = g_autoRestart; break;
+            case ID_CHK_MIN_TRAY:      on = g_minimizeToTray; break;
             case ID_CHK_ONLINE:        on = g_propOnline; break;
             case ID_CHK_PVP:           on = g_propPvp; break;
             case ID_CHK_WHITELIST:     on = g_propWhitelist; break;
@@ -4389,12 +4930,17 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         return;
     }
 
-    // Selector buttons (language, theme, gamemode, difficulty, level-type) highlight the active choice
-    bool isSel = (id == ID_MENU_LANG_TR || id == ID_MENU_LANG_EN ||
+    // Selector buttons (language, theme, gamemode, difficulty, level-type, console filter pills) highlight active choice
+    bool isFilt = (id == ID_BTN_FILT_ALL || id == ID_BTN_FILT_WARN || id == ID_BTN_FILT_CHAT);
+    bool isCompact = (id == ID_BTN_OPEN_SRVDIR || id == ID_BTN_CON_SAVE || id == ID_BTN_CON_CLEAR || isFilt);
+    bool isSel = isFilt || (id == ID_MENU_LANG_TR || id == ID_MENU_LANG_EN ||
                   id == ID_MENU_THEME_DARK || id == ID_MENU_THEME_LIGHT ||
                   id == ID_MENU_THEME_REDSTONE || id == ID_MENU_THEME_MC ||
                   (id >= ID_BTN_GM_SURV && id <= ID_BTN_LVL_AMP));
-    bool selActive = (id == ID_MENU_LANG_TR && g_lang == Lang::TR) || (id == ID_MENU_LANG_EN && g_lang == Lang::EN) ||
+    bool selActive = (id == ID_BTN_FILT_ALL && g_logFilter == 0) ||
+                     (id == ID_BTN_FILT_WARN && g_logFilter == 1) ||
+                     (id == ID_BTN_FILT_CHAT && g_logFilter == 2) ||
+                     (id == ID_MENU_LANG_TR && g_lang == Lang::TR) || (id == ID_MENU_LANG_EN && g_lang == Lang::EN) ||
                      (id == ID_MENU_THEME_DARK && g_theme == Theme::Dark) ||
                      (id == ID_MENU_THEME_LIGHT && g_theme == Theme::Light) ||
                      (id == ID_MENU_THEME_REDSTONE && g_theme == Theme::Redstone) ||
@@ -4406,6 +4952,9 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
     COLORREF base, hov, txtCol = RGB(255, 255, 255);
     switch (id) {
         case ID_BTN_START:
+            if (g_state == SrvState::Running) { base = RGB(196, 140, 34); hov = RGB(220, 160, 48); }
+            else { base = RGB(34, 150, 90); hov = RGB(46, 176, 108); }
+            break;
         case ID_BTN_PROPSAVE:
         case ID_BTN_WL_ADD:
         case ID_BTN_OP_ADD:
@@ -4413,6 +4962,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         case ID_BTN_PROF_SAVE:
         case ID_BTN_PLUG_ADD:
         case ID_BTN_MOD_ADD:
+        case ID_BTN_JAVA_SAVE:
         case ID_BTN_SCHED_BK_SAVE:
         case ID_BTN_SCHED_RESTART_SAVE: base = RGB(34, 150, 90);  hov = RGB(46, 176, 108); break;
         case ID_BTN_STOP:
@@ -4422,7 +4972,8 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         case ID_BTN_BK_DEL:
         case ID_BTN_PROF_DEL:
         case ID_BTN_PLUG_DEL:
-        case ID_BTN_MOD_DEL:  base = RGB(190, 62, 74);  hov = RGB(216, 78, 92);  break;
+        case ID_BTN_MOD_DEL:
+        case ID_BTN_APP_EXIT: base = RGB(190, 62, 74);  hov = RGB(216, 78, 92);  break;
         case ID_BTN_KICK:
         case ID_BTN_BK_RESTORE: base = RGB(196, 140, 34); hov = RGB(220, 160, 48); break;
         case ID_BTN_SEND:
@@ -4438,11 +4989,11 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
                                            : hover ? hov : base;
     HBRUSH bg = CreateSolidBrush(P.card); FillRect(dc, &r, bg); DeleteObject(bg);
     RECT rr = r; InflateRect(&rr, -1, -1);
-    FillRound(dc, rr, fill, focus && !dis ? P.accent : ((isSel && selActive) ? P.accent : (id == ID_BTN_BROWSE || id == ID_BTN_UNBAN || isSel ? P.border : fill)), S(10));
+    FillRound(dc, rr, fill, focus && !dis ? P.accent : ((isSel && selActive) ? P.accent : ((id == ID_BTN_BROWSE || id == ID_BTN_UNBAN || id == ID_BTN_JAVA_BROWSE || id == ID_BTN_JAVA_AUTO || isCompact || isSel) ? P.border : fill)), isCompact ? S(7) : S(10));
 
     wchar_t txt[128]; GetWindowTextW(di->hwndItem, txt, 128);
     if (press && !dis) OffsetRect(&r, 0, 1);
-    DrawTxt(dc, txt, r, g_fSemi, dis ? P.btnDisTxt : txtCol, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    DrawTxt(dc, txt, r, isCompact ? g_fCap : g_fSemi, dis ? P.btnDisTxt : txtCol, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
 static void DrawPlayer(const DRAWITEMSTRUCT* di) {
@@ -4531,9 +5082,9 @@ static void Layout(int W, int H) {
     if (!g_hCmd) return;
     ComputeChrome();
     int m = S(16), g = S(12), p = S(16), lw = S(330), fh = S(34), oy = HeaderH();
-    HDWP dw = BeginDeferWindowPos(26);
+    HDWP dw = BeginDeferWindowPos(40);
     auto put = [&](HWND h, int x, int y, int w, int hh) {
-        if (dw) dw = DeferWindowPos(dw, h, NULL, x, y, std::max(w, 1), std::max(hh, 1), SWP_NOZORDER | SWP_NOACTIVATE);
+        if (dw && h) dw = DeferWindowPos(dw, h, NULL, x, y, std::max(w, 1), std::max(hh, 1), SWP_NOZORDER | SWP_NOACTIVATE);
     };
     auto fieldRect = [&](int i, int x, int y, int w) {
         g_f[i].rc = { x, y, x + w, y + fh };
@@ -4543,6 +5094,7 @@ static void Layout(int W, int H) {
     // --- Settings Card
     g_rcSet = { m, oy + m, m + lw, oy + m + S(302) };
     int x = g_rcSet.left + p, iw = lw - 2 * p, y0 = g_rcSet.top;
+    put(g_hBtnOpenSrvDir, g_rcSet.right - p - S(68), y0 + S(11), S(68), S(22));
     fieldRect(F_JAR, x, y0 + S(64), iw - S(78));
     put(g_hBtnBrowse, x + iw - S(70), y0 + S(64), S(70), fh);
     int half = (iw - S(12)) / 2;
@@ -4583,6 +5135,20 @@ static void Layout(int W, int H) {
     // --- Console Card
     g_rcCon = { rx, g_rcStats.bottom + g, W - m, H - m };
     int cx = g_rcCon.left + p, ciw = g_rcCon.right - g_rcCon.left - 2 * p;
+    {
+        int hy = g_rcCon.top + S(10), hh = S(22), gap = S(4);
+        int clrW = S(64), svW = S(58), chW = S(58), wnW = S(56), alW = S(52);
+        int rxEnd = g_rcCon.right - p;
+        put(g_hBtnConClear, rxEnd - clrW, hy, clrW, hh);
+        rxEnd -= clrW + gap;
+        put(g_hBtnConSave, rxEnd - svW, hy, svW, hh);
+        rxEnd -= svW + S(10);
+        put(g_hBtnFiltChat, rxEnd - chW, hy, chW, hh);
+        rxEnd -= chW + gap;
+        put(g_hBtnFiltWarn, rxEnd - wnW, hy, wnW, hh);
+        rxEnd -= wnW + gap;
+        put(g_hBtnFiltAll, rxEnd - alW, hy, alW, hh);
+    }
     int cmdTop = g_rcCon.bottom - p - fh;
     g_rcLogBg = { cx, g_rcCon.top + S(40), cx + ciw, cmdTop - S(10) };
     put(g_hLog, g_rcLogBg.left + S(10), g_rcLogBg.top + S(8), ciw - S(20), g_rcLogBg.bottom - g_rcLogBg.top - S(16));
@@ -4868,45 +5434,67 @@ static void LayoutSettings(int W, int m, int g, int p, int fh) {
         int bw = (iw - S(10)) / 2;
         mv(g_hBtnLangTR, b.left + p, b.top + S(52), bw, fh);
         mv(g_hBtnLangEN, b.left + p + bw + S(10), b.top + S(52), iw - bw - S(10), fh);
+
         RECT c = card(rxc, top, S(148), 2);
         int tbw = (iw - S(10)) / 2;
         int r1y = c.top + S(52);
         int r2y = r1y + fh + S(8);
-        mv(g_hBtnThDark,     c.left + p,              r1y, tbw, fh);
+        mv(g_hBtnThDark,     c.left + p,               r1y, tbw, fh);
         mv(g_hBtnThLight,    c.left + p + tbw + S(10), r1y, iw - tbw - S(10), fh);
-        mv(g_hBtnThRedstone, c.left + p,              r2y, tbw, fh);
+        mv(g_hBtnThRedstone, c.left + p,               r2y, tbw, fh);
         mv(g_hBtnThMc,       c.left + p + tbw + S(10), r2y, iw - tbw - S(10), fh);
-    } else {
-        RECT d = card(lx, top, S(138), 3);
-        mv(g_hChkAutoRestart, d.left + p, d.top + S(46), iw, S(24));
-        desc(d.left + p, d.top + S(80), iw, S(48), 0);
 
-        RECT cDaily = card(lx, d.bottom + g, S(172), 16);
-        mv(g_hChkSchedRestart, cDaily.left + p, cDaily.top + S(46), iw, S(24));
-        desc(cDaily.left + p, cDaily.top + S(74), iw, S(36), 9);
-        int ry = cDaily.top + S(122);
+        RECT cTray = card(rxc, c.bottom + g, S(164), 21);
+        mv(g_hChkMinTray, cTray.left + p, cTray.top + S(44), iw, S(24));
+        desc(cTray.left + p, cTray.top + S(72), iw, S(34), 14);
+        mv(g_hBtnAppExit, cTray.left + p, cTray.top + S(114), iw, fh);
+    } else {
+        RECT d = card(lx, top, S(134), 3);
+        mv(g_hChkAutoRestart, d.left + p, d.top + S(46), iw, S(24));
+        desc(d.left + p, d.top + S(78), iw, S(44), 0);
+
+        RECT cDaily = card(lx, d.bottom + g, S(168), 16);
+        mv(g_hChkSchedRestart, cDaily.left + p, cDaily.top + S(44), iw, S(24));
+        desc(cDaily.left + p, cDaily.top + S(72), iw, S(34), 9);
+        int ry = cDaily.top + S(120);
         g_f[F_RESTART_TIME].rc = { cDaily.left + p, ry, cDaily.left + p + iw - S(90), ry + fh };
         mv(g_hEditRestartTime, cDaily.left + p + S(10), ry + (fh - g_textH) / 2, iw - S(110), g_textH);
         mv(g_hBtnSchedRestartSave, cDaily.left + p + iw - S(80), ry, S(80), fh);
 
-        RECT f = card(lx, cDaily.bottom + g, S(118), 5);
+        RECT f = card(lx, cDaily.bottom + g, S(116), 5);
         mv(g_hBtnLogs, f.left + p, f.top + S(46), iw, fh);
-        desc(f.left + p, f.top + S(88), iw, S(24), 2);
+        desc(f.left + p, f.top + S(86), iw, S(24), 2);
 
-        RECT e = card(rxc, top, S(190), 4);
-        desc(e.left + p, e.top + S(44), iw, S(40), 1);
-        int fy = e.top + S(96);
+        RECT e = card(rxc, top, S(178), 4);
+        desc(e.left + p, e.top + S(42), iw, S(36), 1);
+        int fy = e.top + S(90);
         g_f[F_JVM].rc = { e.left + p, fy, e.left + p + iw, fy + fh };
         mv(g_hJvm, e.left + p + S(10), fy + (fh - g_textH) / 2, iw - S(20), g_textH);
-        mv(g_hBtnJvmSave, e.left + p, fy + fh + S(12), S(120), fh);
+        mv(g_hBtnJvmSave, e.left + p, fy + fh + S(10), S(120), fh);
 
-        RECT cAutoBk = card(rxc, e.bottom + g, S(172), 15);
-        mv(g_hChkSchedBk, cAutoBk.left + p, cAutoBk.top + S(46), iw, S(24));
-        desc(cAutoBk.left + p, cAutoBk.top + S(74), iw, S(36), 8);
-        int by = cAutoBk.top + S(122);
-        g_f[F_BK_HOURS].rc = { cAutoBk.left + p, by, cAutoBk.left + p + iw - S(90), by + fh };
-        mv(g_hEditBkHours, cAutoBk.left + p + S(10), by + (fh - g_textH) / 2, iw - S(110), g_textH);
-        mv(g_hBtnSchedBkSave, cAutoBk.left + p + iw - S(80), by, S(80), fh);
+        RECT cJava = card(rxc, e.bottom + g, S(178), 20);
+        desc(cJava.left + p, cJava.top + S(42), iw, S(36), 13);
+        int jfy = cJava.top + S(90);
+        g_f[F_JAVA_PATH].rc = { cJava.left + p, jfy, cJava.left + p + iw, jfy + fh };
+        mv(g_hEditJavaPath, cJava.left + p + S(10), jfy + (fh - g_textH) / 2, iw - S(20), g_textH);
+        int jbY = jfy + fh + S(10);
+        int jbw = (iw - 2 * S(8)) / 3;
+        mv(g_hBtnJavaBrowse, cJava.left + p,                  jbY, jbw, fh);
+        mv(g_hBtnJavaAuto,   cJava.left + p + jbw + S(8),     jbY, jbw, fh);
+        mv(g_hBtnJavaSave,   cJava.left + p + 2 * (jbw + S(8)), jbY, iw - 2 * (jbw + S(8)), fh);
+
+        RECT cAutoBk = card(rxc, cJava.bottom + g, S(168), 15);
+        mv(g_hChkSchedBk, cAutoBk.left + p, cAutoBk.top + S(44), iw, S(24));
+        desc(cAutoBk.left + p, cAutoBk.top + S(72), iw, S(34), 8);
+        int by = cAutoBk.top + S(120);
+        int bkSaveW = S(80), bkFieldsW = iw - bkSaveW - S(8);
+        int bkW1 = (bkFieldsW - S(8)) / 2;
+        int bkW2 = bkFieldsW - bkW1 - S(8);
+        g_f[F_BK_HOURS].rc = { cAutoBk.left + p, by, cAutoBk.left + p + bkW1, by + fh };
+        mv(g_hEditBkHours, cAutoBk.left + p + S(10), by + (fh - g_textH) / 2, bkW1 - S(20), g_textH);
+        g_f[F_BK_KEEP].rc = { cAutoBk.left + p + bkW1 + S(8), by, cAutoBk.left + p + bkW1 + S(8) + bkW2, by + fh };
+        mv(g_hEditBkKeep, cAutoBk.left + p + bkW1 + S(8) + S(10), by + (fh - g_textH) / 2, bkW2 - S(20), g_textH);
+        mv(g_hBtnSchedBkSave, cAutoBk.left + p + iw - bkSaveW, by, bkSaveW, fh);
     }
 }
 
@@ -4916,8 +5504,10 @@ static void ShowPage() {
 
     bool pan = (g_page == PG_PANEL), prp = (g_page == PG_PROPS), acc = (g_page == PG_ACCESS),
          bkp = (g_page == PG_BACKUPS), plug = (g_page == PG_PLUGINS), prof = (g_page == PG_PROFILES), st = (g_page == PG_SETTINGS);
-    HWND panelCtl[] = { g_hJar, g_hBtnBrowse, g_hIp, g_hPort, g_hRam, g_hBtnStart, g_hBtnStop, g_hList,
-                        g_hBtnKick, g_hBtnBan, g_hUnban, g_hBtnUnban, g_hLog, g_hCmd, g_hBtnSend };
+    HWND panelCtl[] = { g_hJar, g_hBtnBrowse, g_hBtnOpenSrvDir, g_hIp, g_hPort, g_hRam, g_hBtnStart, g_hBtnStop, g_hList,
+                        g_hBtnKick, g_hBtnBan, g_hUnban, g_hBtnUnban,
+                        g_hBtnFiltAll, g_hBtnFiltWarn, g_hBtnFiltChat, g_hBtnConSave, g_hBtnConClear,
+                        g_hLog, g_hCmd, g_hBtnSend };
     HWND propCtl[]  = { g_hMotd, g_hMaxPl, g_hViewDist, g_hSimDist, g_hSpawnProt, g_hLevelName, g_hLevelSeed,
                         g_hBtnPropSave, g_hBtnPropReload,
                         g_hBtnGm[0], g_hBtnGm[1], g_hBtnGm[2], g_hBtnGm[3],
@@ -4933,9 +5523,11 @@ static void ShowPage() {
                         g_hListMods,    g_hBtnModToggle,  g_hBtnModAdd,  g_hBtnModDel,  g_hBtnModOpen,  g_hBtnModReload };
     HWND profCtl[]  = { g_hEditProfName, g_hBtnProfSave, g_hListProf, g_hBtnProfLoad, g_hBtnProfDel };
     HWND genCtl[] = { g_hChkAutoStart, g_hBtnLangTR, g_hBtnLangEN,
-                      g_hBtnThDark, g_hBtnThLight, g_hBtnThRedstone, g_hBtnThMc };
+                      g_hBtnThDark, g_hBtnThLight, g_hBtnThRedstone, g_hBtnThMc,
+                      g_hChkMinTray, g_hBtnAppExit };
     HWND srvCtl[] = { g_hChkAutoRestart, g_hBtnLogs, g_hJvm, g_hBtnJvmSave,
-                      g_hChkSchedBk, g_hEditBkHours, g_hBtnSchedBkSave,
+                      g_hEditJavaPath, g_hBtnJavaBrowse, g_hBtnJavaAuto, g_hBtnJavaSave,
+                      g_hChkSchedBk, g_hEditBkHours, g_hEditBkKeep, g_hBtnSchedBkSave,
                       g_hChkSchedRestart, g_hEditRestartTime, g_hBtnSchedRestartSave };
     for (HWND h : panelCtl) if (h) ShowWindow(h, pan ? SW_SHOW : SW_HIDE);
     for (HWND h : propCtl)  if (h) ShowWindow(h, prp ? SW_SHOW : SW_HIDE);
@@ -5039,6 +5631,7 @@ static bool OnCreate(HWND hwnd) {
 
     g_hJar  = MakeEdit(ID_EDIT_JAR);
     g_hBtnBrowse = MakeBtn(ID_BTN_BROWSE, L().btnBrowse);
+    g_hBtnOpenSrvDir = MakeBtn(ID_BTN_OPEN_SRVDIR, Tx(L"Klasör", L"Folder"));
     g_hIp   = MakeEdit(ID_EDIT_IP);
     g_hPort = MakeEdit(ID_EDIT_PORT, ES_NUMBER);
     g_hRam  = MakeEdit(ID_EDIT_RAM);
@@ -5053,6 +5646,12 @@ static bool OnCreate(HWND hwnd) {
     g_hBtnBan  = MakeBtn(ID_BTN_BAN, L().btnBan);
     g_hUnban   = MakeEdit(ID_EDIT_UNBAN);
     g_hBtnUnban = MakeBtn(ID_BTN_UNBAN, L().btnUnban);
+
+    g_hBtnFiltAll  = MakeBtn(ID_BTN_FILT_ALL,  Tx(L"Tümü", L"All"));
+    g_hBtnFiltWarn = MakeBtn(ID_BTN_FILT_WARN, Tx(L"Uyarı", L"Warn"));
+    g_hBtnFiltChat = MakeBtn(ID_BTN_FILT_CHAT, Tx(L"Sohbet", L"Chat"));
+    g_hBtnConSave  = MakeBtn(ID_BTN_CON_SAVE,  Tx(L"Kaydet", L"Save"));
+    g_hBtnConClear = MakeBtn(ID_BTN_CON_CLEAR, Tx(L"Temizle", L"Clear"));
 
     g_hLog = CreateWindowExW(0, GetRichEditClass(), L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                              0, 0, 10, 10, hwnd, (HMENU)(INT_PTR)ID_EDIT_LOG, g_hInst, NULL);
@@ -5074,10 +5673,17 @@ static bool OnCreate(HWND hwnd) {
     g_hBtnThLight    = MakeBtn(ID_MENU_THEME_LIGHT, L().menuThemeLight);
     g_hBtnThRedstone = MakeBtn(ID_MENU_THEME_REDSTONE, L().menuThemeRedstone);
     g_hBtnThMc       = MakeBtn(ID_MENU_THEME_MC, L().menuThemeMc);
-    g_hBtnLogs    = MakeBtn(ID_MENU_OPENLOGS, Tx(L"Log Klasörünü Aç", L"Open Logs Folder"));
-    g_hBtnJvmSave = MakeBtn(ID_BTN_JVMSAVE, Tx(L"Kaydet", L"Save"));
-    g_hJvm = MakeEdit(ID_EDIT_JVM);
+    g_hChkMinTray    = MakeBtn(ID_CHK_MIN_TRAY, Tx(L"Kapatınca sistem tepsisine küçült", L"Minimize to system tray on close"));
+    g_hBtnAppExit    = MakeBtn(ID_BTN_APP_EXIT, Tx(L"Uygulamadan Çık", L"Exit Application"));
+    g_hBtnLogs       = MakeBtn(ID_MENU_OPENLOGS, Tx(L"Log Klasörünü Aç", L"Open Logs Folder"));
+    g_hBtnJvmSave    = MakeBtn(ID_BTN_JVMSAVE, Tx(L"Kaydet", L"Save"));
+    g_hJvm           = MakeEdit(ID_EDIT_JVM);
     SendMessageW(g_hJvm, EM_LIMITTEXT, 256, 0);
+    g_hEditJavaPath  = MakeEdit(ID_EDIT_JAVA_PATH);
+    SendMessageW(g_hEditJavaPath, EM_LIMITTEXT, 260, 0);
+    g_hBtnJavaBrowse = MakeBtn(ID_BTN_JAVA_BROWSE, Tx(L"Gözat…", L"Browse…"));
+    g_hBtnJavaAuto   = MakeBtn(ID_BTN_JAVA_AUTO,   Tx(L"Otomatik", L"Auto"));
+    g_hBtnJavaSave   = MakeBtn(ID_BTN_JAVA_SAVE,   Tx(L"Kaydet", L"Save"));
 
     // Server Properties page controls
     g_hMotd          = MakeEdit(ID_EDIT_MOTD);
@@ -5192,6 +5798,8 @@ static bool OnCreate(HWND hwnd) {
     g_hChkSchedBk          = MakeBtn(ID_CHK_SCHED_BK, Tx(L"Otomatik zamanlı yedeklemeyi etkinleştir", L"Enable scheduled auto-backups"));
     g_hEditBkHours         = MakeEdit(ID_EDIT_BK_HOURS, ES_NUMBER);
     SendMessageW(g_hEditBkHours, EM_LIMITTEXT, 2, 0);
+    g_hEditBkKeep          = MakeEdit(ID_EDIT_BK_KEEP, ES_NUMBER);
+    SendMessageW(g_hEditBkKeep, EM_LIMITTEXT, 2, 0);
     g_hBtnSchedBkSave      = MakeBtn(ID_BTN_SCHED_BK_SAVE, Tx(L"Kaydet", L"Save"));
     g_hChkSchedRestart     = MakeBtn(ID_CHK_SCHED_RESTART, Tx(L"Günlük otomatik yeniden başlatmayı etkinleştir", L"Enable daily scheduled restart"));
     g_hEditRestartTime     = MakeEdit(ID_EDIT_RESTART_TIME);
@@ -5221,8 +5829,13 @@ static bool OnCreate(HWND hwnd) {
     g_f[F_OP]        = { g_hEditOp,    {}, Tx(L"Oyuncu adı", L"Player name") };
     g_f[F_BK_TAG]    = { g_hEditBkTag, {}, Tx(L"Yedek etiketi (isteğe bağlı, ör: sezon1)", L"Backup label (optional, e.g. pre-update)") };
     g_f[F_PROF_NAME] = { g_hEditProfName, {}, Tx(L"Profil adı (ör: Survival 1.21)", L"Profile name (e.g. Survival 1.21)") };
-    g_f[F_BK_HOURS]      = { g_hEditBkHours,     {}, Tx(L"Yedekleme aralığı (saat)", L"Backup interval (hours)") };
+    g_f[F_BK_HOURS]      = { g_hEditBkHours,     {}, Tx(L"Aralık (saat)", L"Interval (hours)") };
     g_f[F_RESTART_TIME]  = { g_hEditRestartTime, {}, Tx(L"Yeniden başlatma saati (SS:DD)", L"Restart time (HH:MM)") };
+    g_f[F_JAVA_PATH]     = { g_hEditJavaPath,    {}, Tx(L"java.exe yolu (boş = Otomatik algıla)", L"java.exe path (empty = Auto-detect)") };
+    g_f[F_BK_KEEP]       = { g_hEditBkKeep,      {}, Tx(L"Maks. otomatik", L"Max auto keep") };
+
+    DragAcceptFiles(hwnd, TRUE);
+    RefreshDetectedJavaLabel();
 
     ApplyScrollTheme(g_hLog);
     ApplyScrollTheme(g_hList);
@@ -5282,6 +5895,7 @@ static void ShowTrayMenu() {
     SetMenuDefaultItem(m, ID_TRAY_SHOW, FALSE);
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING | (g_state == SrvState::Stopped ? 0 : MF_GRAYED), ID_TRAY_START, L().trayStart);
+    AppendMenuW(m, MF_STRING | (g_state == SrvState::Running ? 0 : MF_GRAYED), ID_TRAY_RESTART, L().trayRestart);
     AppendMenuW(m, MF_STRING | (active ? 0 : MF_GRAYED), ID_TRAY_STOP, L().trayStop);
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendLangAndThemeMenus(m);
@@ -5359,6 +5973,13 @@ static void HandleServerEvent(SrvEvent* e) {
             TrayUpdate(); InvalidateRect(g_hwnd, NULL, FALSE); break;
         }
         case EV_TIME: g_igTime = e->text; InvalidateRect(g_hwnd, &g_rcStats, FALSE); break;
+        case EV_MC_VER:
+            g_mcVersion = e->text;
+            {
+                RECT rHead = { 0, S(46), 4000, HeaderH() };
+                InvalidateRect(g_hwnd, &rHead, FALSE);
+            }
+            break;
         case EV_RETRY_TIME: if (g_state == SrvState::Running) QueryTime(); break;
         case EV_READY:
             if (g_state == SrvState::Starting) {
@@ -5380,6 +6001,19 @@ static void HandleServerEvent(SrvEvent* e) {
 // ----------------------------------------------------------------------------
 //  Main Window Procedure
 // ----------------------------------------------------------------------------
+static void CopyTextToClipboard(HWND owner, const std::wstring& txt) {
+    if (txt.empty() || !OpenClipboard(owner)) return;
+    EmptyClipboard();
+    size_t bytes = (txt.size() + 1) * sizeof(wchar_t);
+    HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (hg) {
+        void* p = GlobalLock(hg);
+        if (p) { memcpy(p, txt.c_str(), bytes); GlobalUnlock(hg); }
+        if (!SetClipboardData(CF_UNICODETEXT, hg)) GlobalFree(hg);
+    }
+    CloseClipboard();
+}
+
 static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE:
@@ -5488,14 +6122,52 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return 0;
             }
-            if (id == ID_LIST_PLAYERS || id == ID_LIST_WL || id == ID_LIST_OP || id == ID_LIST_BK || id == ID_LIST_PROF || id == ID_LIST_PLUGINS || id == ID_LIST_MODS) return 0;
+            if (id == ID_LIST_PROF || id == ID_LIST_PLUGINS || id == ID_LIST_MODS) {
+                if (code == LBN_DBLCLK) {
+                    if (id == ID_LIST_PROF) LoadSelectedProfile();
+                    else if (id == ID_LIST_PLUGINS) ToggleModItem(true);
+                    else if (id == ID_LIST_MODS) ToggleModItem(false);
+                }
+                return 0;
+            }
+            if (id == ID_LIST_PLAYERS || id == ID_LIST_WL || id == ID_LIST_OP || id == ID_LIST_BK) return 0;
             if (code != BN_CLICKED && lp != 0) return 0;
             switch (id) {
                 case ID_BTN_BROWSE: {
                     std::wstring p = OpenJarDialog();
-                    if (!p.empty()) { SetWindowTextW(g_hJar, p.c_str()); SaveSettings(); LoadServerPropertiesToUi(); }
+                    if (!p.empty()) {
+                        SetWindowTextW(g_hJar, p.c_str());
+                        SaveSettings();
+                        RefreshMaxPlayersFromProps();
+                        LoadServerPropertiesToUi();
+                    }
                     break;
                 }
+                case ID_BTN_OPEN_SRVDIR:
+                    if (!HasServerJar()) {
+                        Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING);
+                    } else {
+                        ShellExecuteW(hwnd, L"open", GetServerDir().c_str(), NULL, NULL, SW_SHOWNORMAL);
+                    }
+                    break;
+                case ID_BTN_FILT_ALL:
+                case ID_BTN_FILT_WARN:
+                case ID_BTN_FILT_CHAT:
+                    g_logFilter = id - ID_BTN_FILT_ALL;
+                    for (HWND b : { g_hBtnFiltAll, g_hBtnFiltWarn, g_hBtnFiltChat }) if (b) InvalidateRect(b, NULL, FALSE);
+                    RebuildLogView(true);
+                    break;
+                case ID_BTN_CON_SAVE:
+                    if (g_state == SrvState::Running) {
+                        WriteToConsole(L"save-all");
+                        AppendLog(L"> save-all\r\n");
+                    } else {
+                        AppLog(L().logSrvNotRunning);
+                    }
+                    break;
+                case ID_BTN_CON_CLEAR:
+                    ClearConsole();
+                    break;
                 case ID_BTN_PROPSAVE: SaveServerPropertiesFromUi(); break;
                 case ID_BTN_PROPRELOAD: LoadServerPropertiesToUi(); break;
                 case ID_BTN_GM_SURV: case ID_BTN_GM_CREA: case ID_BTN_GM_ADV: case ID_BTN_GM_SPEC:
@@ -5566,9 +6238,14 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         AppLog(Tx(L"Yedekleme aralığı 1 ile 72 saat arasında olmalıdır.", L"Backup interval must be between 1 and 72 hours."));
                         break;
                     }
+                    int keep = g_hEditBkKeep ? _wtoi(Trim(GetText(g_hEditBkKeep)).c_str()) : g_schedBkKeep;
+                    if (keep < 0) keep = 0;
+                    if (keep > 50) keep = 50;
                     g_schedBkHours = h;
+                    g_schedBkKeep = keep;
+                    if (g_hEditBkKeep) SetWindowTextW(g_hEditBkKeep, std::to_wstring(g_schedBkKeep).c_str());
                     SaveSettings();
-                    AppLog(Tx(L"Otomatik yedekleme aralığı kaydedildi.", L"Scheduled backup interval saved."));
+                    AppLog(Tx(L"Otomatik yedekleme ayarları kaydedildi.", L"Scheduled backup settings saved."));
                     break;
                 }
 
@@ -5593,8 +6270,64 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     break;
                 }
 
-                case ID_BTN_START: case ID_TRAY_START: StartServer(); break;
+                case ID_BTN_JAVA_BROWSE: {
+                    std::wstring jp = OpenJavaDialog();
+                    if (!jp.empty()) {
+                        SetWindowTextW(g_hEditJavaPath, jp.c_str());
+                        SaveJavaFromUi();
+                    }
+                    break;
+                }
+                case ID_BTN_JAVA_AUTO:
+                    g_javaPath.clear();
+                    if (g_hEditJavaPath) SetWindowTextW(g_hEditJavaPath, L"");
+                    RefreshDetectedJavaLabel();
+                    SaveSettings();
+                    InvalidateRect(hwnd, NULL, FALSE);
+                    AppLog(Tx(L"Java otomatik algılama etkinleştirildi: ", L"Java auto-detection enabled: ") + g_detectedJavaLabel);
+                    break;
+                case ID_BTN_JAVA_SAVE: SaveJavaFromUi(); break;
+                case ID_CHK_MIN_TRAY:
+                    g_minimizeToTray = !g_minimizeToTray;
+                    SaveSettings();
+                    if (g_hChkMinTray) InvalidateRect(g_hChkMinTray, NULL, FALSE);
+                    break;
+                case ID_BTN_APP_EXIT: RequestExit(); break;
+
+                case ID_BTN_START:
+                    if (g_state == SrvState::Running) RestartServer();
+                    else StartServer();
+                    break;
+                case ID_TRAY_START:   StartServer(); break;
+                case ID_TRAY_RESTART: RestartServer(); break;
                 case ID_BTN_STOP:  case ID_TRAY_STOP:  StopServer(); break;
+                case ID_CTX_KICK: DoKickBan(false); break;
+                case ID_CTX_BAN:  DoKickBan(true); break;
+                case ID_CTX_OP: {
+                    std::wstring n = ListText((int)SendMessageW(g_hList, LB_GETCURSEL, 0, 0));
+                    if (!n.empty()) QuickAccessCommand(n, true, true);
+                    break;
+                }
+                case ID_CTX_DEOP: {
+                    std::wstring n = ListText((int)SendMessageW(g_hList, LB_GETCURSEL, 0, 0));
+                    if (!n.empty()) QuickAccessCommand(n, true, false);
+                    break;
+                }
+                case ID_CTX_WHITELIST: {
+                    std::wstring n = ListText((int)SendMessageW(g_hList, LB_GETCURSEL, 0, 0));
+                    if (!n.empty()) QuickAccessCommand(n, false, true);
+                    break;
+                }
+                case ID_CTX_COPY_NAME: {
+                    HWND targetLb = g_hList;
+                    if (g_page == PG_ACCESS) {
+                        HWND f = GetFocus();
+                        if (f == g_hListWl || f == g_hListOp) targetLb = f;
+                    }
+                    std::wstring n = ListTextFrom(targetLb, (int)SendMessageW(targetLb, LB_GETCURSEL, 0, 0));
+                    if (!n.empty()) CopyTextToClipboard(hwnd, n);
+                    break;
+                }
                 case ID_BTN_KICK: DoKickBan(false); break;
                 case ID_BTN_BAN:  DoKickBan(true); break;
                 case ID_BTN_UNBAN: DoUnban(); break;
@@ -5733,8 +6466,112 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         else SetTimer(hwnd, TID_STOPWATCH, 60000, NULL);
                     }
                 }
+            } else if (wp == TID_ACCESS_SYNC) {
+                KillTimer(hwnd, TID_ACCESS_SYNC);
+                LoadAccessListsToUi();
             }
             return 0;
+
+        case WM_CONTEXTMENU: {
+            HWND target = (HWND)wp;
+            if (target == g_hList || target == g_hListWl || target == g_hListOp) {
+                POINT pt = { (short)LOWORD(lp), (short)HIWORD(lp) };
+                if (pt.x == -1 && pt.y == -1) {
+                    int idx = (int)SendMessageW(target, LB_GETCURSEL, 0, 0);
+                    if (idx == LB_ERR) return 0;
+                    RECT ir = {};
+                    SendMessageW(target, LB_GETITEMRECT, idx, (LPARAM)&ir);
+                    pt = { (ir.left + ir.right) / 2, (ir.top + ir.bottom) / 2 };
+                    ClientToScreen(target, &pt);
+                } else {
+                    POINT cl = pt;
+                    ScreenToClient(target, &cl);
+                    LRESULT hit = SendMessageW(target, LB_ITEMFROMPOINT, 0, MAKELPARAM(cl.x, cl.y));
+                    if (HIWORD(hit) != 0) return 0;
+                    SendMessageW(target, LB_SETCURSEL, LOWORD(hit), 0);
+                }
+                int idx = (int)SendMessageW(target, LB_GETCURSEL, 0, 0);
+                std::wstring n = ListTextFrom(target, idx);
+                if (!ValidPlayerName(n)) return 0;
+
+                HMENU cm = CreatePopupMenu();
+                if (!cm) return 0;
+                if (target == g_hList) {
+                    bool run = (g_state == SrvState::Running);
+                    AppendMenuW(cm, MF_STRING | (run ? 0 : MF_GRAYED), ID_CTX_KICK, L().btnKick);
+                    AppendMenuW(cm, MF_STRING | (run ? 0 : MF_GRAYED), ID_CTX_BAN, L().btnBan);
+                    AppendMenuW(cm, MF_SEPARATOR, 0, NULL);
+                    AppendMenuW(cm, MF_STRING, ID_CTX_OP,        Tx(L"OP Ver", L"Grant OP"));
+                    AppendMenuW(cm, MF_STRING, ID_CTX_DEOP,      Tx(L"OP Al (Deop)", L"Revoke OP"));
+                    AppendMenuW(cm, MF_STRING, ID_CTX_WHITELIST, Tx(L"Whitelist'e Ekle", L"Add to Whitelist"));
+                    AppendMenuW(cm, MF_SEPARATOR, 0, NULL);
+                } else {
+                    AppendMenuW(cm, MF_STRING, target == g_hListWl ? ID_BTN_WL_REM : ID_BTN_OP_REM,
+                                Tx(L"Listeden Çıkar", L"Remove Selected"));
+                    AppendMenuW(cm, MF_SEPARATOR, 0, NULL);
+                }
+                AppendMenuW(cm, MF_STRING, ID_CTX_COPY_NAME, Tx(L"Adı Kopyala", L"Copy Name"));
+                SetFocus(target);
+                SetForegroundWindow(hwnd);
+                int chosen = TrackPopupMenu(cm, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+                PostMessageW(hwnd, WM_NULL, 0, 0);
+                DestroyMenu(cm);
+                if (chosen) PostMessageW(hwnd, WM_COMMAND, chosen, 0);
+                return 0;
+            }
+            break;
+        }
+
+        case WM_DROPFILES: {
+            HDROP hDrop = (HDROP)wp;
+            UINT cnt = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
+            std::vector<std::wstring> jars;
+            for (UINT i = 0; i < cnt; i++) {
+                UINT len = DragQueryFileW(hDrop, i, NULL, 0);
+                if (len > 0 && len < 1024) {
+                    std::wstring fp(len + 1, L'\0');
+                    DragQueryFileW(hDrop, i, &fp[0], len + 1);
+                    fp.resize(len);
+                    std::wstring low = ToLowerW(fp);
+                    if ((low.size() >= 4 && low.compare(low.size() - 4, 4, L".jar") == 0) ||
+                        (low.size() >= 13 && low.compare(low.size() - 13, 13, L".jar.disabled") == 0)) {
+                        jars.push_back(fp);
+                    }
+                }
+            }
+            POINT dropPt = {};
+            DragQueryPoint(hDrop, &dropPt);
+            DragFinish(hDrop);
+            if (!jars.empty()) {
+                if (g_page == PG_PLUGINS) {
+                    RECT cr; GetClientRect(hwnd, &cr);
+                    bool isPluginSide = (dropPt.x <= cr.right / 2);
+                    ImportModFiles(isPluginSide, jars);
+                } else if (g_state == SrvState::Stopped) {
+                    std::wstring low0 = ToLowerW(jars[0]);
+                    if (low0.size() >= 4 && low0.compare(low0.size() - 4, 4, L".jar") == 0) {
+                        SetWindowTextW(g_hJar, jars[0].c_str());
+                        SaveSettings();
+                        RefreshMaxPlayersFromProps();
+                        if (g_page == PG_PROPS) LoadServerPropertiesToUi();
+                        if (g_page == PG_ACCESS) LoadAccessListsToUi();
+                        if (g_page == PG_BACKUPS) LoadBackupsListToUi();
+                        AppLog(Tx(L"Sunucu JAR seçildi: ", L"Server JAR selected: ") + jars[0]);
+                    }
+                } else {
+                    AppLog(Tx(L"Sunucu açıkken sunucu JAR'ı değiştirilemez.", L"Cannot change server JAR while server is running."));
+                }
+            }
+            return 0;
+        }
+
+        case WM_KEYDOWN:
+            if (wp == VK_TAB && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                NavigateTo((g_page + (shift ? -1 : 1) + PG_COUNT) % PG_COUNT);
+                return 0;
+            }
+            break;
 
         case WM_SC_EVENT: HandleServerEvent((SrvEvent*)lp); return 0;
         case WM_SC_SHOW:  ShowMain(); return 0;
@@ -5747,9 +6584,17 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_SYSCOMMAND:
-            if ((wp & 0xFFF0) == SC_CLOSE || (wp & 0xFFF0) == SC_MINIMIZE) { HideMain(); return 0; }
+            if ((wp & 0xFFF0) == SC_MINIMIZE) { HideMain(); return 0; }
+            if ((wp & 0xFFF0) == SC_CLOSE) {
+                if (g_minimizeToTray) { HideMain(); return 0; }
+                RequestExit();
+                return 0;
+            }
             break;
-        case WM_CLOSE: HideMain(); return 0;
+        case WM_CLOSE:
+            if (g_minimizeToTray) { HideMain(); return 0; }
+            RequestExit();
+            return 0;
 
         case WM_QUERYENDSESSION: return TRUE;
         case WM_ENDSESSION:

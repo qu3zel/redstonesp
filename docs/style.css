@@ -558,6 +558,21 @@ body {
   text-transform: uppercase;
 }
 
+.w-card-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.w-btn-mini {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 5px;
+}
+
 /* Form inputs & buttons */
 .w-label {
   display: block;
@@ -619,6 +634,14 @@ body {
   box-shadow: 0 0 14px rgba(74, 222, 128, 0.4);
 }
 
+.w-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: none;
+  box-shadow: none;
+}
+
 .w-btn-stop {
   background-color: var(--w-red);
   color: #ffffff;
@@ -630,6 +653,19 @@ body {
 .w-btn-stop:hover {
   filter: brightness(1.15);
   box-shadow: 0 0 14px rgba(255, 68, 68, 0.4);
+}
+
+.w-btn-restart {
+  background-color: var(--w-amber);
+  color: #140f04;
+  border: none;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.w-btn-restart:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.35);
 }
 
 /* Bento Telemetry */
@@ -814,6 +850,17 @@ body {
   fill: currentColor;
 }
 
+.spark-scale {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  color: var(--w-muted);
+  pointer-events: none;
+  opacity: 0.85;
+}
+
 /* Console Card */
 .console-card {
   flex: 1;
@@ -822,6 +869,52 @@ body {
   min-height: 0;
   margin-bottom: 0;
   padding: 0.75rem;
+}
+
+.console-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0.25rem 0.55rem;
+  flex-wrap: wrap;
+}
+
+.console-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.con-filter-group,
+.con-action-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.con-pill {
+  background-color: var(--w-btnDef);
+  color: var(--w-muted);
+  border: 1px solid var(--w-border);
+  border-radius: 5px;
+  padding: 0.16rem 0.48rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.con-pill:hover {
+  color: var(--w-text);
+  border-color: var(--w-accent);
+}
+
+.con-pill.active {
+  background-color: var(--w-sel);
+  color: var(--w-accent);
+  border-color: var(--w-accent);
 }
 
 .console-wrapper {
@@ -852,7 +945,19 @@ body {
 .console-line-warn { color: #f59e0b; }
 .console-line-err  { color: #ef4444; }
 .console-line-chat { color: #a78bfa; }
+.console-line-cmd  { color: #60a5fa; font-weight: 600; }
 .console-line-sys  { color: #4ade80; }
+
+.console-line.is-hidden {
+  display: none;
+}
+
+.win-window.theme-light .console-line-info { color: #0369a1; }
+.win-window.theme-light .console-line-warn { color: #b45309; }
+.win-window.theme-light .console-line-err  { color: #b91c1c; }
+.win-window.theme-light .console-line-chat { color: #6d28d9; }
+.win-window.theme-light .console-line-cmd  { color: #1d4ed8; font-weight: 600; }
+.win-window.theme-light .console-line-sys  { color: #15803d; }
 
 .console-input-bar {
   display: flex;

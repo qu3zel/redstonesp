@@ -109,7 +109,10 @@
             <!-- Left Column: Settings & Players -->
             <div class="panel-col-left">
               <div class="w-card">
-                <div class="w-card-title" data-i18n="cardSettings">SUNUCU AYARLARI</div>
+                <div class="w-card-head-row">
+                  <div class="w-card-title" data-i18n="cardSettings" style="margin-bottom: 0;">SUNUCU AYARLARI</div>
+                  <button class="w-btn w-btn-mini" id="btnOpenSrvFolder" data-i18n="btnFolder">Klasör</button>
+                </div>
                 <label class="w-label" data-i18n="lblJar">Sunucu .jar dosyası</label>
                 <div class="w-input-row">
                   <input type="text" class="w-input" id="inputJar" value="C:\Minecraft\paper-1.20.4.jar" readonly>
@@ -132,6 +135,7 @@
 
                 <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
                   <button class="w-btn w-btn-start" id="btnStartStop" data-i18n="btnStart">Başlat</button>
+                  <button class="w-btn w-btn-restart" id="btnRestartServer" data-i18n="btnRestart" disabled>Yeniden Başlat</button>
                 </div>
               </div>
 
@@ -228,7 +232,7 @@
                     <div class="chart-card-head">
                       <div class="chart-card-title-wrap">
                         <span class="kpi-dot" id="dotCpu"></span>
-                        <span class="chart-title" data-i18n="tileCpuChart">İŞLEMCİ (CPU)</span>
+                        <span class="chart-title" id="chartCpuTitle" data-i18n="tileCpuSys">SİSTEM CPU</span>
                       </div>
                       <span class="chart-val" id="tileCpu">0.0%</span>
                     </div>
@@ -247,6 +251,7 @@
                         <circle id="cpuLiveHalo" class="spark-halo" r="5" cx="256" cy="50"/>
                         <circle id="cpuLiveDot" class="spark-dot" r="2.5" cx="256" cy="50"/>
                       </svg>
+                      <span class="spark-scale" id="cpuScaleLabel">0-20%</span>
                     </div>
                     <div class="kpi-bar-track"><div class="kpi-bar-fill" id="barCpu" style="width: 1%;"></div></div>
                   </div>
@@ -255,10 +260,23 @@
 
               <!-- Interactive Console -->
               <div class="w-card console-card">
-                <div class="w-card-title" data-i18n="cardConsole" style="margin-left: 0.25rem;">KONSOL</div>
+                <div class="console-head-row">
+                  <div class="w-card-title" data-i18n="cardConsole" style="margin-bottom: 0;">KONSOL</div>
+                  <div class="console-toolbar">
+                    <div class="con-filter-group">
+                      <button class="con-pill active" data-filter="all" data-i18n="filtAll">Tümü</button>
+                      <button class="con-pill" data-filter="warn" data-i18n="filtWarn">Uyarı</button>
+                      <button class="con-pill" data-filter="chat" data-i18n="filtChat">Sohbet</button>
+                    </div>
+                    <div class="con-action-group">
+                      <button class="con-pill" id="btnConSave" data-i18n="btnConSave">Kaydet</button>
+                      <button class="con-pill" id="btnConClear" data-i18n="btnConClear">Temizle</button>
+                    </div>
+                  </div>
+                </div>
                 <div class="console-wrapper">
                   <div class="console-body" id="consoleBody">
-                    <div class="console-line-sys" id="consoleInitialMsg" data-i18n="consoleReady">» Redstone Server Panel hazır. .jar dosyasını seçip "Başlat"a basın.</div>
+                    <div class="console-line console-line-sys" id="consoleInitialMsg" data-log-type="sys" data-i18n="consoleReady">» Redstone Server Panel hazır. .jar dosyasını seçip "Başlat"a basın.</div>
                   </div>
                   <div class="console-input-bar">
                     <input type="text" class="console-input" id="consoleInput" placeholder="Komut girin (ör: help, say Selam, op Steve)..." data-i18n-ph="inputCmdPlaceholder">

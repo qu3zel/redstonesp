@@ -6,14 +6,18 @@ const state = {
   page: 'panel',
   settingsSubTab: 'gen',
   isRunning: false,
+  restartPending: false,
   uptimeSeconds: 0,
   uptimeInterval: null,
+  idleTimer: null,
   simTimeouts: [],
   memoryMB: 13,
-  cpuPct: 0.0,
+  cpuPct: 2.4,
+  systemCpuPct: 2.4,
   maxPlayers: 20,
   ramHist: Array(40).fill(0.3),
-  cpuHist: Array(40).fill(0.2),
+  cpuHist: Array.from({ length: 40 }, (_, i) => +(2.1 + Math.sin(i * 0.45) * 0.6).toFixed(1)),
+  consoleFilter: 'all',
   worldTimeTick: 6000,
   onlinePlayers: [],
   selectedPlayer: null,
@@ -109,6 +113,15 @@ const i18n = {
     lblRam: "Bellek",
     btnStart: "Başlat",
     btnStop: "Güvenle Durdur",
+    btnRestart: "Yeniden Başlat",
+    btnFolder: "Klasör",
+    filtAll: "Tümü",
+    filtWarn: "Uyarı",
+    filtChat: "Sohbet",
+    btnConSave: "Kaydet",
+    btnConClear: "Temizle",
+    tileCpuSys: "SİSTEM CPU",
+    tileCpuSrv: "SUNUCU CPU",
     cardPlayers: "OYUNCULAR • ",
     lblNoPlayers: "Çevrim içi oyuncu yok",
     btnKick: "At (Kick)",
@@ -264,6 +277,8 @@ const i18n = {
     logProfileDeleted: "» [PROFİL] Seçili profil silindi.",
     toastSaved: "Değişiklikler kaydedildi",
     toastUpdated: "Liste güncellendi",
+    toastFolderOpened: "Klasör açıldı",
+    consoleRestarting: "» [SUNUCU] Sunucu yeniden başlatılıyor...",
 
     // Features Section
     featTag: "Neden Redstone Server Panel?",
@@ -335,6 +350,15 @@ const i18n = {
     lblRam: "Memory",
     btnStart: "Start",
     btnStop: "Stop Safely",
+    btnRestart: "Restart",
+    btnFolder: "Folder",
+    filtAll: "All",
+    filtWarn: "Warn",
+    filtChat: "Chat",
+    btnConSave: "Save",
+    btnConClear: "Clear",
+    tileCpuSys: "SYSTEM CPU",
+    tileCpuSrv: "SERVER CPU",
     cardPlayers: "PLAYERS • ",
     lblNoPlayers: "No players online",
     btnKick: "Kick",
@@ -490,6 +514,8 @@ const i18n = {
     logProfileDeleted: "» [PROFILE] Selected profile deleted.",
     toastSaved: "Changes saved",
     toastUpdated: "List refreshed",
+    toastFolderOpened: "Folder opened",
+    consoleRestarting: "» [SERVER] Restarting server...",
 
     // Features Section
     featTag: "Why Redstone Server Panel?",
@@ -534,6 +560,12 @@ const subbarTitle = document.getElementById('subbarTitle');
 const consoleBody = document.getElementById('consoleBody');
 const consoleInput = document.getElementById('consoleInput');
 const btnStartStop = document.getElementById('btnStartStop');
+const btnRestartServer = document.getElementById('btnRestartServer');
+const btnOpenSrvFolder = document.getElementById('btnOpenSrvFolder');
+const chartCpuTitle = document.getElementById('chartCpuTitle');
+const cpuScaleLabel = document.getElementById('cpuScaleLabel');
+const btnConSave = document.getElementById('btnConSave');
+const btnConClear = document.getElementById('btnConClear');
 const tileStatus = document.getElementById('tileStatus');
 const tileUptime = document.getElementById('tileUptime');
 const tileMemory = document.getElementById('tileMemory');
@@ -604,6 +636,9 @@ function renderSparklineSvg(prefix, hist, color, autoScale = false) {
   if (stopBot) stopBot.setAttribute('stop-color', color);
 
   const yMax = autoScale ? Math.min(100, Math.max(20, Math.max(...hist) * 1.25)) : 100;
+  if (autoScale && hist === state.cpuHist && cpuScaleLabel) {
+    cpuScaleLabel.textContent = `0-${Math.round(yMax)}%`;
+  }
   const W = 260, H = 54, padX = 4, padY = 5;
   const usableW = W - padX * 2;
   const usableH = H - padY * 2;
@@ -751,12 +786,49 @@ function scheduleSim(fn, delay) {
 }
 
 // Append log line
-function appendLog(line, type = '') {
-  const div = document.createElement('div');
-  div.className = type ? `console-line-${type}` : '';
-  div.textContent = line;
-  consoleBody.appendChild(div);
+function matchesConsoleFilter(lineText, logType, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'warn') return logType === 'warn' || logType === 'err';
+  if (filter === 'chat') return logType === 'chat' || (logType === 'sys' && lineText.includes('advancement'));
+  return true;
+}
+
+function applyConsoleFilter() {
+  if (!consoleBody) return;
+  const children = consoleBody.children;
+  for (let i = 0; i < children.length; i++) {
+    const el = children[i];
+    const logType = el.dataset.logType || (el.className.match(/console-line-(\w+)/)?.[1] || 'info');
+    const show = matchesConsoleFilter(el.textContent || '', logType, state.consoleFilter);
+    el.classList.toggle('is-hidden', !show);
+  }
   consoleBody.scrollTop = consoleBody.scrollHeight;
+}
+
+function setConsoleFilter(filter) {
+  state.consoleFilter = filter || 'all';
+  document.querySelectorAll('.con-pill[data-filter]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === state.consoleFilter);
+  });
+  applyConsoleFilter();
+}
+
+function appendLog(line, type = '') {
+  const logType = type || 'info';
+  const div = document.createElement('div');
+  div.className = type ? `console-line console-line-${type}` : 'console-line';
+  div.dataset.logType = logType;
+  div.textContent = line;
+  if (!matchesConsoleFilter(line, logType, state.consoleFilter)) {
+    div.classList.add('is-hidden');
+  }
+  consoleBody.appendChild(div);
+  while (consoleBody.children.length > 500) {
+    consoleBody.firstElementChild.remove();
+  }
+  if (!div.classList.contains('is-hidden')) {
+    consoleBody.scrollTop = consoleBody.scrollHeight;
+  }
 }
 
 // Format time
@@ -899,6 +971,12 @@ function setLanguage(langCode) {
   });
 
   // Update Start/Stop button & telemetry tiles
+  if (btnRestartServer) btnRestartServer.disabled = !state.isRunning;
+  if (chartCpuTitle) {
+    const cpuKey = state.isRunning ? 'tileCpuSrv' : 'tileCpuSys';
+    chartCpuTitle.dataset.i18n = cpuKey;
+    chartCpuTitle.textContent = t[cpuKey];
+  }
   if (state.isRunning) {
     btnStartStop.textContent = t.btnStop;
     tileStatus.textContent = state.uptimeSeconds > 0 ? t.statusOnline : t.statusStarting;
@@ -922,14 +1000,103 @@ function setLanguage(langCode) {
 }
 window.setLanguage = setLanguage;
 
+function launchServerWithUi() {
+  if (state.restartPending) state.restartPending = false;
+  startServer();
+  const t = i18n[state.lang];
+  if (btnRestartServer) btnRestartServer.disabled = !state.isRunning;
+  if (chartCpuTitle && state.isRunning) {
+    chartCpuTitle.dataset.i18n = 'tileCpuSrv';
+    chartCpuTitle.textContent = t.tileCpuSrv;
+  }
+}
+
+function restartServer() {
+  if (!state.isRunning || state.restartPending) return;
+  const t = i18n[state.lang];
+  state.restartPending = true;
+  if (btnRestartServer) btnRestartServer.disabled = true;
+  appendLog(t.consoleRestarting, 'warn');
+  stopServer();
+  setTimeout(() => {
+    state.restartPending = false;
+    launchServerWithUi();
+  }, 750);
+}
+
 // Start / Stop Server Simulator
 btnStartStop.addEventListener('click', () => {
+  if (state.restartPending) return;
   if (state.isRunning) {
     stopServer();
   } else {
-    startServer();
+    launchServerWithUi();
   }
 });
+
+if (btnRestartServer) {
+  btnRestartServer.addEventListener('click', restartServer);
+}
+
+if (btnOpenSrvFolder) {
+  btnOpenSrvFolder.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(t.logFolderOpened, 'info');
+    showToast(t.toastFolderOpened);
+  });
+}
+
+document.querySelectorAll('.con-pill[data-filter]').forEach(btn => {
+  btn.addEventListener('click', () => setConsoleFilter(btn.dataset.filter));
+});
+
+if (btnConClear) {
+  btnConClear.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    consoleBody.innerHTML = '';
+    const initDiv = document.createElement('div');
+    initDiv.id = 'consoleInitialMsg';
+    initDiv.dataset.i18n = 'consoleReady';
+    initDiv.dataset.logType = 'sys';
+    initDiv.className = 'console-line console-line-sys';
+    initDiv.textContent = t.consoleReady;
+    consoleBody.appendChild(initDiv);
+    applyConsoleFilter();
+  });
+}
+
+if (btnConSave) {
+  btnConSave.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog('> save-all', 'cmd');
+    if (!state.isRunning) {
+      appendLog(t.consoleNotRunning, 'warn');
+      return;
+    }
+    appendLog(`[${now()}] [Server thread/INFO]: Saved the game`, 'sys');
+    showToast(t.toastSaved);
+  });
+}
+
+function startIdleCpuHeartbeat() {
+  if (state.idleTimer) clearInterval(state.idleTimer);
+  state.idleTimer = setInterval(() => {
+    if (state.isRunning || state.restartPending) return;
+    const wave = Math.sin(Date.now() / 2400) * 0.8 + Math.random() * 1.4;
+    state.systemCpuPct = +Math.max(0.8, Math.min(8.5, 1.9 + wave)).toFixed(1);
+    state.cpuPct = state.systemCpuPct;
+    if (typeof updateTelemetryVisuals === 'function') {
+      updateTelemetryVisuals(true);
+    }
+  }, 1000);
+}
+
+startIdleCpuHeartbeat();
+setTimeout(() => {
+  if (typeof updateTelemetryVisuals === 'function') {
+    updateTelemetryVisuals(false);
+  }
+}, 0);
 
 function startServer() {
   clearSimTimeouts();
@@ -1064,10 +1231,15 @@ function stopServer() {
   const t = i18n[state.lang];
   btnStartStop.textContent = t.btnStart;
   btnStartStop.className = 'w-btn w-btn-start';
+  if (btnRestartServer) btnRestartServer.disabled = true;
+  if (chartCpuTitle) {
+    chartCpuTitle.dataset.i18n = 'tileCpuSys';
+    chartCpuTitle.textContent = t.tileCpuSys;
+  }
   tileStatus.textContent = t.statusOffline;
   tileStatus.className = 'tile-val tile-status';
   state.memoryMB = 13;
-  state.cpuPct = 0.0;
+  state.cpuPct = state.systemCpuPct || 2.4;
   tileUptime.textContent = '00:00:00';
   if (tileTime) tileTime.textContent = '--:--';
   updateTelemetryVisuals(true);
@@ -1101,7 +1273,7 @@ function sendCommand() {
   state.cmdHistoryIdx = state.cmdHistory.length;
 
   const cleanCmd = cmd.startsWith('/') ? cmd.slice(1) : cmd;
-  appendLog(`> ${cleanCmd}`, 'chat');
+  appendLog(`> ${cleanCmd}`, 'cmd');
 
   const t = i18n[state.lang];
   if (!state.isRunning) {
@@ -1136,15 +1308,47 @@ function sendCommand() {
       }
       case 'deop': {
         const pl = parts[1] || 'Player';
+        const opsList = document.getElementById('listOps');
+        if (opsList) {
+          const targetLower = pl.toLowerCase();
+          opsList.querySelectorAll('.player-item').forEach(it => {
+            const span = it.querySelector('span');
+            const txt = (span ? span.textContent : it.textContent).trim().toLowerCase();
+            if (txt === targetLower || txt.startsWith(targetLower + ' ') || txt.startsWith(targetLower + '(')) {
+              it.remove();
+            }
+          });
+          if (!opsList.querySelector('.player-item.selected')) {
+            const first = opsList.querySelector('.player-item');
+            if (first) first.classList.add('selected');
+          }
+        }
         appendLog(`[${now()}] [Server thread/INFO]: Made ${pl} no longer a server operator`, 'warn');
         break;
       }
       case 'time': {
+        const sub = (parts[1] || 'query').toLowerCase();
         const arg = (parts[2] || 'day').toLowerCase();
-        state.worldTimeTick = (arg === 'night') ? 13000 : 1000;
-        if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
-        updateTelemetryVisuals(false);
-        appendLog(`[${now()}] [Server thread/INFO]: Set the time to ${state.worldTimeTick}`, 'info');
+        if (sub === 'set') {
+          const preset = { day: 1000, noon: 6000, night: 13000, midnight: 18000 };
+          const parsed = Number.isFinite(Number(arg)) ? Math.max(0, parseInt(arg, 10) % 24000) : preset[arg];
+          state.worldTimeTick = Number.isFinite(parsed) ? parsed : 1000;
+          if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
+          updateTelemetryVisuals(false);
+          appendLog(`[${now()}] [Server thread/INFO]: Set the time to ${state.worldTimeTick}`, 'info');
+        } else if (sub === 'add') {
+          const delta = parseInt(parts[2] || '0', 10) || 0;
+          state.worldTimeTick = (((state.worldTimeTick + delta) % 24000) + 24000) % 24000;
+          if (tileTime) tileTime.textContent = formatWorldTime(state.worldTimeTick);
+          updateTelemetryVisuals(false);
+          appendLog(`[${now()}] [Server thread/INFO]: Set the time to ${state.worldTimeTick}`, 'info');
+        } else {
+          appendLog(`[${now()}] [Server thread/INFO]: The time is ${state.worldTimeTick}`, 'info');
+        }
+        break;
+      }
+      case 'save-all': {
+        appendLog(`[${now()}] [Server thread/INFO]: Saved the game`, 'sys');
         break;
       }
       case 'gamemode':
@@ -1570,13 +1774,24 @@ document.querySelectorAll('[data-i18n="btnTogglePlugin"]').forEach(btn => {
     if (!badge) return;
     const t = i18n[state.lang];
     const isNowActive = badge.classList.contains('badge-status-disabled');
+    const textNode = selected.firstChild;
+    if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+      const raw = textNode.nodeValue;
+      if (isNowActive) {
+        textNode.nodeValue = raw.replace(/\.disabled\b/i, '');
+      } else if (!/\.disabled\b/i.test(raw)) {
+        textNode.nodeValue = raw.trimEnd() + '.disabled ';
+      }
+    }
     if (isNowActive) {
       badge.className = 'badge-status-active';
+      badge.dataset.i18n = 'badgeEnabled';
       badge.textContent = t.badgeEnabled;
       badge.style.color = 'var(--w-green)';
       selected.style.opacity = '1';
     } else {
       badge.className = 'badge-status-disabled';
+      badge.dataset.i18n = 'badgeDisabled';
       badge.textContent = t.badgeDisabled;
       badge.style.color = 'var(--w-red)';
       selected.style.opacity = '0.6';
