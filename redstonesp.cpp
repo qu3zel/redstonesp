@@ -109,7 +109,7 @@ enum {
     ID_MENU_AUTORESTART, ID_MENU_OPENLOGS,
     ID_CTX_KICK = 2201, ID_CTX_BAN, ID_CTX_OP, ID_CTX_DEOP, ID_CTX_WHITELIST, ID_CTX_COPY_NAME
 };
-enum { TID_STATS = 1, TID_TIME = 2, TID_STOPWATCH = 3, TID_RESTART = 4, TID_ANIM = 5, TID_ACCESS_SYNC = 6 };
+enum { TID_STATS = 1, TID_TIME = 2, TID_STOPWATCH = 3, TID_RESTART = 4, TID_ANIM = 5, TID_ACCESS_SYNC = 6, TID_STOP_RETRY = 7 };
 
 enum class SrvState { Stopped, Starting, Running, Stopping };
 enum class Lang { TR, EN };
@@ -329,6 +329,10 @@ struct Strings {
     const wchar_t* btnRestart;
     const wchar_t* trayRestart;
     const wchar_t* logRestarting;
+    const wchar_t* btnForceStop;
+    const wchar_t* trayForceStop;
+    const wchar_t* msgForceStopConfirm;
+    const wchar_t* titleForceStop;
 };
 
 static const Strings STR_TR = {
@@ -419,11 +423,15 @@ static const Strings STR_TR = {
     L" sunucudan çıktı.",
     L"Sunucu hazır, oyuncular bağlanabilir.",
     L"Sunucu hazır — oyuncular bağlanabilir!",
-    L"Sunucu 60 saniyedir kapanmadı. Zorla sonlandırılsın mı?\n(Kaydedilmemiş dünya verileri kaybolabilir.)",
+    L"Sunucu kapanma isteğine zamanında yanıt vermedi. Zorla sonlandırılsın mı?\n(Kaydedilmemiş dünya verileri kaybolabilir.)",
     L"Kapanma zaman aşımı",
     L"Yeniden Başlat",
     L"Sunucuyu Yeniden Başlat",
-    L"Sunucu yeniden başlatılıyor…"
+    L"Sunucu yeniden başlatılıyor…",
+    L"Zorla Durdur",
+    L"Sunucuyu Zorla Kapat",
+    L"Sunucu hâlâ kapanma aşamasında. İşlemi zorla sonlandırmak istiyor musunuz?\n(Dünya kaydedilirken zorla kapatmak veri kaybına yol açabilir.)",
+    L"Zorla Durdur"
 };
 
 static const Strings STR_EN = {
@@ -514,11 +522,15 @@ static const Strings STR_EN = {
     L" left the server.",
     L"Server is ready, players can now connect.",
     L"Server is ready — players can now join!",
-    L"The server has not stopped after 60 seconds. Force terminate?\n(Unsaved world data may be lost.)",
+    L"The server did not stop in time. Force terminate?\n(Unsaved world data may be lost.)",
     L"Shutdown Timeout",
     L"Restart",
     L"Restart Server",
-    L"Restarting server…"
+    L"Restarting server…",
+    L"Force Stop",
+    L"Force Stop Server",
+    L"The server is still stopping. Force terminate the process now?\n(Forcing termination while saving may cause world data loss.)",
+    L"Force Stop"
 };
 
 static const Strings& L() { return g_lang == Lang::TR ? STR_TR : STR_EN; }
@@ -550,6 +562,9 @@ static std::atomic<int> g_suppressErrLines{0};
 static ULONGLONG g_startTick = 0;
 static bool g_quitPending = false;
 static bool g_trayHintShown = false;
+static bool g_srvStopAck = false;
+static int  g_stopRetryCount = 0;
+static int  g_procExitedTicks = 0;
 
 static constexpr int TELEM_HIST = 48;
 static std::wstring g_igTime = L"--:--", g_ramText = L"0 MB", g_ramDetailText = L"0 MB / 4096 MB", g_cpuText = L"0.0%", g_upText = L"00:00:00";
@@ -2174,7 +2189,8 @@ static void HandleLine(const ReaderArgs& a, std::string line, std::wstring& chun
         PostEv(a.hwnd, a.gen, EV_READY);
     }
     // 9. Server Stopping
-    else if (msg == "Stopping server" || msg == "Stopping the server") {
+    else if (StartsWith(msg, "Stopping server") || StartsWith(msg, "Stopping the server") ||
+             StartsWith(msg, "Closing Server")) {
         PostEv(a.hwnd, a.gen, EV_STOPPING);
     }
 
@@ -3470,13 +3486,17 @@ static void OpenModFolder(bool isPlugin) {
 // ----------------------------------------------------------------------------
 static void UpdateUi() {
     bool stopped = g_state == SrvState::Stopped;
+    bool stopping = g_state == SrvState::Stopping;
     bool active = g_state == SrvState::Starting || g_state == SrvState::Running;
     bool running = g_state == SrvState::Running;
     if (g_hBtnStart) {
         SetWindowTextW(g_hBtnStart, running ? L().btnRestart : L().btnStart);
         EnableWindow(g_hBtnStart, stopped || running);
     }
-    EnableWindow(g_hBtnStop, active);
+    if (g_hBtnStop) {
+        SetWindowTextW(g_hBtnStop, stopping ? L().btnForceStop : L().btnStop);
+        EnableWindow(g_hBtnStop, active || stopping);
+    }
     EnableWindow(g_hBtnBrowse, stopped);
     EnableWindow(g_hBtnKick, running);
     EnableWindow(g_hBtnBan, running);
@@ -3558,7 +3578,7 @@ static void ApplyLanguage() {
     SetWindowTextW(g_hwnd, L().wndTitle);
     SetWindowTextW(g_hBtnBrowse, L().btnBrowse);
     SetWindowTextW(g_hBtnStart,  (g_state == SrvState::Running) ? L().btnRestart : L().btnStart);
-    SetWindowTextW(g_hBtnStop,   L().btnStop);
+    SetWindowTextW(g_hBtnStop,   (g_state == SrvState::Stopping) ? L().btnForceStop : L().btnStop);
     SetWindowTextW(g_hBtnKick,   L().btnKick);
     SetWindowTextW(g_hBtnBan,    L().btnBan);
     SetWindowTextW(g_hBtnUnban,  L().btnUnban);
@@ -3824,6 +3844,10 @@ static void StartServer() {
     g_hProc = pi.hProcess; g_hStdinWr = inWr;
     ++g_gen; g_pendingTime = 0; g_useTimelineCmd = false; g_suppressErrLines = 0;
     KillTimer(g_hwnd, TID_RESTART);
+    KillTimer(g_hwnd, TID_STOP_RETRY);
+    g_srvStopAck = false;
+    g_stopRetryCount = 0;
+    g_procExitedTicks = 0;
     g_schedRestartPending = false;
     g_manualRestartPending = false;
     g_scheduledRestartTrigger = false;
@@ -3857,6 +3881,27 @@ static void StartServer() {
     Balloon(L"Redstone Server Panel", L().balloonStarting);
 }
 
+static void TerminateServerTree() {
+    if (g_hStdinWr) { CloseHandle(g_hStdinWr); g_hStdinWr = NULL; }
+    if (!g_hProc) return;
+    DWORD selfPid = GetCurrentProcessId();
+    DWORD srvPid = GetProcessId(g_hProc);
+    if (srvPid != 0) {
+        std::set<DWORD> tree = CollectDescendantPids({ srvPid });
+        for (DWORD pid : tree) {
+            if (pid == selfPid || pid == srvPid) continue;
+            HANDLE hChild = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+            if (hChild) {
+                TerminateProcess(hChild, 1);
+                CloseHandle(hChild);
+            }
+        }
+    }
+    TerminateProcess(g_hProc, 1);
+    WaitForSingleObject(g_hProc, 500);
+    g_procExitedTicks = 1;
+}
+
 static void StopServer(bool fromRestart = false) {
     if (g_state != SrvState::Starting && g_state != SrvState::Running) return;
     if (!fromRestart) {
@@ -3866,10 +3911,25 @@ static void StopServer(bool fromRestart = false) {
         KillTimer(g_hwnd, TID_RESTART);
     }
     g_state = SrvState::Stopping;
+    g_srvStopAck = false;
+    g_stopRetryCount = 0;
+    g_procExitedTicks = 0;
     WriteToConsole(L"stop");
-    SetTimer(g_hwnd, TID_STOPWATCH, 60000, NULL);
+    // Re-send "stop" periodically while early JVM/JLine/bundler startup has not opened stdin yet.
+    SetTimer(g_hwnd, TID_STOP_RETRY, 1500, NULL);
+    SetTimer(g_hwnd, TID_STOPWATCH, 20000, NULL);
     AppLog(L().logStopping);
     UpdateUi();
+}
+
+static void ForceStopServer() {
+    if (g_state != SrvState::Stopping || !g_hProc) return;
+    if (Msg(L().msgForceStopConfirm, L().titleForceStop, MB_YESNO | MB_ICONWARNING) != IDYES) return;
+    if (g_state != SrvState::Stopping || !g_hProc) return;
+    KillTimer(g_hwnd, TID_STOP_RETRY);
+    KillTimer(g_hwnd, TID_STOPWATCH);
+    AppLog(Tx(L"Sunucu zorla sonlandırılıyor…", L"Force terminating server…"));
+    TerminateServerTree();
 }
 
 static void RestartServer() {
@@ -3886,7 +3946,10 @@ static void OnServerExited() {
     if (g_hStdinWr) { CloseHandle(g_hStdinWr); g_hStdinWr = NULL; }
     bool expected = (g_state == SrvState::Stopping);
     ULONGLONG upSec = (GetTickCount64() - g_startTick) / 1000;
-    KillTimer(g_hwnd, TID_TIME); KillTimer(g_hwnd, TID_STOPWATCH);
+    KillTimer(g_hwnd, TID_TIME); KillTimer(g_hwnd, TID_STOPWATCH); KillTimer(g_hwnd, TID_STOP_RETRY);
+    g_srvStopAck = false;
+    g_stopRetryCount = 0;
+    g_procExitedTicks = 0;
     g_state = SrvState::Stopped;
     SendMessageW(g_hList, LB_RESETCONTENT, 0, 0);
     g_igTime = L"--:--"; g_upText = L"00:00:00"; g_mcVersion.clear();
@@ -3940,6 +4003,7 @@ static void RequestExit() {
         g_quitPending = true;
     }
     if (g_state == SrvState::Stopped) { DestroyWindow(g_hwnd); return; }
+    if (g_state == SrvState::Stopping) { ForceStopServer(); return; }
     StopServer();
 }
 
@@ -6074,13 +6138,14 @@ static void ShowTrayMenu() {
     HMENU m = CreatePopupMenu();
     if (!m) return;
     bool vis = IsWindowVisible(g_hwnd) != 0;
+    bool stopping = g_state == SrvState::Stopping;
     bool active = g_state == SrvState::Starting || g_state == SrvState::Running;
     AppendMenuW(m, MF_STRING, ID_TRAY_SHOW, vis ? L().trayHide : L().trayShow);
     SetMenuDefaultItem(m, ID_TRAY_SHOW, FALSE);
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING | (g_state == SrvState::Stopped ? 0 : MF_GRAYED), ID_TRAY_START, L().trayStart);
     AppendMenuW(m, MF_STRING | (g_state == SrvState::Running ? 0 : MF_GRAYED), ID_TRAY_RESTART, L().trayRestart);
-    AppendMenuW(m, MF_STRING | (active ? 0 : MF_GRAYED), ID_TRAY_STOP, L().trayStop);
+    AppendMenuW(m, MF_STRING | ((active || stopping) ? 0 : MF_GRAYED), ID_TRAY_STOP, stopping ? L().trayForceStop : L().trayStop);
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendLangAndThemeMenus(m);
     AppendMenuW(m, MF_STRING | (IsAutoStart() ? MF_CHECKED : 0), ID_TRAY_AUTOSTART, L().menuAutoStart);
@@ -6164,6 +6229,7 @@ static void HandleServerEvent(SrvEvent* e) {
                 RECT rHead = { 0, S(46), cr.right, HeaderH() };
                 InvalidateRect(g_hwnd, &rHead, FALSE);
             }
+            if (g_state == SrvState::Stopping && !g_srvStopAck) WriteToConsole(L"stop");
             break;
         case EV_RETRY_TIME: if (g_state == SrvState::Running) QueryTime(); break;
         case EV_READY:
@@ -6174,10 +6240,23 @@ static void HandleServerEvent(SrvEvent* e) {
                 AppLog(L().logReady);
                 Balloon(L"Redstone Server Panel", L().balloonReady);
                 UpdateUi();
+            } else if (g_state == SrvState::Stopping && !g_srvStopAck) {
+                // Server ignored early "stop" while booting; now that console command loop is live, re-send.
+                WriteToConsole(L"stop");
             }
             break;
         case EV_STOPPING:
-            if (g_state == SrvState::Starting || g_state == SrvState::Running) { g_state = SrvState::Stopping; UpdateUi(); }
+            if (g_state == SrvState::Starting || g_state == SrvState::Running || g_state == SrvState::Stopping) {
+                bool changed = (g_state != SrvState::Stopping);
+                g_state = SrvState::Stopping;
+                if (!g_srvStopAck) {
+                    g_srvStopAck = true;
+                    KillTimer(g_hwnd, TID_STOP_RETRY);
+                    // World saving may legitimately take up to 60s once shutdown is acknowledged.
+                    SetTimer(g_hwnd, TID_STOPWATCH, 60000, NULL);
+                }
+                if (changed) UpdateUi();
+            }
             break;
         case EV_EXITED: OnServerExited(); break;
     }
@@ -6510,7 +6589,10 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     break;
                 case ID_TRAY_START:   StartServer(); break;
                 case ID_TRAY_RESTART: RestartServer(); break;
-                case ID_BTN_STOP:  case ID_TRAY_STOP:  StopServer(); break;
+                case ID_BTN_STOP:  case ID_TRAY_STOP:
+                    if (g_state == SrvState::Stopping) ForceStopServer();
+                    else StopServer();
+                    break;
                 case ID_CTX_KICK: DoKickBan(false); break;
                 case ID_CTX_BAN:  DoKickBan(true); break;
                 case ID_CTX_OP: {
@@ -6582,6 +6664,17 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if (wp == TID_STATS) {
+                // Fallback if the server process exited but a grandchild held stdout open, delaying EOF.
+                if (g_state != SrvState::Stopped && g_hProc && WaitForSingleObject(g_hProc, 0) == WAIT_OBJECT_0) {
+                    if (++g_procExitedTicks >= 2) {
+                        KillTimer(hwnd, TID_STOP_RETRY);
+                        ++g_gen;
+                        OnServerExited();
+                        return 0;
+                    }
+                } else {
+                    g_procExitedTicks = 0;
+                }
                 UpdateTelemetryStats();
                 InvalidateRect(hwnd, &g_rcStats, FALSE);
                 if (g_state != SrvState::Stopped) TrayUpdate();
@@ -6643,13 +6736,26 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 bool trigSched = g_scheduledRestartTrigger;
                 g_scheduledRestartTrigger = false;
                 if ((g_autoRestart || trigSched) && g_state == SrvState::Stopped && !g_quitPending) StartServer();
+            } else if (wp == TID_STOP_RETRY) {
+                if (g_state != SrvState::Stopping || !g_hProc || g_srvStopAck || g_stopRetryCount >= 15) {
+                    KillTimer(hwnd, TID_STOP_RETRY);
+                } else if (WaitForSingleObject(g_hProc, 0) == WAIT_OBJECT_0) {
+                    KillTimer(hwnd, TID_STOP_RETRY);
+                } else {
+                    ++g_stopRetryCount;
+                    WriteToConsole(L"stop");
+                }
             } else if (wp == TID_STOPWATCH) {
                 KillTimer(hwnd, TID_STOPWATCH);
                 if (g_state == SrvState::Stopping && g_hProc) {
                     int r = Msg(L().msgTimeoutKill, L().titleTimeout, MB_YESNO | MB_ICONWARNING);
                     if (g_state == SrvState::Stopping && g_hProc) {
-                        if (r == IDYES) TerminateProcess(g_hProc, 1);
-                        else SetTimer(hwnd, TID_STOPWATCH, 60000, NULL);
+                        if (r == IDYES) {
+                            KillTimer(hwnd, TID_STOP_RETRY);
+                            TerminateServerTree();
+                        } else {
+                            SetTimer(hwnd, TID_STOPWATCH, g_srvStopAck ? 60000 : 20000, NULL);
+                        }
                     }
                 }
             } else if (wp == TID_ACCESS_SYNC) {
@@ -6797,7 +6903,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_DESTROY: {
-            KillTimer(hwnd, TID_STATS); KillTimer(hwnd, TID_TIME); KillTimer(hwnd, TID_STOPWATCH); KillTimer(hwnd, TID_RESTART); KillTimer(hwnd, TID_ANIM); KillTimer(hwnd, TID_ACCESS_SYNC);
+            KillTimer(hwnd, TID_STATS); KillTimer(hwnd, TID_TIME); KillTimer(hwnd, TID_STOPWATCH); KillTimer(hwnd, TID_STOP_RETRY); KillTimer(hwnd, TID_RESTART); KillTimer(hwnd, TID_ANIM); KillTimer(hwnd, TID_ACCESS_SYNC);
             g_animStop = true;
             g_animActive = false;
             if (g_hAnimWake) SetEvent(g_hAnimWake);
