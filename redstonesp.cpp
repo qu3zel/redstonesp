@@ -636,6 +636,9 @@ static float g_tabTargetX = 0.0f, g_tabTargetW = 0.0f;
 static bool  g_animatingTab = false;
 static float g_subCurX = -1.0f, g_subTargetX = 0.0f;
 static bool  g_animatingSubTab = false;
+static bool  g_animatingPage = false;
+static float g_pageAnimT = 1.0f;
+static int   g_pageAnimTop = 0;
 static int   g_tabHover = -1;
 static int   g_subTabHover = -1;
 static bool  g_logThemeDirty = false;
@@ -646,6 +649,9 @@ static HANDLE g_hAnimWake = NULL;
 static std::atomic<bool> g_animActive{false};
 static std::atomic<bool> g_animStop{false};
 static std::atomic<bool> g_animFramePending{false};
+static bool  IsFieldActiveOnCurrentPage(int idx);
+static void  ApplyPageControlVisibility();
+static void  FinishPageAnimation(HWND hwnd);
 static void  ShowPage();
 static void  NavigateTo(int pg);
 static std::vector<TxtBlock> g_scards, g_txts;       // active page cards (title id) and description blocks
@@ -872,6 +878,7 @@ static std::wstring ResolveTarExe() {
 }
 
 static int Msg(const std::wstring& text, const wchar_t* title, UINT flags = MB_OK | MB_ICONINFORMATION) {
+    if (g_hwnd && g_animatingPage) FinishPageAnimation(g_hwnd);
     ModalGuard mg;
     bool visible = g_hwnd && IsWindowVisible(g_hwnd);
     HWND owner = visible ? g_hwnd : NULL;
@@ -1940,7 +1947,7 @@ static void LockConsoleHorizontalScroll() {
 
 static void RebuildLogView(bool scrollToBottom = true) {
     if (!g_hLog) return;
-    bool isVisiblePage = (g_page == PG_PANEL);
+    bool isVisiblePage = (g_page == PG_PANEL && !g_animatingPage);
     bool isDark = (g_theme != Theme::Light);
 
     struct ColorSpan { COLORREF color; std::wstring content; };
@@ -1993,7 +2000,7 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
     if (!g_hLog || text.empty()) return;
     if (logToFile) LogToFile(text);
 
-    bool isVisiblePage = (g_page == PG_PANEL);
+    bool isVisiblePage = (g_page == PG_PANEL && !g_animatingPage);
     bool isDark = (g_theme != Theme::Light);
 
     struct ColorSpan {
@@ -5391,10 +5398,230 @@ static COLORREF ContrastText(COLORREF bg) {
     return lum >= 150 ? RGB(15, 23, 42) : RGB(255, 255, 255);
 }
 
-// Card pages (Properties & Settings): optional sub-tab pills + cards + fields + descriptions
-static void PaintCardPage(HDC mem) {
+static void DrawButton(const DRAWITEMSTRUCT* di);
+static void DrawPlayer(const DRAWITEMSTRUCT* di);
+
+static bool IsFieldActiveOnCurrentPage(int idx) {
+    if (idx < 0 || idx >= F_COUNT) return false;
+    if (idx < F_JVM) return (g_page == PG_PANEL);
+    if (idx == F_JVM || (idx >= F_BK_HOURS && idx <= F_BK_KEEP)) return (g_page == PG_SETTINGS && g_subTab == 1);
+    if (idx >= F_MOTD && idx <= F_LEVELSEED) return (g_page == PG_PROPS);
+    if (idx >= F_WL && idx <= F_OP) return (g_page == PG_ACCESS);
+    if (idx == F_BK_TAG) return (g_page == PG_BACKUPS);
+    if (idx == F_PROF_NAME) return (g_page == PG_PROFILES);
+    return false;
+}
+
+template <typename Fn>
+static void EnumPageControls(Fn&& fn) {
+    bool pan = (g_page == PG_PANEL), prp = (g_page == PG_PROPS), acc = (g_page == PG_ACCESS),
+         bkp = (g_page == PG_BACKUPS), plug = (g_page == PG_PLUGINS), prof = (g_page == PG_PROFILES),
+         st = (g_page == PG_SETTINGS);
+    struct Group { bool active; const HWND* items; size_t count; };
+    const HWND panelCtl[] = { g_hJar, g_hBtnBrowse, g_hBtnOpenSrvDir, g_hIp, g_hPort, g_hRam, g_hBtnStart, g_hBtnStop, g_hList,
+                              g_hBtnKick, g_hBtnBan, g_hUnban, g_hBtnUnban,
+                              g_hBtnFiltAll, g_hBtnFiltWarn, g_hBtnFiltChat, g_hBtnConSave, g_hBtnConClear,
+                              g_hLog, g_hCmd, g_hBtnSend };
+    const HWND propCtl[]  = { g_hMotd, g_hMaxPl, g_hViewDist, g_hSimDist, g_hSpawnProt, g_hLevelName, g_hLevelSeed,
+                              g_hBtnPropSave, g_hBtnPropReload,
+                              g_hBtnGm[0], g_hBtnGm[1], g_hBtnGm[2], g_hBtnGm[3],
+                              g_hBtnDf[0], g_hBtnDf[1], g_hBtnDf[2], g_hBtnDf[3],
+                              g_hBtnLvlType[0], g_hBtnLvlType[1], g_hBtnLvlType[2], g_hBtnLvlType[3],
+                              g_hChkOnline, g_hChkPvp, g_hChkWhitelist, g_hChkFlight, g_hChkCmdBlock,
+                              g_hChkHardcore, g_hChkForceGm, g_hChkSecureProf, g_hChkHidePlayers,
+                              g_hChkNether, g_hChkMonsters, g_hChkAnimals, g_hChkNpcs };
+    const HWND accCtl[]   = { g_hListWl, g_hEditWl, g_hBtnWlAdd, g_hBtnWlRem, g_hBtnWlReload,
+                              g_hListOp, g_hEditOp, g_hBtnOpAdd, g_hBtnOpRem, g_hBtnOpReload };
+    const HWND bkpCtl[]   = { g_hEditBkTag, g_hBtnBkCreate, g_hBtnBkOpen, g_hListBk, g_hBtnBkRestore, g_hBtnBkDel, g_hBtnBkReload };
+    const HWND plugCtl[]  = { g_hListPlugins, g_hBtnPlugToggle, g_hBtnPlugAdd, g_hBtnPlugDel, g_hBtnPlugOpen, g_hBtnPlugReload,
+                              g_hListMods,    g_hBtnModToggle,  g_hBtnModAdd,  g_hBtnModDel,  g_hBtnModOpen,  g_hBtnModReload };
+    const HWND profCtl[]  = { g_hEditProfName, g_hBtnProfSave, g_hListProf, g_hBtnProfLoad, g_hBtnProfDel };
+    const HWND genCtl[]   = { g_hChkAutoStart, g_hChkSplash, g_hBtnLangTR, g_hBtnLangEN,
+                              g_hBtnThDark, g_hBtnThLight, g_hBtnThRedstone, g_hBtnThMc,
+                              g_hChkMinTray, g_hBtnAppExit };
+    const HWND srvCtl[]   = { g_hChkAutoRestart, g_hBtnLogs, g_hJvm, g_hBtnJvmSave,
+                              g_hEditJavaPath, g_hBtnJavaBrowse, g_hBtnJavaAuto, g_hBtnJavaSave,
+                              g_hChkSchedBk, g_hEditBkHours, g_hEditBkKeep, g_hBtnSchedBkSave,
+                              g_hChkSchedRestart, g_hEditRestartTime, g_hBtnSchedRestartSave };
+    const Group groups[] = {
+        { pan,                 panelCtl, sizeof(panelCtl) / sizeof(panelCtl[0]) },
+        { prp,                 propCtl,  sizeof(propCtl)  / sizeof(propCtl[0])  },
+        { acc,                 accCtl,   sizeof(accCtl)   / sizeof(accCtl[0])   },
+        { bkp,                 bkpCtl,   sizeof(bkpCtl)   / sizeof(bkpCtl[0])   },
+        { plug,                plugCtl,  sizeof(plugCtl)  / sizeof(plugCtl[0])  },
+        { prof,                profCtl,  sizeof(profCtl)  / sizeof(profCtl[0])  },
+        { st && g_subTab == 0, genCtl,   sizeof(genCtl)   / sizeof(genCtl[0])   },
+        { st && g_subTab == 1, srvCtl,   sizeof(srvCtl)   / sizeof(srvCtl[0])   }
+    };
+    for (const Group& grp : groups) {
+        for (size_t i = 0; i < grp.count; i++) {
+            if (grp.items[i]) fn(grp.items[i], grp.active);
+        }
+    }
+}
+
+static void ApplyPageControlVisibility() {
+    EnumPageControls([&](HWND h, bool active) {
+        bool want = active && !g_animatingPage;
+        bool hasVis = (GetWindowLongPtrW(h, GWL_STYLE) & WS_VISIBLE) != 0;
+        if (hasVis != want) ShowWindow(h, want ? SW_SHOW : SW_HIDE);
+    });
+}
+
+// Render active page child controls into offscreen memDC during page-reveal animation
+static void PaintPageChildControls(HDC mem) {
+    if (!g_hwnd) return;
+    bool isDark = (g_theme != Theme::Light);
+
+    EnumPageControls([&](HWND h, bool active) {
+        if (!active) return;
+        RECT rc;
+        if (!GetWindowRect(h, &rc)) return;
+        MapWindowPoints(HWND_DESKTOP, g_hwnd, (LPPOINT)&rc, 2);
+        if (rc.right <= rc.left || rc.bottom <= rc.top) return;
+
+        if (h == g_hLog) {
+            RECT rLog = rc;
+            rLog.left += S(6);
+            rLog.right -= std::max(S(6), GetSystemMetrics(SM_CXVSCROLL));
+            if (rLog.right <= rLog.left || g_logLines.empty()) return;
+
+            int sc = SaveDC(mem);
+            IntersectClipRect(mem, rc.left, rc.top, rc.right, rc.bottom);
+            SelectObject(mem, g_fMono);
+            SetBkMode(mem, TRANSPARENT);
+            TEXTMETRICW tm = {};
+            GetTextMetricsW(mem, &tm);
+            int lineH = std::max(1, (int)tm.tmHeight);
+            int availW = rLog.right - rLog.left;
+            int availH = rLog.bottom - rLog.top;
+
+            struct VisLogRow { size_t idx; int h; };
+            std::vector<VisLogRow> rows;
+            int totalH = 0;
+            for (size_t i = g_logLines.size(); i > 0; i--) {
+                const LogEntry& entry = g_logLines[i - 1];
+                if (!LogMatchesFilter(entry.cat, g_logFilter)) continue;
+                RECT calc = { 0, 0, availW, 0 };
+                const wchar_t* s = entry.text.empty() ? L" " : entry.text.c_str();
+                DrawTextW(mem, s, -1, &calc, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
+                int eh = std::max(lineH, (int)(calc.bottom - calc.top));
+                rows.push_back({ i - 1, eh });
+                totalH += eh;
+                if (totalH >= availH) break;
+            }
+            int y = (totalH < availH) ? rLog.top : (rLog.bottom - totalH);
+            for (size_t i = rows.size(); i > 0; i--) {
+                const LogEntry& entry = g_logLines[rows[i - 1].idx];
+                SetTextColor(mem, ColorForLogCat(entry.cat, isDark));
+                RECT lr = { rLog.left, y, rLog.right, y + rows[i - 1].h };
+                if (!entry.text.empty()) {
+                    DrawTextW(mem, entry.text.c_str(), -1, &lr, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+                }
+                y += rows[i - 1].h;
+            }
+            RestoreDC(mem, sc);
+            return;
+        }
+
+        wchar_t cls[32] = {};
+        GetClassNameW(h, cls, 32);
+
+        if (_wcsicmp(cls, L"Edit") == 0) {
+            int len = GetWindowTextLengthW(h);
+            if (len <= 0) return;
+            std::wstring txt((size_t)len + 1, L'\0');
+            int got = GetWindowTextW(h, &txt[0], len + 1);
+            txt.resize((got > 0) ? (size_t)got : 0);
+            if (txt.empty()) return;
+            int sc = SaveDC(mem);
+            IntersectClipRect(mem, rc.left, rc.top, rc.right, rc.bottom);
+            SelectObject(mem, g_fUI);
+            SetBkMode(mem, TRANSPARENT);
+            SetTextColor(mem, P.text);
+            DrawTextW(mem, txt.c_str(), -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            RestoreDC(mem, sc);
+            return;
+        }
+
+        if (_wcsicmp(cls, L"ListBox") == 0) {
+            int count = (int)SendMessageW(h, LB_GETCOUNT, 0, 0);
+            if (count <= 0) return;
+            int itemH = (int)SendMessageW(h, LB_GETITEMHEIGHT, 0, 0);
+            if (itemH <= 0) itemH = S(38);
+            int topIdx = std::max(0, (int)SendMessageW(h, LB_GETTOPINDEX, 0, 0));
+            int curSel = (int)SendMessageW(h, LB_GETCURSEL, 0, 0);
+            int sc = SaveDC(mem);
+            IntersectClipRect(mem, rc.left, rc.top, rc.right, rc.bottom);
+            for (int idx = topIdx; idx < count; idx++) {
+                int y = rc.top + (idx - topIdx) * itemH;
+                if (y >= rc.bottom) break;
+                DRAWITEMSTRUCT di = {};
+                di.CtlType = ODT_LISTBOX;
+                di.CtlID = (UINT)GetDlgCtrlID(h);
+                di.itemID = (UINT)idx;
+                di.hwndItem = h;
+                di.hDC = mem;
+                di.rcItem = { rc.left, y, rc.right, y + itemH };
+                di.itemState = (idx == curSel) ? ODS_SELECTED : 0;
+                DrawPlayer(&di);
+            }
+            RestoreDC(mem, sc);
+            return;
+        }
+
+        if (_wcsicmp(cls, L"Button") == 0) {
+            int sc = SaveDC(mem);
+            IntersectClipRect(mem, rc.left, rc.top, rc.right, rc.bottom);
+            DRAWITEMSTRUCT di = {};
+            di.CtlType = ODT_BUTTON;
+            di.CtlID = (UINT)GetDlgCtrlID(h);
+            di.hwndItem = h;
+            di.hDC = mem;
+            di.rcItem = rc;
+            di.itemState = IsWindowEnabled(h) ? 0 : ODS_DISABLED;
+            DrawButton(&di);
+            RestoreDC(mem, sc);
+        }
+    });
+}
+
+static void FinishPageAnimation(HWND hwnd) {
+    bool wasAnimating = g_animatingPage;
+    g_animatingPage = false;
+    g_pageAnimT = 1.0f;
+    if (!hwnd) return;
+    bool wasVisible = (IsWindowVisible(hwnd) != 0);
+    if (wasVisible) SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
+    ApplyPageControlVisibility();
+    if (g_page == PG_PANEL) {
+        if (g_logThemeDirty) {
+            g_logThemeDirty = false;
+            ReapplyLogColors();
+        } else if (g_hLog) {
+            SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
+            LockConsoleHorizontalScroll();
+        }
+    }
+    if (wasVisible) {
+        if (GetFocus() == hwnd) {
+            HWND first = GetNextDlgTabItem(hwnd, NULL, FALSE);
+            if (first) SetFocus(first);
+        }
+        SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
+        if (wasAnimating && !IsIconic(hwnd)) {
+            RECT cr; GetClientRect(hwnd, &cr);
+            int animTop = (g_pageAnimTop > HeaderH()) ? g_pageAnimTop : HeaderH();
+            RECT rBody = { 0, animTop, cr.right, cr.bottom };
+            RedrawWindow(hwnd, &rBody, NULL, RDW_INVALIDATE | RDW_NOERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        }
+    }
+}
+
+// Card pages (Properties & Settings): subTabMode 0=all, 1=sub-tab pills only, 2=cards/fields/descriptions only
+static void PaintCardPage(HDC mem, int subTabMode = 0) {
     int p = S(16);
-    if (g_page == PG_SETTINGS) {
+    if (g_page == PG_SETTINGS && subTabMode != 2) {
         static const wchar_t* subTr[2] = { L"GENEL", L"SUNUCU" };
         static const wchar_t* subEn[2] = { L"GENERAL", L"SERVER" };
         if (g_subCurX < 0 && g_rcSub[g_subTab].right > g_rcSub[g_subTab].left) {
@@ -5428,6 +5655,9 @@ static void PaintCardPage(HDC mem) {
             DrawTxt(mem, g_lang == Lang::TR ? subTr[i] : subEn[i], g_rcSub[i], g_fCap,
                     txt, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
+        if (subTabMode == 1) return;
+    } else if (subTabMode == 1) {
+        return;
     }
     for (const TxtBlock& c : g_scards) {
         FillRound(mem, c.rc, P.card, P.border, S(14));
@@ -5462,7 +5692,7 @@ static void PaintCardPage(HDC mem) {
     }
     HWND focus = GetFocus();
     for (int i = F_JVM; i < F_COUNT; i++) {
-        if (!g_f[i].h || !IsWindowVisible(g_f[i].h)) continue;
+        if (!g_f[i].h || !IsFieldActiveOnCurrentPage(i)) continue;
         FillRound(mem, g_f[i].rc, P.field, focus == g_f[i].h ? P.accent : P.border, S(10));
         if (g_f[i].caption) {
             RECT r = { g_f[i].rc.left + S(2), g_f[i].rc.top - S(19), g_f[i].rc.right, g_f[i].rc.top - S(3) };
@@ -5478,29 +5708,7 @@ static void PaintCardPage(HDC mem) {
     }
 }
 
-static void PaintMain(HWND hwnd) {
-    PAINTSTRUCT ps; HDC dc = BeginPaint(hwnd, &ps);
-    RECT rc; GetClientRect(hwnd, &rc);
-    int W = rc.right, H = rc.bottom;
-    if (W <= 0 || H <= 0) { EndPaint(hwnd, &ps); return; }
-
-    HDC mem = CreateCompatibleDC(dc);
-    if (!mem) { EndPaint(hwnd, &ps); return; }
-    HBITMAP bm = CreateCompatibleBitmap(dc, W, H);
-    if (!bm) { DeleteDC(mem); EndPaint(hwnd, &ps); return; }
-    HGDIOBJ ob = SelectObject(mem, bm);
-    FillRect(mem, &rc, g_bBg);
-
-    PaintHeader(mem, W);
-    if (g_page != PG_PANEL) {
-        PaintCardPage(mem);
-        BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
-               mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
-        SelectObject(mem, ob); DeleteObject(bm); DeleteDC(mem);
-        EndPaint(hwnd, &ps);
-        return;
-    }
-
+static void PaintPanelPage(HDC mem) {
     int rad = S(14), p = S(16);
     const RECT* cards[3] = { &g_rcSet, &g_rcPl, &g_rcCon };
     for (const RECT* c : cards) FillRound(mem, *c, P.card, P.border, rad);
@@ -5516,7 +5724,7 @@ static void PaintMain(HWND hwnd) {
     // Input field backgrounds + captions
     HWND focus = GetFocus();
     for (int i = 0; i < F_JVM; i++) {
-        if (!IsWindowVisible(g_f[i].h)) continue;
+        if (!g_f[i].h || !IsFieldActiveOnCurrentPage(i)) continue;
         bool foc = (focus == g_f[i].h);
         FillRound(mem, g_f[i].rc, P.field, foc ? P.accent : P.border, S(10));
         if (g_f[i].caption) {
@@ -5598,6 +5806,70 @@ static void PaintMain(HWND hwnd) {
         : Tx(L"İŞLEMCİ (SİSTEM CPU)", L"SYSTEM CPU");
     DrawSparklineCard(mem, g_rcChart[0], Tx(L"BELLEK (RAM)", L"MEMORY (RAM)"), g_ramDetailText, g_ramHist, g_ramPct, ramCol, false);
     DrawSparklineCard(mem, g_rcChart[1], cpuTitle, g_cpuText, g_cpuHist, g_cpuPct, cpuCol, true);
+}
+
+static void PaintMain(HWND hwnd) {
+    PAINTSTRUCT ps; HDC dc = BeginPaint(hwnd, &ps);
+    RECT rc; GetClientRect(hwnd, &rc);
+    int W = rc.right, H = rc.bottom;
+    if (W <= 0 || H <= 0) { EndPaint(hwnd, &ps); return; }
+
+    HDC mem = CreateCompatibleDC(dc);
+    if (!mem) { EndPaint(hwnd, &ps); return; }
+    HBITMAP bm = CreateCompatibleBitmap(dc, W, H);
+    if (!bm) { DeleteDC(mem); EndPaint(hwnd, &ps); return; }
+    HGDIOBJ ob = SelectObject(mem, bm);
+    FillRect(mem, &rc, g_bBg);
+
+    PaintHeader(mem, W);
+
+    if (g_animatingPage && g_pageAnimT < 1.0f) {
+        if (g_page != PG_PANEL && g_pageAnimTop > HeaderH()) {
+            PaintCardPage(mem, 1);
+        }
+        int animTop = (g_pageAnimTop > HeaderH()) ? g_pageAnimTop : HeaderH();
+        float t = std::max(0.0f, std::min(1.0f, g_pageAnimT));
+        float inv = 1.0f - t;
+        float ease = 1.0f - inv * inv * inv;
+        BYTE alphaByte = (BYTE)std::max(0, std::min(255, (int)(ease * 255.0f + 0.5f)));
+        int dy = (int)((1.0f - ease) * (float)S(7) + 0.5f);
+
+        HDC memPage = CreateCompatibleDC(dc);
+        HBITMAP bmPage = memPage ? CreateCompatibleBitmap(dc, W, H) : NULL;
+        if (memPage && bmPage) {
+            HGDIOBJ obPage = SelectObject(memPage, bmPage);
+            RECT rcPage = { 0, animTop, W, H };
+            FillRect(memPage, &rcPage, g_bBg);
+            if (g_page != PG_PANEL) {
+                PaintCardPage(memPage, (g_pageAnimTop > HeaderH()) ? 2 : 0);
+            } else {
+                PaintPanelPage(memPage);
+            }
+            PaintPageChildControls(memPage);
+
+            int srcH = H - animTop - dy;
+            if (srcH > 0 && alphaByte > 0) {
+                BLENDFUNCTION bf = { AC_SRC_OVER, 0, alphaByte, 0 };
+                GdiAlphaBlend(mem, 0, animTop + dy, W, srcH, memPage, 0, animTop, W, srcH, bf);
+            }
+            SelectObject(memPage, obPage);
+            DeleteObject(bmPage);
+            DeleteDC(memPage);
+        } else {
+            if (bmPage) DeleteObject(bmPage);
+            if (memPage) DeleteDC(memPage);
+            if (g_page != PG_PANEL) PaintCardPage(mem, 0);
+            else PaintPanelPage(mem);
+        }
+        BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
+               mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
+        SelectObject(mem, ob); DeleteObject(bm); DeleteDC(mem);
+        EndPaint(hwnd, &ps);
+        return;
+    }
+
+    if (g_page != PG_PANEL) PaintCardPage(mem, 0);
+    else PaintPanelPage(mem);
 
     BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
            mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
@@ -6237,40 +6509,8 @@ static void ShowPage() {
     if (wasVisible) SendMessageW(g_hwnd, WM_SETREDRAW, FALSE, 0);
 
     bool pan = (g_page == PG_PANEL), prp = (g_page == PG_PROPS), acc = (g_page == PG_ACCESS),
-         bkp = (g_page == PG_BACKUPS), plug = (g_page == PG_PLUGINS), prof = (g_page == PG_PROFILES), st = (g_page == PG_SETTINGS);
-    HWND panelCtl[] = { g_hJar, g_hBtnBrowse, g_hBtnOpenSrvDir, g_hIp, g_hPort, g_hRam, g_hBtnStart, g_hBtnStop, g_hList,
-                        g_hBtnKick, g_hBtnBan, g_hUnban, g_hBtnUnban,
-                        g_hBtnFiltAll, g_hBtnFiltWarn, g_hBtnFiltChat, g_hBtnConSave, g_hBtnConClear,
-                        g_hLog, g_hCmd, g_hBtnSend };
-    HWND propCtl[]  = { g_hMotd, g_hMaxPl, g_hViewDist, g_hSimDist, g_hSpawnProt, g_hLevelName, g_hLevelSeed,
-                        g_hBtnPropSave, g_hBtnPropReload,
-                        g_hBtnGm[0], g_hBtnGm[1], g_hBtnGm[2], g_hBtnGm[3],
-                        g_hBtnDf[0], g_hBtnDf[1], g_hBtnDf[2], g_hBtnDf[3],
-                        g_hBtnLvlType[0], g_hBtnLvlType[1], g_hBtnLvlType[2], g_hBtnLvlType[3],
-                        g_hChkOnline, g_hChkPvp, g_hChkWhitelist, g_hChkFlight, g_hChkCmdBlock,
-                        g_hChkHardcore, g_hChkForceGm, g_hChkSecureProf, g_hChkHidePlayers,
-                        g_hChkNether, g_hChkMonsters, g_hChkAnimals, g_hChkNpcs };
-    HWND accCtl[]   = { g_hListWl, g_hEditWl, g_hBtnWlAdd, g_hBtnWlRem, g_hBtnWlReload,
-                        g_hListOp, g_hEditOp, g_hBtnOpAdd, g_hBtnOpRem, g_hBtnOpReload };
-    HWND bkpCtl[]   = { g_hEditBkTag, g_hBtnBkCreate, g_hBtnBkOpen, g_hListBk, g_hBtnBkRestore, g_hBtnBkDel, g_hBtnBkReload };
-    HWND plugCtl[]  = { g_hListPlugins, g_hBtnPlugToggle, g_hBtnPlugAdd, g_hBtnPlugDel, g_hBtnPlugOpen, g_hBtnPlugReload,
-                        g_hListMods,    g_hBtnModToggle,  g_hBtnModAdd,  g_hBtnModDel,  g_hBtnModOpen,  g_hBtnModReload };
-    HWND profCtl[]  = { g_hEditProfName, g_hBtnProfSave, g_hListProf, g_hBtnProfLoad, g_hBtnProfDel };
-    HWND genCtl[] = { g_hChkAutoStart, g_hChkSplash, g_hBtnLangTR, g_hBtnLangEN,
-                      g_hBtnThDark, g_hBtnThLight, g_hBtnThRedstone, g_hBtnThMc,
-                      g_hChkMinTray, g_hBtnAppExit };
-    HWND srvCtl[] = { g_hChkAutoRestart, g_hBtnLogs, g_hJvm, g_hBtnJvmSave,
-                      g_hEditJavaPath, g_hBtnJavaBrowse, g_hBtnJavaAuto, g_hBtnJavaSave,
-                      g_hChkSchedBk, g_hEditBkHours, g_hEditBkKeep, g_hBtnSchedBkSave,
-                      g_hChkSchedRestart, g_hEditRestartTime, g_hBtnSchedRestartSave };
-    for (HWND h : panelCtl) if (h) ShowWindow(h, pan ? SW_SHOW : SW_HIDE);
-    for (HWND h : propCtl)  if (h) ShowWindow(h, prp ? SW_SHOW : SW_HIDE);
-    for (HWND h : accCtl)   if (h) ShowWindow(h, acc ? SW_SHOW : SW_HIDE);
-    for (HWND h : bkpCtl)   if (h) ShowWindow(h, bkp ? SW_SHOW : SW_HIDE);
-    for (HWND h : plugCtl)  if (h) ShowWindow(h, plug ? SW_SHOW : SW_HIDE);
-    for (HWND h : profCtl)  if (h) ShowWindow(h, prof ? SW_SHOW : SW_HIDE);
-    for (HWND h : genCtl)   if (h) ShowWindow(h, (st && g_subTab == 0) ? SW_SHOW : SW_HIDE);
-    for (HWND h : srvCtl)   if (h) ShowWindow(h, (st && g_subTab == 1) ? SW_SHOW : SW_HIDE);
+         bkp = (g_page == PG_BACKUPS), plug = (g_page == PG_PLUGINS), prof = (g_page == PG_PROFILES);
+    ApplyPageControlVisibility();
     if (prp) LoadServerPropertiesToUi();
     if (acc) LoadAccessListsToUi();
     if (bkp) LoadBackupsListToUi();
@@ -6300,7 +6540,8 @@ static void ShowPage() {
             SetFocus(first ? first : g_hwnd);
         }
         SendMessageW(g_hwnd, WM_SETREDRAW, TRUE, 0);
-        RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        RedrawWindow(g_hwnd, NULL, NULL,
+                     RDW_INVALIDATE | (g_animatingPage ? RDW_NOERASE : RDW_ERASE) | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
 }
 static void RefreshMonitorHz() {
@@ -6434,6 +6675,8 @@ static void StepAnimations(HWND hwnd) {
     bool anyActive = false;
     bool headDirty = false;
     bool subDirty = false;
+    bool pageDirty = false;
+    bool finishPageNow = false;
 
     if (g_animatingTab) {
         headDirty = true;
@@ -6465,6 +6708,17 @@ static void StepAnimations(HWND hwnd) {
         g_animatingSubTab = false;
     }
 
+    if (g_animatingPage) {
+        pageDirty = true;
+        g_pageAnimT += dt / 0.18f;
+        if (g_pageAnimT >= 1.0f) {
+            g_pageAnimT = 1.0f;
+            finishPageNow = true;
+        } else {
+            anyActive = true;
+        }
+    }
+
     if (!anyActive) {
         g_animActive = false;
         KillTimer(hwnd, TID_ANIM);
@@ -6482,7 +6736,15 @@ static void StepAnimations(HWND hwnd) {
                       std::max(g_rcSub[0].right, g_rcSub[1].right) + S(4), g_rcSub[1].bottom + S(4) };
         InvalidateRect(hwnd, &rSub, FALSE);
     }
-    if (headDirty || subDirty) {
+    if (finishPageNow) {
+        if (headDirty || subDirty) UpdateWindow(hwnd);
+        FinishPageAnimation(hwnd);
+    } else if (pageDirty) {
+        int animTop = (g_pageAnimTop > HeaderH()) ? g_pageAnimTop : HeaderH();
+        RECT rBody = { 0, animTop, cr.right, cr.bottom };
+        InvalidateRect(hwnd, &rBody, FALSE);
+        UpdateWindow(hwnd);
+    } else if (headDirty || subDirty) {
         UpdateWindow(hwnd);
     }
 }
@@ -6501,8 +6763,16 @@ static void NavigateTo(int pg) {
     }
 
     g_animatingTab = true;
-    StartUiAnimation();
+    if (g_hwnd && IsWindowVisible(g_hwnd) && !IsIconic(g_hwnd)) {
+        g_animatingPage = true;
+        g_pageAnimT = 0.06f; // small baseline avoids a 1-frame empty flash at 60Hz while preserving reveal
+        g_pageAnimTop = HeaderH();
+    } else {
+        g_animatingPage = false;
+        g_pageAnimT = 1.0f;
+    }
     ShowPage();
+    StartUiAnimation();
 }
 
 // ----------------------------------------------------------------------------
@@ -6977,6 +7247,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return OnCreate(hwnd) ? 0 : -1;
 
         case WM_SIZE:
+            if (g_animatingPage) FinishPageAnimation(hwnd);
             if (wp != SIZE_MINIMIZED) {
                 Layout(LOWORD(lp), HIWORD(lp));
                 if (g_hLog) SendMessageW(g_hLog, EM_SETTARGETDEVICE, 0, 0);
@@ -7083,11 +7354,27 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         g_subTab = i;
                         g_subTargetX = (float)g_rcSub[i].left;
                         g_animatingSubTab = true;
-                        StartUiAnimation();
+                        if (IsWindowVisible(hwnd) && !IsIconic(hwnd)) {
+                            g_animatingPage = true;
+                            g_pageAnimT = 0.06f;
+                            int subBot = std::max(g_rcSub[0].bottom, g_rcSub[1].bottom);
+                            g_pageAnimTop = (subBot > HeaderH()) ? (subBot + S(4)) : (HeaderH() + S(50));
+                        }
                         ShowPage();
+                        StartUiAnimation();
                     }
                     return 0;
                 }
+            if (g_animatingPage) {
+                FinishPageAnimation(hwnd);
+                HWND child = ChildWindowFromPointEx(hwnd, pt, CWP_SKIPINVISIBLE | CWP_SKIPDISABLED);
+                if (child && child != hwnd) {
+                    POINT cpt = pt;
+                    ClientToScreen(hwnd, &cpt);
+                    ScreenToClient(child, &cpt);
+                    SendMessageW(child, WM_LBUTTONDOWN, wp, MAKELPARAM(cpt.x, cpt.y));
+                }
+            }
             return 0;
         }
         case WM_SETCURSOR:
