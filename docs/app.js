@@ -331,7 +331,7 @@ const i18n = {
     errInvalidRam: "Geçersiz bellek formatı (ör: 4G, 2048M)",
     errInvalidPort: "Port 1-65535 arasında olmalıdır",
     errInvalidTime: "Saat SS:DD formatında olmalıdır (ör: 04:00)",
-    errInvalidHours: "Yedekleme aralığı 1-720 saat olmalıdır",
+    errInvalidHours: "Yedekleme aralığı 1-72 saat olmalıdır",
     errInvalidBkKeep: "Oto. yedek sınırı 0-50 arasında olmalıdır",
     logAppExitSim: "» [SİSTEM] Masaüstü uygulaması simülasyonda kapatıldı (sistem tepsisi yerine tam çıkış).",
     toastAppExitSim: "Simülasyon: Uygulama tamamen kapatıldı",
@@ -598,7 +598,7 @@ const i18n = {
     errInvalidRam: "Invalid memory format (e.g. 4G, 2048M)",
     errInvalidPort: "Port must be between 1 and 65535",
     errInvalidTime: "Time must be in HH:MM format (e.g. 04:00)",
-    errInvalidHours: "Backup interval must be 1-720 hours",
+    errInvalidHours: "Backup interval must be 1-72 hours",
     errInvalidBkKeep: "Max auto keep must be between 0 and 50",
     logAppExitSim: "» [SYSTEM] Simulation: Desktop application exited cleanly.",
     toastAppExitSim: "Simulation: Application exited cleanly",
@@ -2529,7 +2529,7 @@ if (btnSaveSchedBk) {
     const keepRaw = keepEl ? keepEl.value.trim() : '10';
     const v = /^\d+$/.test(raw) ? parseInt(raw, 10) : 0;
     const kv = /^\d+$/.test(keepRaw) ? parseInt(keepRaw, 10) : -1;
-    if (v < 1 || v > 720) {
+    if (v < 1 || v > 72) {
       showToast(t.errInvalidHours);
       return;
     }

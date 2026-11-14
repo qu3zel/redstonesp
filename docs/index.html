@@ -686,6 +686,19 @@
                 </div>
 
                 <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardJavaTitle">JAVA ÇALIŞMA ZAMANI</div>
+                  <input type="text" class="w-input" id="inputJavaPath" value="" data-i18n-ph="phJavaPath" placeholder="java.exe yolu (boş = Otomatik algıla)" style="margin-bottom: 0.5rem;">
+                  <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <button class="w-btn" id="btnBrowseJava" data-i18n="btnBrowse" style="flex: 1; height: 32px;">Seç</button>
+                    <button class="w-btn" id="btnDetectJava" data-i18n="btnDetectJava" style="flex: 1.2; height: 32px;">Otomatik Bul</button>
+                    <button class="w-btn w-btn-start" id="btnSaveJava" data-i18n="btnSave" style="flex: 1; height: 32px;">Kaydet</button>
+                  </div>
+                  <p class="w-desc-text" id="lblJavaStatus" data-i18n="javaDesc" style="margin-bottom: 0;">
+                    Boş bırakılırsa PATH ve standart kurulum klasörlerinden (Java 8–26+) otomatik algılanır.
+                  </p>
+                </div>
+
+                <div class="w-card">
                   <div class="w-card-title" data-i18n="cardSchedBk">OTOMATİK ZAMANLANMIŞ YEDEKLEME</div>
                   <div class="chk-row" id="chkSchedBkRow">
                     <div class="chk-box checked">✓</div>
@@ -697,7 +710,7 @@
                   <div class="w-input-row" style="align-items: flex-end;">
                     <div style="flex: 1;">
                       <label class="w-label" data-i18n="lblSchedBkHours">Aralık (saat)</label>
-                      <input type="number" class="w-input" id="inputSchedBkHours" value="2" min="1" max="720" style="margin-bottom: 0;">
+                      <input type="number" class="w-input" id="inputSchedBkHours" value="2" min="1" max="72" style="margin-bottom: 0;">
                     </div>
                     <div style="flex: 1;">
                       <label class="w-label" data-i18n="lblSchedBkKeep">Oto. yedek sınırı</label>
@@ -705,19 +718,6 @@
                     </div>
                     <button class="w-btn w-btn-start" id="btnSaveSchedBk" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
                   </div>
-                </div>
-
-                <div class="w-card">
-                  <div class="w-card-title" data-i18n="cardJavaTitle">JAVA ÇALIŞMA ZAMANI</div>
-                  <input type="text" class="w-input" id="inputJavaPath" value="" data-i18n-ph="phJavaPath" placeholder="java.exe yolu (boş = Otomatik algıla)" style="margin-bottom: 0.5rem;">
-                  <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-                    <button class="w-btn" id="btnBrowseJava" data-i18n="btnBrowse" style="flex: 1; height: 32px;">Seç</button>
-                    <button class="w-btn" id="btnDetectJava" data-i18n="btnDetectJava" style="flex: 1.2; height: 32px;">Otomatik Bul</button>
-                    <button class="w-btn w-btn-start" id="btnSaveJava" data-i18n="btnSave" style="flex: 1; height: 32px;">Kaydet</button>
-                  </div>
-                  <p class="w-desc-text" id="lblJavaStatus" data-i18n="javaDesc" style="margin-bottom: 0;">
-                    Boş bırakılırsa PATH ve standart kurulum klasörlerinden (Java 8–26+) otomatik algılanır.
-                  </p>
                 </div>
               </div>
             </div>

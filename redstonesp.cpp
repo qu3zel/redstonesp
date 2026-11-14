@@ -3547,7 +3547,12 @@ static void StartCreateBackup(bool silent = false) {
     auto mp = ReadPropertiesMap(srvDir);
     std::wstring lvl = L"world";
     auto it = mp.find("level-name");
-    if (it != mp.end() && !it->second.empty()) lvl = FromUtf8(it->second);
+    if (it != mp.end()) {
+        std::wstring ln = Trim(FromUtf8(it->second));
+        if (!ln.empty() && ln.find(L"..") == std::wstring::npos && ln.find_first_of(L"\\/:*?\"<>|") == std::wstring::npos) {
+            lvl = ln;
+        }
+    }
 
     std::vector<std::wstring> folders;
     for (const std::wstring& cand : { lvl, lvl + L"_nether", lvl + L"_the_end" }) {
@@ -3950,15 +3955,16 @@ static void DeleteModItem(bool isPlugin) {
         AppLog(Tx(L"Lütfen önce listeden bir öğe seçin.", L"Please select an item from the list first."));
         return;
     }
-    const ModItem& it = list[idx];
+    std::wstring dispName = list[idx].displayName;
+    std::wstring fullPath = list[idx].fullPath;
 
     std::wstring q = (g_lang == Lang::TR)
-        ? (L"\"" + it.displayName + L"\" dosyasını silmek istediğinize emin misiniz?")
-        : (L"Are you sure you want to delete \"" + it.displayName + L"\"?");
+        ? (L"\"" + dispName + L"\" dosyasını silmek istediğinize emin misiniz?")
+        : (L"Are you sure you want to delete \"" + dispName + L"\"?");
     if (Msg(q, Tx(L"Silme Onayı", L"Confirm Delete"), MB_YESNO | MB_ICONWARNING) != IDYES) return;
 
-    if (DeleteFileW(it.fullPath.c_str())) {
-        AppLog(Tx(L"Dosya silindi: ", L"File deleted: ") + it.displayName);
+    if (DeleteFileW(fullPath.c_str())) {
+        AppLog(Tx(L"Dosya silindi: ", L"File deleted: ") + dispName);
         LoadModFolder(isPlugin ? L"plugins" : L"mods", list, hLb);
     } else {
         AppLog(Tx(L"Dosya silinemedi! (Sunucu açıkken kilitli olabilir)", L"Failed to delete file! (File may be locked)"));
@@ -4282,7 +4288,7 @@ static bool IsServerDirLocked(const std::wstring& dir, bool* worldLockOut) {
     auto it = props.find("level-name");
     if (it != props.end()) {
         std::wstring ln = Trim(FromUtf8(it->second));
-        if (!ln.empty() && ln.find(L"..") == std::wstring::npos && ln.find_first_of(L"\\/") == std::wstring::npos) {
+        if (!ln.empty() && ln.find(L"..") == std::wstring::npos && ln.find_first_of(L"\\/:*?\"<>|") == std::wstring::npos) {
             levelName = ln;
         }
     }
@@ -4642,11 +4648,13 @@ static std::wstring ListTextFrom(HWND hLb, int idx) {
 }
 static std::wstring ListText(int idx) { return ListTextFrom(g_hList, idx); }
 static void DoKickBan(bool ban) {
+    if (g_state != SrvState::Running) { AppLog(L().logSrvNotRunning); return; }
     int idx = (int)SendMessageW(g_hList, LB_GETCURSEL, 0, 0);
     if (idx == LB_ERR) { AppLog(L().logSelectPlayer); return; }
     std::wstring name = ListText(idx);
     if (!ValidPlayerName(name)) return;
     if (ban && Msg(L"\"" + name + L"\"" + L().msgBanConfirm, L().titleBanConfirm, MB_YESNO | MB_ICONWARNING) != IDYES) return;
+    if (g_state != SrvState::Running) { AppLog(L().logSrvNotRunning); return; }
     WriteToConsole((ban ? L"ban " : L"kick ") + name);
 }
 static void DoUnban() {
