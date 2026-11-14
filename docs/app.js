@@ -59,12 +59,15 @@ const state = {
   appSettings: {
     autoStart: false,
     splashAnim: true,
+    minTray: true,
     crashGuard: true,
     dailyRestart: false,
     dailyRestartTime: '04:00',
     jvmArgs: '-XX:+UseG1GC -XX:+ParallelRefProcEnabled',
     schedBk: true,
-    schedBkHours: '2'
+    schedBkHours: '2',
+    schedBkKeep: '10',
+    javaPath: ''
   }
 };
 
@@ -254,7 +257,7 @@ const i18n = {
     // Page 6: Profiles
     cardSaveProfile: "YENİ PROFİL KAYDET",
     descProfileNote: "Panel'deki .jar yolu, IP, port, RAM ve JVM argümanlarını bir profil olarak saklar. Farklı sunucular arasında tek tıkla geçiş yapabilirsiniz.",
-    lblProfileName: "Profil Adı (ör: 1.20 Survival)",
+    lblProfileName: "Profil Adı (ör: 1.21.4 Survival)",
     btnSaveProfile: "💾 Yeni Profil Olarak Kaydet",
     cardProfiles: "KAYITLI SUNUCU PROFİLLERİ",
     btnLoadProfile: "Seçili Profili Yükle",
@@ -269,6 +272,10 @@ const i18n = {
     lblAutostart: "Windows ile birlikte başlat",
     lblSplashAnim: "Açılış animasyonunu göster",
     cardLang: "DİL SEÇİMİ (LANGUAGE)",
+    cardTrayTitle: "TEPSİ & ÇIKIŞ",
+    chkMinTray: "Kapatınca sistem tepsisine küçült",
+    trayDesc: "Etkinse X tuşu uygulamayı sistem tepsisine gizler. Tamamen kapatmak için aşağıdaki butonu veya tepsi menüsünü kullanın.",
+    btnAppExit: "Uygulamadan Çık",
     themeDark: "Koyu Tema (Dark)",
     themeLight: "Açık Tema (White)",
     themeRedstone: "Redstone Teması",
@@ -288,6 +295,12 @@ const i18n = {
     cardSchedBk: "OTOMATİK ZAMANLANMIŞ YEDEKLEME",
     lblSchedBk: "Otomatik Yedekleme",
     descSchedBk: "Sunucu çalışırken belirlenen saat aralığında (saat cinsinden) arka planda otomatik olarak dünya yedeği alır.",
+    lblSchedBkHours: "Aralık (saat)",
+    lblSchedBkKeep: "Oto. yedek sınırı",
+    cardJavaTitle: "JAVA ÇALIŞMA ZAMANI",
+    phJavaPath: "java.exe yolu (boş = Otomatik algıla)",
+    btnDetectJava: "Otomatik Bul",
+    javaDesc: "Boş bırakılırsa PATH ve standart kurulum klasörlerinden (Java 8–26+) otomatik algılanır.",
 
     // Console logs & Notifications
     consoleReady: "» Redstone Server Panel hazır. .jar dosyasını seçip \"Başlat\"a basın.",
@@ -318,7 +331,12 @@ const i18n = {
     errInvalidRam: "Geçersiz bellek formatı (ör: 4G, 2048M)",
     errInvalidPort: "Port 1-65535 arasında olmalıdır",
     errInvalidTime: "Saat SS:DD formatında olmalıdır (ör: 04:00)",
-    errInvalidHours: "Yedekleme aralığı 1-72 saat olmalıdır",
+    errInvalidHours: "Yedekleme aralığı 1-720 saat olmalıdır",
+    errInvalidBkKeep: "Oto. yedek sınırı 0-50 arasında olmalıdır",
+    logAppExitSim: "» [SİSTEM] Masaüstü uygulaması simülasyonda kapatıldı (sistem tepsisi yerine tam çıkış).",
+    toastAppExitSim: "Simülasyon: Uygulama tamamen kapatıldı",
+    logJavaDetected: "» [JAVA] Algılanan çalışma zamanı: Java 21 (21.0.5)",
+    logJavaSaved: "» [JAVA] Java çalışma zamanı ayarı güncellendi.",
     errInvalidJvm: "JVM argümanlarında tırnak (\") kullanılamaz",
     errServerMustStop: "Bu işlem için önce sunucuyu durdurun",
     errEmptyName: "Lütfen geçerli bir oyuncu adı girin",
@@ -506,7 +524,7 @@ const i18n = {
     // Page 6: Profiles
     cardSaveProfile: "SAVE NEW PROFILE",
     descProfileNote: "Saves current .jar path, IP, port, RAM, and JVM arguments as a named profile for instant switching.",
-    lblProfileName: "Profile Name (e.g. 1.20 Survival)",
+    lblProfileName: "Profile Name (e.g. 1.21.4 Survival)",
     btnSaveProfile: "💾 Save as New Profile",
     cardProfiles: "SAVED SERVER PROFILES",
     btnLoadProfile: "Load Selected Profile",
@@ -521,6 +539,10 @@ const i18n = {
     lblAutostart: "Start with Windows",
     lblSplashAnim: "Show startup splash animation",
     cardLang: "LANGUAGE SELECTION",
+    cardTrayTitle: "TRAY & EXIT",
+    chkMinTray: "Minimize to system tray on close",
+    trayDesc: "When enabled, clicking X hides the app to the system tray. Use the button below or tray menu to quit completely.",
+    btnAppExit: "Exit Application",
     themeDark: "Dark Theme (Default)",
     themeLight: "Light Theme (White)",
     themeRedstone: "Redstone Theme",
@@ -540,6 +562,12 @@ const i18n = {
     cardSchedBk: "SCHEDULED AUTO-BACKUP",
     lblSchedBk: "Scheduled Backup",
     descSchedBk: "Automatically takes background world backups at specified hour intervals while the server is running.",
+    lblSchedBkHours: "Interval (hours)",
+    lblSchedBkKeep: "Max auto keep",
+    cardJavaTitle: "JAVA RUNTIME",
+    phJavaPath: "java.exe path (empty = Auto-detect)",
+    btnDetectJava: "Auto-Detect",
+    javaDesc: "Leave empty to auto-detect from PATH or standard install folders (Java 8–26+).",
 
     // Console logs & Notifications
     consoleReady: "» Redstone Server Panel is ready. Select a .jar file and click \"Start\".",
@@ -570,7 +598,12 @@ const i18n = {
     errInvalidRam: "Invalid memory format (e.g. 4G, 2048M)",
     errInvalidPort: "Port must be between 1 and 65535",
     errInvalidTime: "Time must be in HH:MM format (e.g. 04:00)",
-    errInvalidHours: "Backup interval must be 1-72 hours",
+    errInvalidHours: "Backup interval must be 1-720 hours",
+    errInvalidBkKeep: "Max auto keep must be between 0 and 50",
+    logAppExitSim: "» [SYSTEM] Simulation: Desktop application exited cleanly.",
+    toastAppExitSim: "Simulation: Application exited cleanly",
+    logJavaDetected: "» [JAVA] Detected runtime: Java 21 (21.0.5)",
+    logJavaSaved: "» [JAVA] Java runtime setting updated.",
     errInvalidJvm: "JVM arguments cannot contain quotes (\")",
     errServerMustStop: "Stop the server before performing this action",
     errEmptyName: "Please enter a valid player name",
@@ -623,6 +656,8 @@ const settingsSubtabs = document.getElementById('settingsSubtabs');
 const subtabIndicator = document.getElementById('subtabIndicator');
 const winTitleText = document.getElementById('winTitleText');
 const subbarTitle = document.getElementById('subbarTitle');
+const subbarJava = document.getElementById('subbarJava');
+const subbarMcVer = document.getElementById('subbarMcVer');
 const consoleBody = document.getElementById('consoleBody');
 const consoleInput = document.getElementById('consoleInput');
 const btnStartStop = document.getElementById('btnStartStop');
@@ -670,6 +705,26 @@ function isValidPlayerName(name) {
 
 function isValidHHMM(raw) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test((raw || '').trim());
+}
+
+function detectMcVerFromJar() {
+  const raw = (inputJar && inputJar.value) ? inputJar.value : '';
+  const m = raw.match(/(\d+\.\d+(?:\.\d+)?)/);
+  return m ? m[1] : '1.21.4';
+}
+
+function updateSubbarRuntime() {
+  if (subbarJava) {
+    const jp = (state.appSettings.javaPath || '').trim();
+    if (!jp) subbarJava.textContent = 'Java 21';
+    else if (/21\.0\.5/.test(jp)) subbarJava.textContent = 'Java 21 (21.0.5)';
+    else subbarJava.textContent = state.lang === 'tr' ? 'Java (Özel)' : 'Java (Custom)';
+  }
+  if (subbarMcVer) {
+    subbarMcVer.textContent = (state.serverPhase === 'running')
+      ? `Minecraft ${detectMcVerFromJar()}`
+      : '';
+  }
 }
 
 function syncDashboardControlLocks() {
@@ -1308,6 +1363,7 @@ function setLanguage(langCode) {
     if (tileTime) tileTime.textContent = '--:--';
   }
   syncDashboardControlLocks();
+  updateSubbarRuntime();
 
   // Update initial console greeting if only 1 line exists
   const initialMsg = document.getElementById('consoleInitialMsg');
@@ -1341,6 +1397,7 @@ function launchServerWithUi() {
   state.restartPending = false;
   startServer();
   syncDashboardControlLocks();
+  updateSubbarRuntime();
   if (chartCpuTitle && state.isRunning) {
     chartCpuTitle.dataset.i18n = 'tileCpuSrv';
     chartCpuTitle.textContent = t.tileCpuSrv;
@@ -1450,6 +1507,7 @@ function startServer() {
   state.worldTimeUserSet = false;
   renderDashboardPlayers();
   syncDashboardControlLocks();
+  updateSubbarRuntime();
 
   const t = i18n[state.lang];
   const ramVal = (inputRam && inputRam.value.trim()) ? inputRam.value.trim() : '4G';
@@ -1473,7 +1531,7 @@ function startServer() {
     state.memoryMB = Math.round(Math.min(maxMb * 0.62, 2480));
     state.cpuPct = 74.8;
     updateTelemetryVisuals(true);
-    appendLog(`[${now()}] [Server thread/INFO]: Starting minecraft server version 1.20.4`, 'info');
+    appendLog(`[${now()}] [Server thread/INFO]: Starting minecraft server version ${detectMcVerFromJar()}`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Loading properties`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Default game type: ${(state.properties.gamemode || 'survival').toUpperCase()}`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Generating keypair`, 'info');
@@ -1483,6 +1541,7 @@ function startServer() {
   scheduleSim(() => {
     state.serverPhase = 'running';
     syncDashboardControlLocks();
+    updateSubbarRuntime();
     const curLangT = i18n[state.lang];
     appendLog(`[${now()}] [Server thread/INFO]: Preparing level "${state.properties.levelName || 'world'}"`, 'info');
     appendLog(`[${now()}] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld`, 'info');
@@ -1596,6 +1655,7 @@ function stopServer(keepRestartPending = false) {
   tileUptime.textContent = '00:00:00';
   if (tileTime) tileTime.textContent = '--:--';
   syncDashboardControlLocks();
+  updateSubbarRuntime();
   updateTelemetryVisuals(true);
 
   if (state.onlinePlayers.length > 0) {
@@ -1810,9 +1870,9 @@ consoleInput.addEventListener('keydown', (e) => {
 
 // Browse .jar simulator
 const sampleJars = [
-  'C:\\Minecraft\\paper-1.20.4.jar',
-  'C:\\Minecraft\\purpur-1.20.4.jar',
-  'C:\\Minecraft\\fabric-server-mc1.20.4.jar'
+  'C:\\Minecraft\\paper-1.21.4.jar',
+  'C:\\Minecraft\\purpur-1.21.4.jar',
+  'C:\\Minecraft\\fabric-server-mc1.21.4.jar'
 ];
 if (btnBrowse && inputJar) {
   btnBrowse.addEventListener('click', () => {
@@ -2053,6 +2113,7 @@ function syncSettingsFromState() {
   const s = state.appSettings;
   syncChkBox('chkAutoStartRow', s.autoStart);
   syncChkBox('chkSplashRow', s.splashAnim);
+  syncChkBox('chkMinTrayRow', s.minTray);
   syncChkBox('chkCrashGuardRow', s.crashGuard);
   syncChkBox('chkDailyRestartRow', s.dailyRestart);
   syncChkBox('chkSchedBkRow', s.schedBk);
@@ -2062,6 +2123,11 @@ function syncSettingsFromState() {
   if (jvmEl) jvmEl.value = s.jvmArgs;
   const bkEl = document.getElementById('inputSchedBkHours');
   if (bkEl) bkEl.value = s.schedBkHours;
+  const bkKeepEl = document.getElementById('inputSchedBkKeep');
+  if (bkKeepEl) bkKeepEl.value = s.schedBkKeep;
+  const javaEl = document.getElementById('inputJavaPath');
+  if (javaEl) javaEl.value = s.javaPath;
+  updateSubbarRuntime();
 }
 
 function clampIntField(id, minV, maxV, fallback) {
@@ -2114,6 +2180,7 @@ document.querySelectorAll('.chk-row').forEach(row => {
 
     if (row.id === 'chkAutoStartRow') state.appSettings.autoStart = nextChecked;
     else if (row.id === 'chkSplashRow') state.appSettings.splashAnim = nextChecked;
+    else if (row.id === 'chkMinTrayRow') state.appSettings.minTray = nextChecked;
     else if (row.id === 'chkCrashGuardRow') state.appSettings.crashGuard = nextChecked;
     else if (row.id === 'chkDailyRestartRow') state.appSettings.dailyRestart = nextChecked;
     else if (row.id === 'chkSchedBkRow') state.appSettings.schedBk = nextChecked;
@@ -2288,7 +2355,7 @@ document.querySelectorAll('[data-i18n="btnSaveProfile"]').forEach(btn => {
       showToast(t.errInvalidPort);
       return;
     }
-    const jarVal = (inputJar && inputJar.value.trim()) ? inputJar.value.trim() : 'C:\\Minecraft\\paper-1.20.4.jar';
+    const jarVal = (inputJar && inputJar.value.trim()) ? inputJar.value.trim() : 'C:\\Minecraft\\paper-1.21.4.jar';
     const ipVal = (inputIp && inputIp.value.trim()) ? inputIp.value.trim() : '';
     const jvmEl = document.getElementById('inputJvmArgs');
     const jvmVal = jvmEl ? jvmEl.value.trim() : state.appSettings.jvmArgs;
@@ -2457,15 +2524,61 @@ if (btnSaveSchedBk) {
   btnSaveSchedBk.addEventListener('click', () => {
     const t = i18n[state.lang];
     const el = document.getElementById('inputSchedBkHours');
+    const keepEl = document.getElementById('inputSchedBkKeep');
     const raw = el ? el.value.trim() : '';
+    const keepRaw = keepEl ? keepEl.value.trim() : '10';
     const v = /^\d+$/.test(raw) ? parseInt(raw, 10) : 0;
-    if (v < 1 || v > 72) {
+    const kv = /^\d+$/.test(keepRaw) ? parseInt(keepRaw, 10) : -1;
+    if (v < 1 || v > 720) {
       showToast(t.errInvalidHours);
       return;
     }
+    if (kv < 0 || kv > 50) {
+      showToast(t.errInvalidBkKeep);
+      return;
+    }
     state.appSettings.schedBkHours = String(v);
+    state.appSettings.schedBkKeep = String(kv);
     state.appSettings.schedBk = isChkRowChecked('chkSchedBkRow');
     appendLog(t.logSettingsSaved, 'sys');
+    showToast(t.toastSaved);
+  });
+}
+
+const btnAppExit = document.getElementById('btnAppExit');
+if (btnAppExit) {
+  btnAppExit.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    appendLog(t.logAppExitSim, 'warn');
+    showToast(t.toastAppExitSim);
+  });
+}
+
+const sampleJavaExe = 'C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.5.11-hotspot\\bin\\java.exe';
+const btnBrowseJava = document.getElementById('btnBrowseJava');
+const btnDetectJava = document.getElementById('btnDetectJava');
+const btnSaveJava = document.getElementById('btnSaveJava');
+
+[btnBrowseJava, btnDetectJava].forEach(btn => {
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    const javaEl = document.getElementById('inputJavaPath');
+    if (javaEl) javaEl.value = sampleJavaExe;
+    state.appSettings.javaPath = sampleJavaExe;
+    updateSubbarRuntime();
+    appendLog(t.logJavaDetected, 'sys');
+    showToast('Java 21 (21.0.5)');
+  });
+});
+
+if (btnSaveJava) {
+  btnSaveJava.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    const javaEl = document.getElementById('inputJavaPath');
+    state.appSettings.javaPath = javaEl ? javaEl.value.trim() : '';
+    updateSubbarRuntime();
+    appendLog(t.logJavaSaved, 'sys');
     showToast(t.toastSaved);
   });
 }

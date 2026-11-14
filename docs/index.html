@@ -98,7 +98,11 @@
       </div>
 
       <!-- Connected Sub-Bar -->
-      <div class="win-subbar" id="subbarTitle">PANEL</div>
+      <div class="win-subbar">
+        <span class="win-subbar-side" id="subbarJava">Java 21</span>
+        <span id="subbarTitle">PANEL</span>
+        <span class="win-subbar-side right" id="subbarMcVer"></span>
+      </div>
 
       <!-- Window Body Content -->
       <div class="win-body">
@@ -116,7 +120,7 @@
                 </div>
                 <label class="w-label" data-i18n="lblJar">Sunucu .jar dosyası</label>
                 <div class="w-input-row">
-                  <input type="text" class="w-input" id="inputJar" value="C:\Minecraft\paper-1.20.4.jar" readonly>
+                  <input type="text" class="w-input" id="inputJar" value="C:\Minecraft\paper-1.21.4.jar" readonly>
                   <button class="w-btn" id="btnBrowse" data-i18n="btnBrowse" style="height: 32px;">Seç</button>
                 </div>
 
@@ -547,7 +551,7 @@
               <p class="w-desc-text" data-i18n="descProfileNote">
                 Panel'deki .jar yolu, IP, port, RAM ve JVM argümanlarını bir profil olarak saklar. Farklı sunucular arasında tek tıkla geçiş yapabilirsiniz.
               </p>
-              <label class="w-label" data-i18n="lblProfileName">Profil Adı (ör: 1.20 Survival)</label>
+              <label class="w-label" data-i18n="lblProfileName">Profil Adı (ör: 1.21.4 Survival)</label>
               <input type="text" class="w-input" id="inputProfileName" placeholder="Hardcore Survival">
               <button class="w-btn w-btn-start" style="width: 100%;" data-i18n="btnSaveProfile">💾 Yeni Profil Olarak Kaydet</button>
             </div>
@@ -558,7 +562,7 @@
               <div class="player-list" id="listProfiles" style="height: 150px;">
                 <div class="player-item selected" data-name="26.3 Survival" data-jar="C:\Minecraft\server-26.3.jar" data-ip="" data-port="25565" data-ram="5G" data-jvm="-XX:+UseG1GC -XX:+ParallelRefProcEnabled">📂 26.3 Survival   •   5G   •   :25565</div>
                 <div class="player-item" data-name="Modlu Forge Sunucu" data-jar="C:\Minecraft\forge-1.20.1-server.jar" data-ip="" data-port="25566" data-ram="8G" data-jvm="-XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfml.readTimeout=90">📂 Modlu Forge Sunucu   •   8G   •   :25566</div>
-                <div class="player-item" data-name="Test Paper Server" data-jar="C:\Minecraft\paper-1.20.4.jar" data-ip="127.0.0.1" data-port="25567" data-ram="2G" data-jvm="-XX:+UseG1GC">📂 Test Paper Server   •   2G   •   :25567</div>
+                <div class="player-item" data-name="Test Paper Server" data-jar="C:\Minecraft\paper-1.21.4.jar" data-ip="127.0.0.1" data-port="25567" data-ram="2G" data-jvm="-XX:+UseG1GC">📂 Test Paper Server   •   2G   •   :25567</div>
               </div>
               <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
                 <button class="w-btn w-btn-start" style="flex: 1;" data-i18n="btnLoadProfile">Seçili Profili Yükle</button>
@@ -602,13 +606,27 @@
                 </div>
               </div>
 
-              <div class="w-card">
-                <div class="w-card-title" data-i18n="cardTheme">TEMA SEÇİMİ</div>
-                <div class="theme-picker-grid">
-                  <div class="theme-card-btn active" data-theme="dark" data-i18n="themeDark">Koyu Tema (Dark)</div>
-                  <div class="theme-card-btn" data-theme="light" data-i18n="themeLight">Açık Tema (White)</div>
-                  <div class="theme-card-btn" data-theme="redstone" data-i18n="themeRedstone">Redstone Teması</div>
-                  <div class="theme-card-btn" data-theme="minecraft" data-i18n="themeMinecraft">Minecraft Teması</div>
+              <div>
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardTheme">TEMA SEÇİMİ</div>
+                  <div class="theme-picker-grid">
+                    <div class="theme-card-btn active" data-theme="dark" data-i18n="themeDark">Koyu Tema (Dark)</div>
+                    <div class="theme-card-btn" data-theme="light" data-i18n="themeLight">Açık Tema (White)</div>
+                    <div class="theme-card-btn" data-theme="redstone" data-i18n="themeRedstone">Redstone Teması</div>
+                    <div class="theme-card-btn" data-theme="minecraft" data-i18n="themeMinecraft">Minecraft Teması</div>
+                  </div>
+                </div>
+
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardTrayTitle">TEPSİ &amp; ÇIKIŞ</div>
+                  <div class="chk-row" id="chkMinTrayRow">
+                    <div class="chk-box checked">✓</div>
+                    <span data-i18n="chkMinTray">Kapatınca sistem tepsisine küçült</span>
+                  </div>
+                  <p class="w-desc-text" data-i18n="trayDesc">
+                    Etkinse X tuşu uygulamayı sistem tepsisine gizler. Tamamen kapatmak için aşağıdaki butonu veya tepsi menüsünü kullanın.
+                  </p>
+                  <button class="w-btn w-btn-stop" id="btnAppExit" data-i18n="btnAppExit" style="flex: none; padding: 0.48rem 1.2rem;">Uygulamadan Çık</button>
                 </div>
               </div>
             </div>
@@ -676,10 +694,30 @@
                   <p class="w-desc-text" data-i18n="descSchedBk">
                     Sunucu çalışırken belirlenen saat aralığında (saat cinsinden) arka planda otomatik olarak dünya yedeği alır.
                   </p>
-                  <div class="w-input-row">
-                    <input type="number" class="w-input" id="inputSchedBkHours" value="2" min="1" max="72" style="margin-bottom: 0;">
+                  <div class="w-input-row" style="align-items: flex-end;">
+                    <div style="flex: 1;">
+                      <label class="w-label" data-i18n="lblSchedBkHours">Aralık (saat)</label>
+                      <input type="number" class="w-input" id="inputSchedBkHours" value="2" min="1" max="720" style="margin-bottom: 0;">
+                    </div>
+                    <div style="flex: 1;">
+                      <label class="w-label" data-i18n="lblSchedBkKeep">Oto. yedek sınırı</label>
+                      <input type="number" class="w-input" id="inputSchedBkKeep" value="10" min="0" max="50" style="margin-bottom: 0;">
+                    </div>
                     <button class="w-btn w-btn-start" id="btnSaveSchedBk" style="height: 32px;" data-i18n="btnSave">Kaydet</button>
                   </div>
+                </div>
+
+                <div class="w-card">
+                  <div class="w-card-title" data-i18n="cardJavaTitle">JAVA ÇALIŞMA ZAMANI</div>
+                  <input type="text" class="w-input" id="inputJavaPath" value="" data-i18n-ph="phJavaPath" placeholder="java.exe yolu (boş = Otomatik algıla)" style="margin-bottom: 0.5rem;">
+                  <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <button class="w-btn" id="btnBrowseJava" data-i18n="btnBrowse" style="flex: 1; height: 32px;">Seç</button>
+                    <button class="w-btn" id="btnDetectJava" data-i18n="btnDetectJava" style="flex: 1.2; height: 32px;">Otomatik Bul</button>
+                    <button class="w-btn w-btn-start" id="btnSaveJava" data-i18n="btnSave" style="flex: 1; height: 32px;">Kaydet</button>
+                  </div>
+                  <p class="w-desc-text" id="lblJavaStatus" data-i18n="javaDesc" style="margin-bottom: 0;">
+                    Boş bırakılırsa PATH ve standart kurulum klasörlerinden (Java 8–26+) otomatik algılanır.
+                  </p>
                 </div>
               </div>
             </div>

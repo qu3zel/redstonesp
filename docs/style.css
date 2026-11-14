@@ -532,6 +532,10 @@ body {
 
 /* Sub-Bar (Connects directly with active tab) */
 .win-subbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background-color: var(--w-subBar);
   padding: 6px 1rem;
   font-size: 0.7rem;
@@ -541,6 +545,23 @@ body {
   text-align: center;
   border-bottom: 1px solid var(--w-border);
   text-transform: uppercase;
+}
+
+.win-subbar-side {
+  position: absolute;
+  left: 1rem;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--w-muted);
+}
+
+.win-subbar-side.right {
+  left: auto;
+  right: 1rem;
+  color: var(--w-accent);
+  font-weight: 600;
 }
 
 /* Window Content Body */

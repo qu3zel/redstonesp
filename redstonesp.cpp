@@ -3189,7 +3189,12 @@ static void LoadAccessListsToUi() {
     if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
 }
 
-static void UpdateAccessListForName(const std::wstring& name, bool isOp, bool add) {
+static bool UpdateAccessListForName(const std::wstring& name, bool isOp, bool add) {
+    if (g_state == SrvState::Starting || g_state == SrvState::Stopping) {
+        AppLog(Tx(L"Sunucu başlatılırken veya kapatılırken yetki listesi değiştirilemez.",
+                  L"Cannot modify access list while server is starting or stopping."));
+        return false;
+    }
     if (g_state == SrvState::Running) {
         if (isOp) WriteToConsole((add ? L"op " : L"deop ") + name);
         else {
@@ -3197,7 +3202,7 @@ static void UpdateAccessListForName(const std::wstring& name, bool isOp, bool ad
             WriteToConsole(L"whitelist reload");
         }
         SetTimer(g_hwnd, TID_ACCESS_SYNC, 700, NULL);
-        return;
+        return true;
     }
 
     std::wstring dir = GetServerDir();
@@ -3224,6 +3229,7 @@ static void UpdateAccessListForName(const std::wstring& name, bool isOp, bool ad
         AppLog(Tx(L"Erişim listesi yazılamadı!", L"Failed to write access list file!"));
     }
     LoadAccessListsToUi();
+    return writeOk;
 }
 
 static void ModifyAccessList(bool isOp, bool add) {
@@ -3259,16 +3265,16 @@ static void ModifyAccessList(bool isOp, bool add) {
         return;
     }
 
-    UpdateAccessListForName(name, isOp, add);
-    if (add) SetWindowTextW(hEdit, L"");
+    if (UpdateAccessListForName(name, isOp, add) && add) SetWindowTextW(hEdit, L"");
 }
 
 static void QuickAccessCommand(const std::wstring& name, bool isOp, bool add) {
     if (!ValidPlayerName(name)) { AppLog(L().logInvalidPlayer); return; }
     if (!HasServerJar()) { Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING); return; }
-    UpdateAccessListForName(name, isOp, add);
-    AppLog((isOp ? (add ? Tx(L"OP verildi: ", L"OP granted: ") : Tx(L"OP alındı: ", L"OP revoked: "))
-                 : (add ? Tx(L"Whitelist'e eklendi: ", L"Added to whitelist: ") : Tx(L"Whitelist'ten çıkarıldı: ", L"Removed from whitelist: "))) + name);
+    if (UpdateAccessListForName(name, isOp, add)) {
+        AppLog((isOp ? (add ? Tx(L"OP verildi: ", L"OP granted: ") : Tx(L"OP alındı: ", L"OP revoked: "))
+                     : (add ? Tx(L"Whitelist'e eklendi: ", L"Added to whitelist: ") : Tx(L"Whitelist'ten çıkarıldı: ", L"Removed from whitelist: "))) + name);
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -7114,6 +7120,11 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (code == EN_SETFOCUS || code == EN_KILLFOCUS) {
                 for (int i = 0; i < F_COUNT; i++) if (g_f[i].h == (HWND)lp) {
                     RECT r = g_f[i].rc; InflateRect(&r, S(3), S(3)); InvalidateRect(hwnd, &r, FALSE);
+                }
+                if (code == EN_KILLFOCUS && id == ID_EDIT_JAR && g_state == SrvState::Stopped) {
+                    SaveSettings();
+                    RefreshMaxPlayersFromProps();
+                    InvalidateRect(hwnd, &g_rcStats, FALSE);
                 }
                 return 0;
             }

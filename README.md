@@ -23,13 +23,13 @@
 ### English
 - **Pure Native Win32**: Single C++17 source file (`redstonesp.cpp`), zero external dependencies, tiny memory footprint (~8-12 MB RAM), high-DPI aware.
 - **7-Tab Modern Window Architecture**:
-  - **Dashboard (Panel)**: Jar, IP, port, RAM, start/stop lifecycle, player list with skins, kick/ban/unban, interactive RichEdit colored console (info, warnings, errors, player chat, outgoing commands), Tab auto-completion for player names & Minecraft commands, command history navigation (Up/Down), live telemetry tiles.
+  - **Dashboard (Panel)**: Jar, IP, port, RAM configuration, one-click **Start / Stop Safely / Restart / Open Folder** lifecycle controls, online player list with skin heads & kick/ban/unban actions, Bento telemetry grid (4 KPI tiles + live **RAM & CPU sparkline charts**), interactive RichEdit colored console with log filters (**All / Warn / Chat / Save / Clear**), Tab auto-completion for player names & Minecraft commands, and Up/Down command history.
     <details>
       <summary>📸 <i>View Dashboard Preview</i></summary>
       <br>
       <img src="assets/tab_dashboard_en.png" alt="Dashboard" width="750">
     </details>
-  - **Properties (`server.properties`)**: Visual configurator for MOTD, max players, view distance, spawn protection, gamemode buttons, difficulty buttons, PvP, flight, online mode, command blocks.
+  - **Properties (`server.properties`)**: Visual configurator covering **MOTD**, **max-players**, **view-distance**, **simulation-distance**, **spawn-protection**, **level-name**, **level-seed**, selector buttons for **gamemode**, **difficulty**, and **level-type**, plus 13 toggles (**online-mode**, **pvp**, **white-list**, **allow-flight**, **enable-command-block**, **hardcore**, **force-gamemode**, **enforce-secure-profile**, **hide-online-players**, **allow-nether**, and **spawn-***).
     <details>
       <summary>📸 <i>View Properties Preview</i></summary>
       <br>
@@ -41,7 +41,7 @@
       <br>
       <img src="assets/tab_access_en.png" alt="Access" width="750">
     </details>
-  - **Backups**: World compression into `.zip` via native Windows `tar.exe` with automatic `save-all flush`, backup size display, restore, delete, and folder explorer.
+  - **Backups**: World compression into `.zip` via native Windows `tar.exe` with automatic `save-all flush`, custom **Backup Tags**, **Max Auto-Backup Retention (0–50)**, backup size display, restore, delete, and folder explorer.
     <details>
       <summary>📸 <i>View Backups Preview</i></summary>
       <br>
@@ -60,9 +60,8 @@
       <img src="assets/tab_profiles_en.png" alt="Profiles" width="750">
     </details>
   - **Settings & Automation**:
-    - *General*: Windows autostart, English/Türkçe language, four themes (Dark, Light, Redstone, Minecraft).
-    - *Server*: Crash auto-restart, customizable JVM arguments, logs launcher.
-    - *Automation*: Scheduled periodic world auto-backup and daily scheduled restart with in-game 5-minute & 1-minute countdown announcements.
+    - *General*: Windows autostart, startup splash animation toggle, English/Türkçe language, four themes (Dark, Light, Redstone, Minecraft), and **Minimize to System Tray & Exit Application** controls.
+    - *Server & Automation*: Custom `java.exe` runtime selector & auto-detect (Java 8–26+), crash auto-restart guard, customizable JVM arguments, logs folder launcher, scheduled auto-backup with retention limit (`0–50`), and daily scheduled restart with in-game 5-minute & 1-minute countdown announcements.
     <details>
       <summary>📸 <i>View Settings Preview</i></summary>
       <br>
@@ -72,13 +71,13 @@
 ### Türkçe
 - **Saf Win32 Performansı**: Tek dosyalı C++17 kaynak kodu (`redstonesp.cpp`), sıfır harici kütüphane bağımlılığı, ultra düşük bellek tüketimi ve yüksek DPI desteği.
 - **7 Sekmeli Modern Arayüz**:
-  - **Panel (Dashboard)**: Sunucu yapılandırması (.jar, IP, port, RAM), başlatma/durdurma, oyuncu listesi ve kafaları, kick/ban/unban, RichEdit tabanlı renkli konsol (bilgi, uyarı, hata, oyuncu sohbeti, gönderilen komutlar), oyuncu ve komutlar için Minecraft tarzı Tab otomatik tamamlama, komut geçmişi (Yukarı/Aşağı), canlı telemetri kutuları.
+  - **Panel (Dashboard)**: Sunucu yapılandırması (`.jar`, IP, port, RAM), tek tıkla **Başlat / Güvenle Durdur / Yeniden Başlat / Klasör Aç** kontrolleri, oyuncu listesi ve kafaları, kick/ban/unban işlemleri, Bento telemetri paneli (4 KPI kartı + canlı **RAM & CPU sparkline grafikleri**), filtreli (**Tümü / Uyarı / Sohbet / Kaydet / Temizle**) RichEdit renkli konsol, Minecraft tarzı Tab otomatik tamamlama ve Yukarı/Aşağı komut geçmişi.
     <details>
       <summary>📸 <i>Panel Ekran Görüntüsü</i></summary>
       <br>
       <img src="assets/tab_dashboard_tr.png" alt="Panel" width="750">
     </details>
-  - **Özellikler (`server.properties`)**: MOTD, oyuncu sayısı, görüş mesafesi, başlangıç koruması, oyun modu ve zorluk butonları, PvP, uçuş, online-mode ve komut bloğu ayarları.
+  - **Özellikler (`server.properties`)**: **MOTD**, **max-players**, **view-distance**, **simulation-distance**, **spawn-protection**, **level-name**, **level-seed** alanları; **oyun modu**, **zorluk** ve **dünya tipi (`level-type`)** buton grupları; **online-mode**, **pvp**, **white-list**, **allow-flight**, **enable-command-block**, **hardcore**, **force-gamemode**, **enforce-secure-profile**, **hide-online-players**, **allow-nether** ve **spawn-*** dahil 13 anahtar ayarı.
     <details>
       <summary>📸 <i>Özellikler Ekran Görüntüsü</i></summary>
       <br>
@@ -90,7 +89,7 @@
       <br>
       <img src="assets/tab_access_tr.png" alt="Yetkiler" width="750">
     </details>
-  - **Yedekler**: Harici araç gerektirmeden yerel `tar.exe` ile `.zip` formatında dünya yedekleme, otomatik `save-all flush`, tek tıkla geri yükleme ve silme.
+  - **Yedekler**: Harici araç gerektirmeden yerel `tar.exe` ile `.zip` formatında dünya yedekleme, otomatik `save-all flush`, özel **Yedek Etiketi**, **Oto. Yedek Sınırı (0–50)**, yedek klasörü kısayolu ve tek tıkla geri yükleme / silme.
     <details>
       <summary>📸 <i>Yedekler Ekran Görüntüsü</i></summary>
       <br>
@@ -109,9 +108,8 @@
       <img src="assets/tab_profiles_tr.png" alt="Profiller" width="750">
     </details>
   - **Ayarlar & Otomasyon**:
-    - *Genel*: Windows ile başlatma, Türkçe/İngilizce dil seçimi, dört tema (Koyu, Açık, Redstone, Minecraft).
-    - *Sunucu*: Çökme koruması, özel JVM argümanları, log klasörü kısayolu.
-    - *Otomasyon*: Belirlenen saat aralığında arka planda sessiz otomatik yedekleme ve oyun içine 5 dk / 1 dk kala anons geçen planlı günlük yeniden başlatma.
+    - *Genel*: Windows ile başlatma, açılış splash animasyonu ayarı, Türkçe/İngilizce dil seçimi, dört tema (Koyu, Açık, Redstone, Minecraft) ve **Sistem Tepsisine Küçült & Uygulamadan Çık** kontrolleri.
+    - *Sunucu & Otomasyon*: Özel `java.exe` çalışma zamanı seçici & otomatik algılama (Java 8–26+), çökme koruması, özel JVM argümanları, log klasörü kısayolu, saklama limitli (`0–50`) zamanlanmış otomatik yedekleme ve oyun içine 5 dk / 1 dk kala anons geçen planlı günlük yeniden başlatma.
     <details>
       <summary>📸 <i>Ayarlar Ekran Görüntüsü</i></summary>
       <br>
@@ -137,7 +135,7 @@ g++ -O2 -s -std=c++17 redstonesp.cpp resource.o -o RedstoneSP.exe \
 ### MSVC (Visual Studio Developer Command Prompt)
 ```bat
 rc resource.rc
-cl /utf-8 /EHsc /O2 redstonesp.cpp resource.res /Fe:RedstoneSP.exe ^
+cl /nologo /std:c++17 /utf-8 /EHsc /O2 redstonesp.cpp resource.res /Fe:RedstoneSP.exe ^
    /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib comdlg32.lib shell32.lib ^
    advapi32.lib psapi.lib winhttp.lib gdiplus.lib shlwapi.lib
 ```
