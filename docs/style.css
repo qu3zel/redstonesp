@@ -419,11 +419,6 @@ body {
   height: 34px;
   background-color: var(--w-tabBar);
   padding: 0 0.75rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.4);
-}
-
-.win-window.theme-light .win-titlebar {
-  border-bottom-color: rgba(15, 23, 42, 0.12);
 }
 
 .win-title {
