@@ -1426,7 +1426,7 @@ static DWORD WINAPI SkinFetchThread(LPVOID p) {
         if (hbm) DeleteObject(hbm);
         return 0;
     }
-    if (!PostMessageW(a->hwnd, WM_SC_EVENT, 0, (LPARAM)ev)) {
+    if (g_appClosing.load() || !PostMessageW(a->hwnd, WM_SC_EVENT, 0, (LPARAM)ev)) {
         if (hbm) DeleteObject(hbm);
         delete ev;
     }
@@ -1587,7 +1587,7 @@ static unsigned long long ParseRamLimitMb() {
     wchar_t u = (wchar_t)towupper(r.back());
     if (u != L'G' && u != L'M') return 4096;
     for (size_t i = 0; i + 1 < r.size(); i++) {
-        if (!iswdigit(r[i])) return 4096;
+        if (r[i] < L'0' || r[i] > L'9') return 4096;
     }
     unsigned long long val = _wcstoui64(r.substr(0, r.size() - 1).c_str(), NULL, 10);
     if (val == 0) return 4096;
@@ -1773,11 +1773,13 @@ static void Balloon(const std::wstring& title, const std::wstring& text) {
     Shell_NotifyIconW(NIM_MODIFY, &n);
 }
 static void ShowMain() {
-    ShowWindow(g_hwnd, SW_SHOW);
+    if (!g_hwnd) return;
     if (IsIconic(g_hwnd)) ShowWindow(g_hwnd, SW_RESTORE);
+    else ShowWindow(g_hwnd, SW_SHOW);
     SetForegroundWindow(g_hwnd);
 }
 static void HideMain() {
+    if (g_animatingPage && g_hwnd) FinishPageAnimation(g_hwnd);
     ShowWindow(g_hwnd, SW_HIDE);
     if (!g_trayHintShown) {
         g_trayHintShown = true;
@@ -2049,6 +2051,11 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
         }
     }
 
+    if (!isVisiblePage) {
+        g_logThemeDirty = true;
+        return;
+    }
+
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
@@ -2063,22 +2070,16 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
     }
 
     if (overflowed) {
-        if (isVisiblePage) {
-            RebuildLogView(wasAtBottom);
-            if (!wasAtBottom) {
-                savedScroll.x = 0;
-                SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&savedScroll);
-            }
-        } else {
-            g_logThemeDirty = true;
+        RebuildLogView(wasAtBottom);
+        if (!wasAtBottom) {
+            savedScroll.x = 0;
+            SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&savedScroll);
         }
         return;
     }
     if (batches.empty()) return;
 
-    if (isVisiblePage) {
-        SendMessageW(g_hLog, WM_SETREDRAW, FALSE, 0);
-    }
+    SendMessageW(g_hLog, WM_SETREDRAW, FALSE, 0);
 
     CHARFORMAT2W cf;
     ZeroMemory(&cf, sizeof(cf));
@@ -2108,17 +2109,13 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
         SendMessageW(g_hLog, EM_SETSCROLLPOS, 0, (LPARAM)&savedScroll);
     }
 
-    if (isVisiblePage) {
-        SendMessageW(g_hLog, WM_SETREDRAW, TRUE, 0);
-        if (wasAtBottom) {
-            SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
-        }
-        LockConsoleHorizontalScroll();
-        InvalidateRect(g_hLog, NULL, FALSE);
-        UpdateWindow(g_hLog);
-    } else {
-        ShowWindow(g_hLog, SW_HIDE);
+    SendMessageW(g_hLog, WM_SETREDRAW, TRUE, 0);
+    if (wasAtBottom) {
+        SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
     }
+    LockConsoleHorizontalScroll();
+    InvalidateRect(g_hLog, NULL, FALSE);
+    UpdateWindow(g_hLog);
 }
 
 static void AppendLog(const std::wstring& text) {
@@ -2191,8 +2188,8 @@ static void StripFormatting(std::string& s) {
                 i++; // 2-byte escape
             }
         } else if (c == 0xC2 && i + 1 < s.size() && (unsigned char)s[i + 1] == 0xA7) {
-            // UTF-8 '§' (0xC2 0xA7) followed by color/format code
-            i += 2;
+            // UTF-8 '§' (0xC2 0xA7) optionally followed by color/format code
+            i += (i + 2 < s.size() && s[i + 2] != '\r' && s[i + 2] != '\n') ? 2 : 1;
         } else if ((c >= 0xC2 && c <= 0xDF) && i + 1 < s.size() && ((unsigned char)s[i + 1] & 0xC0) == 0x80) {
             // Preserve valid 2-byte UTF-8 sequences (e.g. 'ç' = 0xC3 0xA7) intact
             o.push_back(s[i]);
@@ -2212,9 +2209,9 @@ static void StripFormatting(std::string& s) {
             o.push_back(s[i + 2]);
             o.push_back(s[i + 3]);
             i += 3;
-        } else if (c == 0xA7 && i + 1 < s.size()) {
-            // Single-byte legacy CP1252/Latin-1 '§' followed by color/format code
-            i += 1;
+        } else if (c == 0xA7) {
+            // Single-byte legacy CP1252/Latin-1 '§' optionally followed by color/format code
+            if (i + 1 < s.size() && s[i + 1] != '\r' && s[i + 1] != '\n') i += 1;
         } else if (c >= 0x20 || c == '\t' || c == '\n') {
             o.push_back(s[i]);
         }
@@ -2488,12 +2485,14 @@ static bool ValidRam(const std::wstring& r) {
     if (r.size() < 2 || r.size() > 7) return false;
     wchar_t u = towupper(r.back());
     if (u != L'G' && u != L'M') return false;
-    for (size_t i = 0; i + 1 < r.size(); i++) if (!iswdigit(r[i])) return false;
+    if (r.size() < 2) return false;
+    for (size_t i = 0; i + 1 < r.size(); i++) if (r[i] < L'0' || r[i] > L'9') return false;
     return _wtoi(r.substr(0, r.size() - 1).c_str()) > 0;
 }
 static bool ValidPort(const std::wstring& p) {
     if (p.empty() || p.size() > 5) return false;
-    for (wchar_t c : p) if (!iswdigit(c)) return false;
+    if (p.empty()) return false;
+    for (wchar_t c : p) if (c < L'0' || c > L'9') return false;
     int v = _wtoi(p.c_str()); return v >= 1 && v <= 65535;
 }
 static bool ValidIp(const std::wstring& ip) {
@@ -2756,7 +2755,7 @@ static bool UpdateProperties(const std::wstring& dir, const std::vector<std::pai
         bool found = false;
         for (auto& l : lines) {
             std::string t = TrimA(l);
-            if (!t.empty() && t[0] == '#') continue;
+            if (!t.empty() && (t[0] == '#' || t[0] == '!')) continue;
             size_t eq = t.find('=');
             if (eq != std::string::npos && TrimA(t.substr(0, eq)) == pr.first) {
                 l = pr.first + "=" + pr.second;
@@ -2798,7 +2797,7 @@ static std::map<std::string, std::string> ReadPropertiesMap(const std::wstring& 
         if (e == std::string::npos) e = data.size();
         std::string l = TrimA(data.substr(p, e - p));
         p = e + 1;
-        if (l.empty() || l[0] == '#') continue;
+        if (l.empty() || l[0] == '#' || l[0] == '!') continue;
         size_t eq = l.find('=');
         if (eq != std::string::npos) {
             mp[TrimA(l.substr(0, eq))] = TrimA(l.substr(eq + 1));
@@ -3164,8 +3163,10 @@ static std::string LookupUuidFor(const std::wstring& dir, const std::wstring& na
     if (!uuid.empty()) return uuid;
 
     std::string lowA = ToLowerA(ToUtf8(name));
-    for (const auto& e : ReadPlayerJsonList(JoinPath(dir, L"usercache.json"))) {
-        if (ToLowerA(e.name) == lowA && !e.uuid.empty()) return e.uuid;
+    for (const wchar_t* fn : { L"usercache.json", L"whitelist.json", L"ops.json" }) {
+        for (const auto& e : ReadPlayerJsonList(JoinPath(dir, fn))) {
+            if (ToLowerA(e.name) == lowA && !e.uuid.empty()) return e.uuid;
+        }
     }
     return "";
 }
@@ -3179,20 +3180,24 @@ static void LoadAccessListsToUi() {
         return;
     }
     std::wstring dir = GetServerDir();
-    for (const auto& e : ReadPlayerJsonList(JoinPath(dir, L"whitelist.json"))) {
-        std::wstring w = FromUtf8(e.name);
-        if (ValidPlayerName(w)) {
+    auto populateAccessList = [&](const wchar_t* fn, HWND hList) {
+        if (!hList) return;
+        for (const auto& e : ReadPlayerJsonList(JoinPath(dir, fn))) {
+            std::wstring w = FromUtf8(e.name);
+            if (!ValidPlayerName(w)) continue;
+            if (!e.uuid.empty()) {
+                EnterCriticalSection(&g_csUuid);
+                g_playerUuids[ToLowerW(w)] = FromUtf8(e.uuid);
+                LeaveCriticalSection(&g_csUuid);
+            }
             RequestPlayerSkin(w);
-            SendMessageW(g_hListWl, LB_ADDSTRING, 0, (LPARAM)w.c_str());
+            if (SendMessageW(hList, LB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)w.c_str()) == LB_ERR) {
+                SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)w.c_str());
+            }
         }
-    }
-    for (const auto& e : ReadPlayerJsonList(JoinPath(dir, L"ops.json"))) {
-        std::wstring w = FromUtf8(e.name);
-        if (ValidPlayerName(w)) {
-            RequestPlayerSkin(w);
-            SendMessageW(g_hListOp, LB_ADDSTRING, 0, (LPARAM)w.c_str());
-        }
-    }
+    };
+    populateAccessList(L"whitelist.json", g_hListWl);
+    populateAccessList(L"ops.json", g_hListOp);
     if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
 }
 
@@ -3300,6 +3305,9 @@ static bool DeleteDirRecursive(const std::wstring& dir) {
         do {
             if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
             std::wstring child = JoinPath(dir, fd.cFileName);
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_READONLY) {
+                SetFileAttributesW(child.c_str(), fd.dwFileAttributes & ~FILE_ATTRIBUTE_READONLY);
+            }
             if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                 if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) DeleteDirRecursive(child);
                 else RemoveDirectoryW(child.c_str());
@@ -3309,6 +3317,10 @@ static bool DeleteDirRecursive(const std::wstring& dir) {
             }
         } while (FindNextFileW(h, &fd));
         FindClose(h);
+    }
+    DWORD dirAttr = GetFileAttributesW(dir.c_str());
+    if (dirAttr != INVALID_FILE_ATTRIBUTES && (dirAttr & FILE_ATTRIBUTE_READONLY)) {
+        SetFileAttributesW(dir.c_str(), dirAttr & ~FILE_ATTRIBUTE_READONLY);
     }
     return RemoveDirectoryW(dir.c_str()) != FALSE;
 }
@@ -3349,10 +3361,14 @@ static bool RunProcessCapture(const std::wstring& cmd, const std::wstring& workD
     BOOL ok = CreateProcessW(NULL, cmdBuf.data(), NULL, NULL, stdOut ? TRUE : FALSE, CREATE_NO_WINDOW, NULL, workDir.c_str(), &si, &pi);
     if (wr) CloseHandle(wr);
     if (!ok) { if (rd) CloseHandle(rd); return false; }
-    if (stdOut && rd) {
+    bool truncated = false;
+    if (rd) {
         char buf[4096]; DWORD n = 0;
         while (ReadFile(rd, buf, sizeof(buf), &n, NULL) && n > 0) {
-            if (stdOut->size() < 2 * 1024 * 1024) stdOut->append(buf, n);
+            if (stdOut) {
+                if (stdOut->size() + n <= 32u * 1024u * 1024u) stdOut->append(buf, n);
+                else truncated = true;
+            }
         }
         CloseHandle(rd);
     }
@@ -3360,7 +3376,7 @@ static bool RunProcessCapture(const std::wstring& cmd, const std::wstring& workD
     GetExitCodeProcess(pi.hProcess, &exitCode);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    return true;
+    return !truncated;
 }
 
 static void SetBackupButtonsEnabled(bool en) {
@@ -3541,6 +3557,7 @@ static DWORD WINAPI BackupWorkerThread(LPVOID param) {
 }
 
 static void StartCreateBackup(bool silent = false) {
+    if (g_appClosing.load()) return;
     if (g_backupBusy.load()) {
         if (!silent) AppLog(Tx(L"Şu anda başka bir yedekleme işlemi devam ediyor.", L"A backup operation is already in progress."));
         return;
@@ -3577,7 +3594,11 @@ static void StartCreateBackup(bool silent = false) {
         cleanTag = L"auto";
     } else {
         std::wstring tag = Trim(GetText(g_hEditBkTag));
-        for (wchar_t c : tag) if (iswalnum(c) || c == L'-' || c == L'_') cleanTag.push_back(c);
+        for (wchar_t c : tag) {
+            if (((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'-' || c == L'_') && cleanTag.size() < 48) {
+                cleanTag.push_back(c);
+            }
+        }
     }
 
     SYSTEMTIME st; GetLocalTime(&st);
@@ -3748,6 +3769,8 @@ static void SaveCurrentAsProfile() {
     LoadProfilesListToUi();
 }
 
+static void LoadModFolder(const std::wstring& subDir, std::vector<ModItem>& outList, HWND hLb);
+
 static void LoadSelectedProfile() {
     if (g_state != SrvState::Stopped) {
         Msg(Tx(L"Profil değiştirmeden önce sunucuyu durdurmalısınız.", L"Please stop the server before switching profiles."),
@@ -3764,15 +3787,20 @@ static void LoadSelectedProfile() {
     SetWindowTextW(g_hIp,   pr.ip.c_str());
     SetWindowTextW(g_hPort, pr.port.empty() ? L"25565" : pr.port.c_str());
     SetWindowTextW(g_hRam,  pr.ram.empty() ? L"4G" : pr.ram.c_str());
-    if (pr.jvm.find(L'"') == std::wstring::npos) {
-        g_jvmArgs = pr.jvm;
-        SetWindowTextW(g_hJvm, g_jvmArgs.c_str());
-    }
+    std::wstring cleanJvm;
+    for (wchar_t ch : pr.jvm) if (ch != L'"') cleanJvm.push_back(ch);
+    g_jvmArgs = Trim(cleanJvm);
+    SetWindowTextW(g_hJvm, g_jvmArgs.c_str());
     g_javaPath = pr.javaPath;
     if (g_hEditJavaPath) SetWindowTextW(g_hEditJavaPath, g_javaPath.c_str());
     RefreshDetectedJavaLabel();
     SaveSettings();
     RefreshMaxPlayersFromProps();
+    LoadServerPropertiesToUi();
+    LoadAccessListsToUi();
+    LoadBackupsListToUi();
+    LoadModFolder(L"plugins", g_pluginsList, g_hListPlugins);
+    LoadModFolder(L"mods", g_modsList, g_hListMods);
     if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
     AppLog(std::wstring(Tx(L"Profil yüklendi: ", L"Profile loaded: ")) + pr.name);
 }
@@ -4334,6 +4362,7 @@ static void StartServer() {
                     ? L"İstenen bellek (" + ram + L"), bilgisayarın toplam RAM'inden (" + std::to_wstring(totMb) + L" MB) fazla. Yine de başlatılsın mı?"
                     : L"Requested memory (" + ram + L") exceeds the system's total RAM (" + std::to_wstring(totMb) + L" MB). Start anyway?";
                 if (Msg(m, L().titleInvalidVal, MB_YESNO | MB_ICONWARNING) != IDYES) return;
+                if (g_state != SrvState::Stopped || g_backupBusy.load() || g_appClosing.load()) return;
             }
         }
     }
@@ -4372,10 +4401,12 @@ static void StartServer() {
                 L().titleError, MB_YESNO | MB_ICONWARNING) != IDYES) {
             return;
         }
+        if (g_state != SrvState::Stopped || g_backupBusy.load() || g_appClosing.load()) return;
     }
 
     if (!EulaAccepted(dir)) {
         if (Msg(L().msgEulaPrompt, L().titleEula, MB_YESNO | MB_ICONQUESTION) != IDYES) return;
+        if (g_state != SrvState::Stopped || g_backupBusy.load() || g_appClosing.load()) return;
         WriteAll(JoinPath(dir, L"eula.txt"), "# Accepted via Redstone Server Panel\neula=true\n");
     }
 
@@ -4613,14 +4644,15 @@ static void RequestExit() {
         int r = Msg(Tx(L"Şu anda bir yedekleme/geri yükleme işlemi devam ediyor.\nİşlem tamamlandığında otomatik çıkılsın mı?",
                        L"A backup or restore operation is currently in progress.\nWait for completion and exit automatically?"),
                     L().titleExit, MB_YESNO | MB_ICONWARNING);
-        if (r == IDYES) {
+        if (r != IDYES) return;
+        if (g_backupBusy.load()) {
             g_deferredQuit = true;
             if (g_state == SrvState::Starting || g_state == SrvState::Running) {
                 g_quitPending = true;
                 StopServer();
             }
+            return;
         }
-        return;
     }
     if (g_state == SrvState::Stopped) { DestroyWindow(g_hwnd); return; }
     if (!g_quitPending) {
@@ -4924,6 +4956,7 @@ static void HistoryNav(int d) {
 //  Subclasses: Enter/Tab navigation, Button Hover
 // ----------------------------------------------------------------------------
 static void FocusNext(HWND h) {
+    if (g_animatingPage && g_hwnd) FinishPageAnimation(g_hwnd);
     bool shift = GetKeyState(VK_SHIFT) < 0;
     HWND n = GetNextDlgTabItem(g_hwnd, h, shift);
     if (n) SetFocus(n);
@@ -5536,7 +5569,7 @@ static void PaintPageChildControls(HDC mem) {
             if (txt.empty()) return;
             int sc = SaveDC(mem);
             IntersectClipRect(mem, rc.left, rc.top, rc.right, rc.bottom);
-            SelectObject(mem, g_fUI);
+            SelectObject(mem, (h == g_hCmd) ? g_fMono : g_fUI);
             SetBkMode(mem, TRANSPARENT);
             SetTextColor(mem, P.text);
             DrawTextW(mem, txt.c_str(), -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
@@ -5597,18 +5630,19 @@ static void FinishPageAnimation(HWND hwnd) {
     if (g_page == PG_PANEL) {
         if (g_logThemeDirty) {
             g_logThemeDirty = false;
-            ReapplyLogColors();
+            RebuildLogView(true);
         } else if (g_hLog) {
             SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
             LockConsoleHorizontalScroll();
         }
     }
     if (wasVisible) {
-        if (GetFocus() == hwnd) {
+        SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
+        HWND curFocus = GetFocus();
+        if (wasAnimating && (!curFocus || curFocus == hwnd || (IsChild(hwnd, curFocus) && !IsWindowVisible(curFocus)))) {
             HWND first = GetNextDlgTabItem(hwnd, NULL, FALSE);
             if (first) SetFocus(first);
         }
-        SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
         if (wasAnimating && !IsIconic(hwnd)) {
             RECT cr; GetClientRect(hwnd, &cr);
             int animTop = (g_pageAnimTop > HeaderH()) ? g_pageAnimTop : HeaderH();
@@ -5823,7 +5857,7 @@ static void PaintMain(HWND hwnd) {
 
     PaintHeader(mem, W);
 
-    if (g_animatingPage && g_pageAnimT < 1.0f) {
+    if (g_animatingPage) {
         if (g_page != PG_PANEL && g_pageAnimTop > HeaderH()) {
             PaintCardPage(mem, 1);
         }
@@ -6521,10 +6555,10 @@ static void ShowPage() {
     if (prof) LoadProfilesListToUi();
     g_autoStartCache = IsAutoStart();
 
-    // If theme changed while on another page, recolor log now that we returned to the dashboard
+    // If theme or off-page logs changed while away, rebuild console now that we returned to the dashboard
     if (pan && g_logThemeDirty) {
         g_logThemeDirty = false;
-        ReapplyLogColors();
+        RebuildLogView(true);
     } else if (pan && g_hLog) {
         SendMessageW(g_hLog, WM_VSCROLL, SB_BOTTOM, 0);
         LockConsoleHorizontalScroll();
@@ -6534,12 +6568,14 @@ static void ShowPage() {
     Layout(rc.right, rc.bottom);
 
     if (wasVisible) {
-        HWND curFocus = GetFocus();
-        if (curFocus && curFocus != g_hwnd && IsChild(g_hwnd, curFocus) && !IsWindowVisible(curFocus)) {
-            HWND first = GetNextDlgTabItem(g_hwnd, NULL, FALSE);
-            SetFocus(first ? first : g_hwnd);
-        }
         SendMessageW(g_hwnd, WM_SETREDRAW, TRUE, 0);
+        if (!g_animatingPage) {
+            HWND curFocus = GetFocus();
+            if (!curFocus || curFocus == g_hwnd || (IsChild(g_hwnd, curFocus) && !IsWindowVisible(curFocus))) {
+                HWND first = GetNextDlgTabItem(g_hwnd, NULL, FALSE);
+                SetFocus(first ? first : g_hwnd);
+            }
+        }
         RedrawWindow(g_hwnd, NULL, NULL,
                      RDW_INVALIDATE | (g_animatingPage ? RDW_NOERASE : RDW_ERASE) | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
@@ -6760,6 +6796,11 @@ static void NavigateTo(int pg) {
     if (g_tabCurX < 0 && g_rcTab[oldPage].right > g_rcTab[oldPage].left) {
         g_tabCurX = (float)g_rcTab[oldPage].left;
         g_tabCurW = (float)(g_rcTab[oldPage].right - g_rcTab[oldPage].left);
+    }
+
+    if (g_animatingSubTab) {
+        g_animatingSubTab = false;
+        g_subCurX = g_subTargetX;
     }
 
     g_animatingTab = true;
@@ -7184,7 +7225,7 @@ static void HandleServerEvent(SrvEvent* e) {
             }
             TrayUpdate(); InvalidateRect(g_hwnd, NULL, FALSE); break;
         }
-        case EV_TIME: g_igTime = e->text; InvalidateRect(g_hwnd, &g_rcStats, FALSE); break;
+        case EV_TIME: g_igTime = e->text; if (g_page == PG_PANEL) InvalidateRect(g_hwnd, &g_rcStats, FALSE); break;
         case EV_MC_VER:
             g_mcVersion = e->text;
             {
@@ -7273,6 +7314,62 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
 
+#ifndef WM_DPICHANGED
+#define WM_DPICHANGED 0x02E0
+#endif
+        case WM_DPICHANGED: {
+            if (g_animatingPage) FinishPageAnimation(hwnd);
+            int newDpi = (int)HIWORD(wp);
+            if (newDpi > 0) g_dpi = newDpi;
+
+            HFONT oldF[5] = { g_fUI, g_fSemi, g_fCap, g_fVal, g_fMono };
+            HFONT nfUI   = MakeFont(10, FW_NORMAL, L"Segoe UI");
+            HFONT nfSemi = MakeFont(10, FW_SEMIBOLD, L"Segoe UI");
+            HFONT nfCap  = MakeFont(8, FW_SEMIBOLD, L"Segoe UI");
+            HFONT nfVal  = MakeFont(13, FW_SEMIBOLD, L"Segoe UI");
+            HFONT nfMono = MakeFont(9, FW_NORMAL, L"Consolas");
+            if (nfUI)   g_fUI   = nfUI;   else oldF[0] = NULL;
+            if (nfSemi) g_fSemi = nfSemi; else oldF[1] = NULL;
+            if (nfCap)  g_fCap  = nfCap;  else oldF[2] = NULL;
+            if (nfVal)  g_fVal  = nfVal;  else oldF[3] = NULL;
+            if (nfMono) g_fMono = nfMono; else oldF[4] = NULL;
+
+            HDC dc = GetDC(hwnd);
+            if (dc) {
+                HGDIOBJ of = SelectObject(dc, g_fUI);
+                TEXTMETRICW tm = {};
+                if (GetTextMetricsW(dc, &tm)) g_textH = tm.tmHeight;
+                SelectObject(dc, of);
+                ReleaseDC(hwnd, dc);
+            }
+
+            EnumPageControls([&](HWND ch, bool) {
+                wchar_t cls[32] = {};
+                GetClassNameW(ch, cls, 32);
+                HFONT f = (ch == g_hLog || ch == g_hCmd) ? g_fMono : (_wcsicmp(cls, L"Button") == 0 ? g_fSemi : g_fUI);
+                SendMessageW(ch, WM_SETFONT, (WPARAM)f, FALSE);
+            });
+            for (HFONT f : oldF) if (f) DeleteObject(f);
+
+            for (HWND lb : { g_hList, g_hListWl, g_hListOp, g_hListBk, g_hListProf, g_hListPlugins, g_hListMods }) {
+                if (lb) SendMessageW(lb, LB_SETITEMHEIGHT, 0, S(38));
+            }
+            if (g_hLog) SendMessageW(g_hLog, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(S(6), S(6)));
+
+            const RECT* sug = (const RECT*)lp;
+            if (sug) {
+                SetWindowPos(hwnd, NULL, sug->left, sug->top,
+                             sug->right - sug->left, sug->bottom - sug->top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            RECT cr; GetClientRect(hwnd, &cr);
+            if (cr.right > 0 && cr.bottom > 0) {
+                Layout(cr.right, cr.bottom);
+                RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+            }
+            return 0;
+        }
+
         case WM_DISPLAYCHANGE: {
             RefreshMonitorHz();
             if (!IsZoomed(hwnd) && !IsIconic(hwnd)) {
@@ -7310,7 +7407,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             POINT pt = { (short)LOWORD(lp), (short)HIWORD(lp) };
             int hoverTab = -1;
             int hoverSub = -1;
-            if (pt.y < S(46)) {
+            if (pt.y < HeaderH()) {
                 for (int i = 0; i < PG_COUNT; i++) {
                     if (PtInRect(&g_rcTab[i], pt)) { hoverTab = i; break; }
                 }
@@ -7326,6 +7423,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 RECT cr; GetClientRect(hwnd, &cr);
                 RECT rHead = { 0, 0, cr.right, HeaderH() + S(46) };
                 InvalidateRect(hwnd, &rHead, FALSE);
+                if (OverChrome(pt)) SetCursor(LoadCursor(NULL, IDC_HAND));
             }
             TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
             TrackMouseEvent(&tme);
@@ -7365,14 +7463,22 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     }
                     return 0;
                 }
-            if (g_animatingPage) {
-                FinishPageAnimation(hwnd);
-                HWND child = ChildWindowFromPointEx(hwnd, pt, CWP_SKIPINVISIBLE | CWP_SKIPDISABLED);
-                if (child && child != hwnd) {
+            bool wasAnim = g_animatingPage;
+            if (wasAnim) FinishPageAnimation(hwnd);
+            HWND child = ChildWindowFromPointEx(hwnd, pt, CWP_SKIPINVISIBLE | CWP_SKIPDISABLED);
+            if (child && child != hwnd) {
+                if (wasAnim) {
                     POINT cpt = pt;
-                    ClientToScreen(hwnd, &cpt);
-                    ScreenToClient(child, &cpt);
+                    MapWindowPoints(hwnd, child, &cpt, 1);
+                    if (GetWindowLongPtrW(child, GWL_STYLE) & WS_TABSTOP) SetFocus(child);
                     SendMessageW(child, WM_LBUTTONDOWN, wp, MAKELPARAM(cpt.x, cpt.y));
+                }
+            } else {
+                for (int i = 0; i < F_COUNT; i++) {
+                    if (g_f[i].h && IsFieldActiveOnCurrentPage(i) && PtInRect(&g_f[i].rc, pt)) {
+                        SetFocus(g_f[i].h);
+                        break;
+                    }
                 }
             }
             return 0;
@@ -7705,7 +7811,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g_procExitedTicks = 0;
                 }
                 UpdateTelemetryStats();
-                InvalidateRect(hwnd, &g_rcStats, FALSE);
+                if (g_page == PG_PANEL) InvalidateRect(hwnd, &g_rcStats, FALSE);
                 if (g_state != SrvState::Stopped) TrayUpdate();
 
                 // Automation: Scheduled Backups & Daily Restarts
@@ -8448,7 +8554,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
         bool splashQuit = false;
         if (wantSplash) {
             RunStartupSplash(hInst, hwnd, nCmdShow, &splashQuit);
-            if (splashQuit && IsWindow(hwnd)) DestroyWindow(hwnd);
+            if (splashQuit) {
+                g_appClosing = true;
+                if (IsWindow(hwnd)) DestroyWindow(hwnd);
+            }
         } else {
             ShowWindow(hwnd, nCmdShow);
         }
@@ -8464,6 +8573,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
                 NavigateTo((g_page + (shift ? -1 : 1) + PG_COUNT) % PG_COUNT);
                 continue;
             }
+            if (g_animatingPage) FinishPageAnimation(g_hwnd);
             // Forward plain Tab/Shift+Tab for ListBoxes, RichEdit log, or main window itself
             if (msg.hwnd == g_hwnd || msg.hwnd == g_hLog || msg.hwnd == g_hList ||
                 msg.hwnd == g_hListWl || msg.hwnd == g_hListOp || msg.hwnd == g_hListBk ||

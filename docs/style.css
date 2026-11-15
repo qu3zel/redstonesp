@@ -1529,8 +1529,108 @@ body {
 }
 
 .hero-showcase .win-body {
-  padding: 0.9rem;
-  min-height: 390px;
+  padding: 0.85rem 0.9rem;
+  height: 575px;
+  min-height: 575px;
+  max-height: 575px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.hero-showcase .sim-page.active {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.hero-showcase #page-panel .panel-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.hero-showcase #page-props .prop-grid {
+  gap: 0.45rem 0.65rem;
+}
+
+.hero-showcase #page-props .prop-grid > div {
+  gap: 0.45rem;
+}
+
+.hero-showcase #page-props .w-card {
+  padding: 0.46rem 0.65rem;
+  margin-bottom: 0;
+}
+
+.hero-showcase #page-props .w-card-head,
+.hero-showcase #page-props .card-title {
+  margin-bottom: 0.32rem;
+}
+
+.hero-showcase #page-props .form-row {
+  margin-bottom: 0.24rem;
+}
+
+.hero-showcase #page-props label {
+  font-size: 0.66rem;
+  line-height: 1.18;
+  margin-bottom: 0.1rem;
+}
+
+.hero-showcase #page-props .chk-row {
+  margin-bottom: 0.22rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 0.66rem;
+  line-height: 1.18;
+}
+
+.hero-showcase #page-props input,
+.hero-showcase #page-props select {
+  padding: 0.21rem 0.46rem;
+  font-size: 0.72rem;
+}
+
+.hero-showcase #page-props button {
+  padding: 0.22rem 0.4rem;
+  font-size: 0.65rem;
+}
+
+.hero-showcase #page-props .btn-row-4,
+.hero-showcase #page-props .seg-row {
+  gap: 0.24rem;
+  margin-bottom: 0.32rem;
+}
+
+.hero-showcase #page-props p,
+.hero-showcase #page-props small {
+  font-size: 0.65rem;
+  line-height: 1.2;
+  margin-top: 0.2rem;
+  margin-bottom: 0;
+}
+
+.hero-showcase #page-settings .w-card {
+  padding: 0.56rem 0.74rem;
+  margin-bottom: 0.45rem;
+}
+
+.hero-showcase #page-settings input,
+.hero-showcase #page-settings select,
+.hero-showcase #page-settings button {
+  padding: 0.28rem 0.55rem;
+  font-size: 0.74rem;
+}
+
+.hero-showcase #page-settings p {
+  font-size: 0.7rem;
+  line-height: 1.28;
+  margin-bottom: 0.3rem;
+}
+
+.hero-showcase .sim-page:not(#page-panel) > :last-child {
+  margin-bottom: 0;
 }
 
 .hero-showcase .panel-grid {
@@ -1672,6 +1772,16 @@ body {
 @media (max-width: 900px) {
   .hero-logo { width: 92px; height: 92px; }
   .hero-title { font-size: 2.25rem; }
+  .hero-showcase .win-body {
+    height: auto;
+    min-height: 360px;
+    max-height: none;
+    overflow: visible;
+    display: block;
+  }
+  .hero-showcase .sim-page.active {
+    display: block;
+  }
   .panel-grid,
   .hero-showcase .panel-grid { grid-template-columns: 1fr; }
   .telemetry-kpi-row { grid-template-columns: repeat(2, 1fr); }
