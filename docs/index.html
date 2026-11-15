@@ -7,7 +7,10 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body id="top" data-site-theme="dark">
+
+  <!-- Top Scroll Progress Bar -->
+  <div class="scroll-progress-bar" id="scrollProgressBar" aria-hidden="true"></div>
 
   <!-- Ambient Light Effects -->
   <div class="ambient-glow ambient-left"></div>
@@ -15,13 +18,14 @@
   <div class="ambient-glow ambient-center"></div>
 
   <!-- Navigation Bar -->
-  <nav class="navbar">
-    <a href="#" class="brand">
+  <nav class="navbar" id="navbar">
+    <a href="#top" class="brand" aria-label="Redstone Server Panel">
       <img src="logo.png" alt="Redstone Server Panel Logo" class="brand-icon">
     </a>
     <div class="nav-links">
+      <a href="#features" class="nav-link" data-i18n="navFeatures">Özellikler</a>
       <a href="#projects" class="nav-link" data-i18n="navProjects">Diğer Projeler</a>
-      <a href="https://github.com/qu3zel/redstonesp" target="_blank" rel="noopener noreferrer" class="nav-link">GitHub ⭐</a>
+      <a href="https://github.com/qu3zel/redstonesp" target="_blank" rel="noopener noreferrer" class="nav-link nav-link-ext">GitHub ⭐</a>
     </div>
   </nav>
 
@@ -831,17 +835,17 @@
       </a>
 
       <!-- GitHub Profile Card -->
-      <a href="https://github.com/qu3zel" target="_blank" rel="noopener noreferrer" class="proj-card" style="border-color: rgba(56, 189, 248, 0.4);">
+      <a href="https://github.com/qu3zel" target="_blank" rel="noopener noreferrer" class="proj-card proj-card-highlight">
         <div>
           <div class="proj-top">
-            <div class="proj-icon-box" style="background: rgba(56, 189, 248, 0.25);">👤</div>
+            <div class="proj-icon-box">👤</div>
             <div class="proj-title" data-i18n="projProfileTitle">Tüm Depolar & Profil</div>
           </div>
           <p class="proj-desc" data-i18n="projProfileDesc">
             GitHub üzerindeki açık kaynak projelerimi, geliştirici araçlarını ve gelecekteki geliştirmeleri takip edin.
           </p>
         </div>
-        <div class="proj-footer" style="color: var(--accent);">
+        <div class="proj-footer">
           <span>github.com/qu3zel</span>
           <span data-i18n="projVisitProfile">Profili Ziyaret Et →</span>
         </div>
@@ -858,6 +862,9 @@
       <span data-i18n="footerDev">Geliştirici:</span> <a href="https://github.com/qu3zel" target="_blank" rel="noopener noreferrer">@qu3zel</a> • <a href="https://github.com/qu3zel/redstonesp" target="_blank" rel="noopener noreferrer" data-i18n="footerRepo">GitHub Deposu</a> • <a href="https://github.com/qu3zel/redstonesp/releases" target="_blank" rel="noopener noreferrer" data-i18n="footerDownloadLatest">Son Sürümü İndir</a>
     </p>
   </footer>
+
+  <!-- Floating Back-to-Top Button -->
+  <button type="button" class="scroll-top-btn" id="scrollTopBtn" aria-label="Yukarı Çık" title="Yukarı Çık">↑</button>
 
   <script src="app.js"></script>
 </body>

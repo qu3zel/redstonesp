@@ -1257,16 +1257,35 @@ if (typeof window !== 'undefined') {
   }
 }
 
-// Theme change
+// Theme change (synchronizes both simulator window & entire website theme)
+let siteThemeInitialized = false;
+let themeMorphTimer = null;
+
 function setTheme(themeName) {
   state.theme = themeName;
   winWindow.className = `win-window theme-${themeName}`;
+  if (document.body) {
+    document.body.dataset.siteTheme = themeName;
+  }
+  document.documentElement.dataset.siteTheme = themeName;
+
   document.querySelectorAll('.theme-card-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.theme === themeName);
   });
   document.querySelectorAll('.sim-btn-pill[data-theme]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.theme === themeName);
   });
+
+  if (siteThemeInitialized && document.body && !navAnim.reducedMotion) {
+    document.body.classList.add('theme-morphing');
+    if (themeMorphTimer) clearTimeout(themeMorphTimer);
+    themeMorphTimer = setTimeout(() => {
+      document.body.classList.remove('theme-morphing');
+      themeMorphTimer = null;
+    }, 520);
+  }
+  siteThemeInitialized = true;
+
   updateTelemetryVisuals(false);
 }
 window.setTheme = setTheme;
@@ -1369,6 +1388,14 @@ function setLanguage(langCode) {
   const initialMsg = document.getElementById('consoleInitialMsg');
   if (initialMsg && consoleBody.children.length === 1) {
     initialMsg.textContent = t.consoleReady;
+  }
+
+  // Update Floating Back-to-Top accessibility label
+  const scrollTopBtn = document.getElementById('scrollTopBtn');
+  if (scrollTopBtn) {
+    const label = (langCode === 'tr') ? 'Yukarı Çık' : 'Back to Top';
+    scrollTopBtn.setAttribute('aria-label', label);
+    scrollTopBtn.setAttribute('title', label);
   }
 
   renderDashboardPlayers();
@@ -2643,6 +2670,206 @@ function now() {
 
 if (inputRam) inputRam.addEventListener('input', () => updateTelemetryVisuals(false));
 
+// ========================================================
+// WEBSITE SMOOTH SCROLL, REVEAL & SPOTLIGHT ANIMATIONS
+// ========================================================
+let activeScrollRaf = 0;
+
+function cancelActiveSmoothScroll() {
+  if (activeScrollRaf) {
+    cancelAnimationFrame(activeScrollRaf);
+    activeScrollRaf = 0;
+  }
+}
+
+function animateScrollToY(targetY, duration = 700, onDone = null) {
+  cancelActiveSmoothScroll();
+  const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  const clampedTarget = Math.max(0, Math.min(targetY, maxScroll));
+
+  if (navAnim.reducedMotion || duration <= 0) {
+    window.scrollTo(0, clampedTarget);
+    if (typeof onDone === 'function') onDone();
+    return;
+  }
+
+  const startY = window.scrollY || window.pageYOffset || 0;
+  const distance = clampedTarget - startY;
+  if (Math.abs(distance) < 2) {
+    window.scrollTo(0, clampedTarget);
+    if (typeof onDone === 'function') onDone();
+    return;
+  }
+
+  const startTime = performance.now();
+  const easeInOutQuint = (t) => (t < 0.5 ? 16 * t * t * t * t * t : 1 - Math.pow(-2 * t + 2, 5) / 2);
+
+  function tick(nowTs) {
+    const elapsed = nowTs - startTime;
+    const progress = Math.min(1, elapsed / duration);
+    const eased = easeInOutQuint(progress);
+    window.scrollTo(0, startY + distance * eased);
+
+    if (progress < 1) {
+      activeScrollRaf = requestAnimationFrame(tick);
+    } else {
+      activeScrollRaf = 0;
+      if (typeof onDone === 'function') onDone();
+    }
+  }
+
+  activeScrollRaf = requestAnimationFrame(tick);
+}
+
+function triggerSectionArrival(sectionEl) {
+  if (!sectionEl) return;
+  sectionEl.querySelectorAll('.reveal-ready').forEach(el => el.classList.add('is-visible'));
+  if (navAnim.reducedMotion) return;
+
+  sectionEl.classList.remove('section-arrival-pulse');
+  void sectionEl.offsetWidth; // Restart keyframe pulse reliably
+  sectionEl.classList.add('section-arrival-pulse');
+  setTimeout(() => sectionEl.classList.remove('section-arrival-pulse'), 900);
+}
+
+function initSmoothNavigation() {
+  const cancelEvents = ['wheel', 'touchstart'];
+  cancelEvents.forEach(evt => {
+    window.addEventListener(evt, cancelActiveSmoothScroll, { passive: true });
+  });
+
+  const navbar = document.getElementById('navbar');
+  document.querySelectorAll('.navbar a[href^="#"]').forEach(link => {
+    link.addEventListener('click', (e) => {
+      const href = link.getAttribute('href');
+      if (!href || !href.startsWith('#')) return;
+      e.preventDefault();
+
+      if (href === '#' || href === '#top') {
+        animateScrollToY(0, 680);
+        return;
+      }
+
+      const targetEl = document.querySelector(href);
+      if (!targetEl) return;
+
+      const navHeight = navbar ? navbar.offsetHeight : 64;
+      const destY = targetEl.getBoundingClientRect().top + (window.scrollY || window.pageYOffset) - navHeight - 16;
+
+      // Pre-reveal elements in destination section so transition plays nicely upon arrival
+      targetEl.querySelectorAll('.reveal-ready').forEach(el => el.classList.add('is-visible'));
+      animateScrollToY(destY, 720, () => triggerSectionArrival(targetEl));
+    });
+  });
+
+  const scrollTopBtn = document.getElementById('scrollTopBtn');
+  if (scrollTopBtn) {
+    scrollTopBtn.addEventListener('click', () => animateScrollToY(0, 680));
+  }
+}
+
+function initScrollEffects() {
+  const progressBar = document.getElementById('scrollProgressBar');
+  const navbar = document.getElementById('navbar');
+  const scrollTopBtn = document.getElementById('scrollTopBtn');
+  const navFeatures = document.querySelector('.nav-link[href="#features"]');
+  const navProjects = document.querySelector('.nav-link[href="#projects"]');
+  const secFeatures = document.getElementById('features');
+  const secProjects = document.getElementById('projects');
+
+  let scrollTicking = false;
+
+  function updateOnScroll() {
+    scrollTicking = false;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+    const ratio = docHeight > 0 ? Math.max(0, Math.min(1, scrollY / docHeight)) : 0;
+
+    if (progressBar) {
+      progressBar.style.transform = `scaleX(${ratio.toFixed(4)})`;
+    }
+    if (navbar) {
+      navbar.classList.toggle('scrolled', scrollY > 24);
+    }
+    if (scrollTopBtn) {
+      scrollTopBtn.classList.toggle('visible', scrollY > 360);
+    }
+
+    // Active section highlight in navbar
+    const probeY = scrollY + window.innerHeight * 0.35;
+    let activeTarget = '';
+    if (secProjects && probeY >= secProjects.offsetTop) {
+      activeTarget = '#projects';
+    } else if (secFeatures && probeY >= secFeatures.offsetTop) {
+      activeTarget = '#features';
+    }
+    if (navFeatures) navFeatures.classList.toggle('active-section', activeTarget === '#features');
+    if (navProjects) navProjects.classList.toggle('active-section', activeTarget === '#projects');
+  }
+
+  function requestScrollUpdate() {
+    if (!scrollTicking) {
+      scrollTicking = true;
+      requestAnimationFrame(updateOnScroll);
+    }
+  }
+
+  window.addEventListener('scroll', requestScrollUpdate, { passive: true });
+  window.addEventListener('resize', requestScrollUpdate, { passive: true });
+  updateOnScroll();
+}
+
+function initRevealAndSpotlight() {
+  const groups = [
+    document.querySelectorAll('.section-head'),
+    document.querySelectorAll('.feat-card'),
+    document.querySelectorAll('.proj-card'),
+    document.querySelectorAll('.footer')
+  ];
+
+  const allRevealTargets = [];
+  groups.forEach(nodeList => {
+    nodeList.forEach((el, idx) => {
+      el.classList.add('reveal-ready');
+      el.style.setProperty('--reveal-delay', `${Math.min(idx, 5) * 75}ms`);
+      allRevealTargets.push(el);
+    });
+  });
+
+  if (navAnim.reducedMotion || typeof IntersectionObserver === 'undefined') {
+    allRevealTargets.forEach(el => el.classList.add('is-visible'));
+  } else {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -36px 0px' });
+
+    allRevealTargets.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < window.innerHeight * 0.96) {
+        el.classList.add('is-visible');
+      } else {
+        observer.observe(el);
+      }
+    });
+  }
+
+  // Interactive cursor spotlight on feature & project cards
+  document.querySelectorAll('.feat-card, .proj-card').forEach(card => {
+    card.addEventListener('pointermove', (e) => {
+      const rect = card.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      card.style.setProperty('--mouse-x', `${x.toFixed(1)}px`);
+      card.style.setProperty('--mouse-y', `${y.toFixed(1)}px`);
+    });
+  });
+}
+
 // Initial state
 renderPropertiesFromState();
 syncSettingsFromState();
@@ -2653,3 +2880,6 @@ setSettingsSubTab('gen');
 renderDashboardPlayers();
 syncDashboardControlLocks();
 updateTelemetryVisuals(false);
+initRevealAndSpotlight();
+initSmoothNavigation();
+initScrollEffects();
