@@ -363,15 +363,15 @@ body.theme-morphing .ambient-glow {
   position: relative;
   z-index: 10;
   display: grid;
-  grid-template-columns: minmax(380px, 39%) minmax(580px, 53%);
+  grid-template-columns: minmax(390px, 44%) minmax(560px, 54%);
   align-items: center;
   justify-content: space-between;
-  gap: clamp(2rem, 4vw, 5.5rem);
+  gap: clamp(1.75rem, 3vw, 3.5rem);
   width: 100%;
-  max-width: 2480px;
+  max-width: 2060px;
   min-height: calc(100vh - 76px);
   margin: 0 auto 4rem;
-  padding: 0.75rem clamp(1.5rem, 5.5vw, 9.25rem) 2.5rem;
+  padding: 0.75rem clamp(1.5rem, 4vw, 4.5rem) 2.5rem;
 }
 
 /* Staggered Entrance Animations */
@@ -593,7 +593,7 @@ body.theme-morphing .ambient-glow {
   position: relative;
   z-index: 10;
   width: 100%;
-  max-width: 1060px;
+  max-width: 842px;
   justify-self: end;
   margin: 0;
   padding: 0;
