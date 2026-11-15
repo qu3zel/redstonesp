@@ -1235,10 +1235,49 @@ static HICON MakeIcon(int size, int dot /*0 none, 1 gray, 2 green, 3 amber*/) {
     return ic;
 }
 
-// Generates a crisp 32x32 pixel-art Minecraft skinhead (Steve/Alex style) as immediate fallback
+// Generates a crisp 32x32 pixel-art Minecraft skinhead (authentic Steve/Alex/qu3zel or procedural fallback)
 static HBITMAP MakeDefaultSkinHead(const std::wstring& name) {
+    std::wstring low = ToLowerW(name);
+    while (!low.empty() && (low[0] == L'.' || low[0] == L'*')) low.erase(0, 1);
+
+    static const DWORD kSteveGrid[8][8] = {
+        { 0xFF332411, 0xFF332411, 0xFF3F2A15, 0xFF3F2A15, 0xFF3F2A15, 0xFF3F2A15, 0xFF332411, 0xFF2B1E0D },
+        { 0xFF241808, 0xFF332411, 0xFF332411, 0xFF3F2A15, 0xFF3F2A15, 0xFF332411, 0xFF3F2A15, 0xFF332411 },
+        { 0xFF2B1E0D, 0xFF9B6349, 0xFFB3795E, 0xFFB7836B, 0xFFB3795E, 0xFFAA7259, 0xFF9B6349, 0xFF342512 },
+        { 0xFF9B6349, 0xFFAA7259, 0xFFB3795E, 0xFFB3795E, 0xFFAA7259, 0xFFAA7259, 0xFFAA7259, 0xFF9B6349 },
+        { 0xFFAA7259, 0xFFFFFFFF, 0xFF523D89, 0xFFAA7259, 0xFF9B6349, 0xFF523D89, 0xFFFFFFFF, 0xFFAA7259 },
+        { 0xFF9B6349, 0xFFAA7259, 0xFFAA7259, 0xFF6A4030, 0xFF6A4030, 0xFFAA7259, 0xFFAA7259, 0xFF9B6349 },
+        { 0xFF90593F, 0xFF8F5E3E, 0xFF492510, 0xFF774235, 0xFF774235, 0xFF421D0A, 0xFF8F5E3E, 0xFF815339 },
+        { 0xFF94603E, 0xFF815339, 0xFF421D0A, 0xFF492510, 0xFF421D0A, 0xFF492510, 0xFF815339, 0xFF8F5E3E }
+    };
+    static const DWORD kAlexGrid[8][8] = {
+        { 0xFFE59947, 0xFFE58D3F, 0xFFE59947, 0xFFE58D3F, 0xFFE58D3F, 0xFFE59947, 0xFFE58D3F, 0xFFE59947 },
+        { 0xFFE58D3F, 0xFFE59947, 0xFFE58D3F, 0xFFE59947, 0xFFDC933C, 0xFFE59947, 0xFFE59947, 0xFFE58D3F },
+        { 0xFFE59947, 0xFFE58D3F, 0xFFE59947, 0xFFDC933C, 0xFFEBD3B3, 0xFFEBD3B3, 0xFFE59947, 0xFFE58D3F },
+        { 0xFFDC933C, 0xFFDC933C, 0xFFDC933C, 0xFFEBD3B3, 0xFFF2DABA, 0xFFE4CBA9, 0xFFE4CBA9, 0xFFE59947 },
+        { 0xFFE4CBA9, 0xFFFBFBFB, 0xFF236224, 0xFFF2DABA, 0xFFF2DDC2, 0xFF236224, 0xFFFBFBFB, 0xFFE4CBA9 },
+        { 0xFFEED6B6, 0xFFEFD9BB, 0xFFF2DABA, 0xFFF2DDC2, 0xFFF2DABA, 0xFFF2DBBD, 0xFFEED7B9, 0xFFF2DABA },
+        { 0xFFF2DABA, 0xFFF2DDC2, 0xFFF2DABA, 0xFFEFBBB1, 0xFFEFBBB1, 0xFFF2DABA, 0xFFF2DABA, 0xFFEBD3B3 },
+        { 0xFFF2DABA, 0xFFF2DABA, 0xFFF2DDC2, 0xFFF2DABA, 0xFFF2DABA, 0xFFF2DDC2, 0xFFF2DDC2, 0xFFF2DABA }
+    };
+    static const DWORD kQu3zelGrid[8][8] = {
+        { 0xFF929292, 0xFF929191, 0xFF989898, 0xFFB4B4B4, 0xFFC2C2C2, 0xFF9F9E9E, 0xFFA0A0A0, 0xFF9C9B9B },
+        { 0xFF9E9D9D, 0xFFA6A5A5, 0xFFD6D6D6, 0xFFEDEDED, 0xFFDADADA, 0xFFB4B4B4, 0xFF9D9C9C, 0xFF929292 },
+        { 0xFFB1B1B1, 0xFFD4D3D3, 0xFFF2F2F2, 0xFFE0E0E0, 0xFFDBD7D7, 0xFFBCB9B9, 0xFFB6B6B6, 0xFF9D9C9C },
+        { 0xFFBFBFBF, 0xFFE2E2E2, 0xFFDEDEDE, 0xFFC6C6C6, 0xFFA09F9F, 0xFFB6B6B6, 0xFFD8D3D2, 0xFFB4B4B4 },
+        { 0xFFD2D2D2, 0xFF101010, 0xFF101010, 0xFFA6A6A6, 0xFFCCCCCC, 0xFF101010, 0xFF101010, 0xFFD1D1D1 },
+        { 0xFFBFBFBF, 0xFF595959, 0xFF295268, 0xFFF5D4BF, 0xFFBBBBBB, 0xFF145778, 0xFF595959, 0xFFE5E5E5 },
+        { 0xFFB77269, 0xFFFFFFFF, 0xFF266E94, 0xFFFBE3C8, 0xFFF7D9C2, 0xFF22749E, 0xFFFFFFFF, 0xFFB77269 },
+        { 0xFFC4847A, 0xFFF0CBB7, 0xFFFBE3C8, 0xFFFFEFCF, 0xFFFBE8CB, 0xFFFBE5C9, 0xFFF0CBB7, 0xFFC4847A }
+    };
+
+    const DWORD (*exactGrid)[8] = NULL;
+    if (low == L"steve" || low == L"mhf_steve") exactGrid = kSteveGrid;
+    else if (low == L"alex" || low == L"mhf_alex") exactGrid = kAlexGrid;
+    else if (low == L"qu3zel") exactGrid = kQu3zelGrid;
+
     unsigned h = 2166136261u;
-    for (wchar_t c : ToLowerW(name)) h = (h ^ (unsigned)c) * 16777619u;
+    for (wchar_t c : low) h = (h ^ (unsigned)c) * 16777619u;
 
     struct SkinTone { DWORD hair, hairDark, skin, skinShade, eye, mouth; };
     static const SkinTone tones[] = {
@@ -1268,6 +1307,8 @@ static HBITMAP MakeDefaultSkinHead(const std::wstring& name) {
         { S2, S2, S1, MO, MO, S1, S2, S2 }
     };
 
+    const DWORD (*srcGrid)[8] = exactGrid ? exactGrid : grid;
+
     const int sz = 32;
     BITMAPINFO bi = {};
     bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -1285,7 +1326,7 @@ static HBITMAP MakeDefaultSkinHead(const std::wstring& name) {
     DWORD* px = (DWORD*)bits;
     for (int y = 0; y < sz; y++) {
         for (int x = 0; x < sz; x++) {
-            px[y * sz + x] = grid[y * 8 / sz][x * 8 / sz];
+            px[y * sz + x] = srcGrid[y * 8 / sz][x * 8 / sz];
         }
     }
     return hbm;
@@ -1398,6 +1439,15 @@ static DWORD WINAPI SkinFetchThread(LPVOID p) {
     std::wstring id = !a->uuid.empty() ? a->uuid : a->name;
     // Strip leading Bedrock '.' or '*' prefix if present when querying skin APIs
     while (!id.empty() && (id[0] == L'.' || id[0] == L'*')) id.erase(0, 1);
+
+    std::wstring lowName = ToLowerW(a->name);
+    while (!lowName.empty() && (lowName[0] == L'.' || lowName[0] == L'*')) lowName.erase(0, 1);
+    std::wstring lowId = ToLowerW(id);
+    if (lowName == L"steve" || lowId == L"8667ba71-b85a-4004-af54-457a9734eed7" || lowId == L"8667ba71b85a4004af54457a9734eed7") {
+        id = L"MHF_Steve";
+    } else if (lowName == L"alex" || lowId == L"ec561538-f3fd-461d-aff5-086b22154bce" || lowId == L"ec561538f3fd461daff5086b22154bce") {
+        id = L"MHF_Alex";
+    }
 
     HBITMAP hbm = NULL;
     if (!id.empty() && !g_appClosing.load()) {

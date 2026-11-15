@@ -1480,7 +1480,14 @@ body.theme-morphing .win-window {
   width: 20px;
   height: 20px;
   border-radius: 3px;
-  background: #4ade80;
+  background-color: var(--w-field);
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid var(--w-border);
+  flex-shrink: 0;
 }
 
 /* Tab pages layouts */

@@ -1296,6 +1296,157 @@ function toggleLanguage() {
 }
 window.toggleLanguage = toggleLanguage;
 
+// Authentic 8x8 Minecraft Skin Heads (Mojang / MHF verified)
+const AUTHENTIC_SKIN_GRIDS = {
+  qu3zel: [
+    ['#929292','#929191','#989898','#B4B4B4','#C2C2C2','#9F9E9E','#A0A0A0','#9C9B9B'],
+    ['#9E9D9D','#A6A5A5','#D6D6D6','#EDEDED','#DADADA','#B4B4B4','#9D9C9C','#929292'],
+    ['#B1B1B1','#D4D3D3','#F2F2F2','#E0E0E0','#DBD7D7','#BCB9B9','#B6B6B6','#9D9C9C'],
+    ['#BFBFBF','#E2E2E2','#DEDEDE','#C6C6C6','#A09F9F','#B6B6B6','#D8D3D2','#B4B4B4'],
+    ['#D2D2D2','#101010','#101010','#A6A6A6','#CCCCCC','#101010','#101010','#D1D1D1'],
+    ['#BFBFBF','#595959','#295268','#F5D4BF','#BBBBBB','#145778','#595959','#E5E5E5'],
+    ['#B77269','#FFFFFF','#266E94','#FBE3C8','#F7D9C2','#22749E','#FFFFFF','#B77269'],
+    ['#C4847A','#F0CBB7','#FBE3C8','#FFEFCF','#FBE8CB','#FBE5C9','#F0CBB7','#C4847A']
+  ],
+  steve: [
+    ['#332411','#332411','#3F2A15','#3F2A15','#3F2A15','#3F2A15','#332411','#2B1E0D'],
+    ['#241808','#332411','#332411','#3F2A15','#3F2A15','#332411','#3F2A15','#332411'],
+    ['#2B1E0D','#9B6349','#B3795E','#B7836B','#B3795E','#AA7259','#9B6349','#342512'],
+    ['#9B6349','#AA7259','#B3795E','#B3795E','#AA7259','#AA7259','#AA7259','#9B6349'],
+    ['#AA7259','#FFFFFF','#523D89','#AA7259','#9B6349','#523D89','#FFFFFF','#AA7259'],
+    ['#9B6349','#AA7259','#AA7259','#6A4030','#6A4030','#AA7259','#AA7259','#9B6349'],
+    ['#90593F','#8F5E3E','#492510','#774235','#774235','#421D0A','#8F5E3E','#815339'],
+    ['#94603E','#815339','#421D0A','#492510','#421D0A','#492510','#815339','#8F5E3E']
+  ],
+  alex: [
+    ['#E59947','#E58D3F','#E59947','#E58D3F','#E58D3F','#E59947','#E58D3F','#E59947'],
+    ['#E58D3F','#E59947','#E58D3F','#E59947','#DC933C','#E59947','#E59947','#E58D3F'],
+    ['#E59947','#E58D3F','#E59947','#DC933C','#EBD3B3','#EBD3B3','#E59947','#E58D3F'],
+    ['#DC933C','#DC933C','#DC933C','#EBD3B3','#F2DABA','#E4CBA9','#E4CBA9','#E59947'],
+    ['#E4CBA9','#FBFBFB','#236224','#F2DABA','#F2DDC2','#236224','#FBFBFB','#E4CBA9'],
+    ['#EED6B6','#EFD9BB','#F2DABA','#F2DDC2','#F2DABA','#F2DBBD','#EED7B9','#F2DABA'],
+    ['#F2DABA','#F2DDC2','#F2DABA','#EFBBB1','#EFBBB1','#F2DABA','#F2DABA','#EBD3B3'],
+    ['#F2DABA','#F2DABA','#F2DDC2','#F2DABA','#F2DABA','#F2DDC2','#F2DDC2','#F2DABA']
+  ],
+  notch: [
+    ['#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F'],
+    ['#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F'],
+    ['#EEB49F','#000000','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#000000','#EEB49F'],
+    ['#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F','#EEB49F'],
+    ['#EEB49F','#E2A692','#000000','#000000','#000000','#000000','#E2A692','#EEB49F'],
+    ['#D29784','#000000','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#000000','#D29784'],
+    ['#D29784','#000000','#000000','#000000','#000000','#000000','#000000','#D29784'],
+    ['#D29784','#000000','#000000','#000000','#000000','#000000','#000000','#D29784']
+  ]
+};
+AUTHENTIC_SKIN_GRIDS.mhf_steve = AUTHENTIC_SKIN_GRIDS.steve;
+AUTHENTIC_SKIN_GRIDS.mhf_alex = AUTHENTIC_SKIN_GRIDS.alex;
+
+const skinHeadUriCache = new Map();
+
+function getProceduralSkinGrid(name) {
+  let h = 2166136261;
+  const lower = (name || '').toLowerCase();
+  for (let i = 0; i < lower.length; i++) {
+    h = Math.imul(h ^ lower.charCodeAt(i), 16777619) >>> 0;
+  }
+  const tones = [
+    { h1: '#242024', h2: '#171417', s1: '#C69076', s2: '#B07C63', ep: '#2E699E', mo: '#7B4E3B' },
+    { h1: '#D8AF4B', h2: '#B99235', s1: '#DAB196', s2: '#C59B80', ep: '#35748A', mo: '#94624E' },
+    { h1: '#8C3B2B', h2: '#6E2B1E', s1: '#D0A187', s2: '#BA8B72', ep: '#3E6E48', mo: '#885643' },
+    { h1: '#4A3423', h2: '#3A281B', s1: '#B9856C', s2: '#A4725A', ep: '#493B7F', mo: '#6F4534' }
+  ];
+  const t = tones[h % tones.length];
+  const EW = '#FFFFFF';
+  return [
+    [t.h2, t.h1, t.h1, t.h2, t.h1, t.h1, t.h2, t.h2],
+    [t.h2, t.h1, t.h2, t.h1, t.h1, t.h2, t.h1, t.h2],
+    [t.h2, t.s2, t.s1, t.s1, t.s1, t.s1, t.s2, t.h2],
+    [t.s2, t.s1, t.s1, t.s1, t.s1, t.s1, t.s1, t.s2],
+    [t.s1, EW,   t.ep, t.s1, t.s1, t.ep, EW,   t.s1],
+    [t.s2, t.s1, t.s1, t.s2, t.s2, t.s1, t.s1, t.s2],
+    [t.s2, t.s1, t.mo, t.mo, t.mo, t.mo, t.s1, t.s2],
+    [t.s2, t.s2, t.s1, t.mo, t.mo, t.s1, t.s2, t.s2]
+  ];
+}
+
+function getSkinHeadDataUri(name) {
+  const clean = (name || '').trim().replace(/^[.*]+/, '').toLowerCase();
+  if (skinHeadUriCache.has(clean)) return skinHeadUriCache.get(clean);
+
+  const grid = AUTHENTIC_SKIN_GRIDS[clean] || getProceduralSkinGrid(clean);
+  let uri = '';
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          ctx.fillStyle = grid[y][x];
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+      uri = canvas.toDataURL('image/png');
+    }
+  } catch (_) {}
+
+  if (!uri) {
+    let rects = '';
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        rects += `<rect x="${x}" y="${y}" width="1" height="1" fill="${grid[y][x]}"/>`;
+      }
+    }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" shape-rendering="crispEdges">${rects}</svg>`;
+    uri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }
+
+  skinHeadUriCache.set(clean, uri);
+  return uri;
+}
+
+function applyPlayerSkinHead(el, name) {
+  if (!el) return;
+  const clean = (name || '').trim().replace(/\s*\(Level\s+\d+\s+OP\)$/i, '').replace(/^[.*]+/, '');
+  const key = clean.toLowerCase();
+  el.style.backgroundColor = 'transparent';
+  el.style.backgroundImage = `url("${getSkinHeadDataUri(clean)}")`;
+
+  if (clean && !AUTHENTIC_SKIN_GRIDS[key]) {
+    const reqKey = key;
+    el.dataset.skinReq = reqKey;
+    const primaryUrl = `https://mc-heads.net/avatar/${encodeURIComponent(clean)}/32.png`;
+    const fallbackUrl = `https://minotar.net/helm/${encodeURIComponent(clean)}/32.png`;
+    const img = new Image();
+    img.onload = () => {
+      if (el.isConnected && el.dataset.skinReq === reqKey) {
+        el.style.backgroundImage = `url("${primaryUrl}")`;
+      }
+    };
+    img.onerror = () => {
+      const fb = new Image();
+      fb.onload = () => {
+        if (el.isConnected && el.dataset.skinReq === reqKey) {
+          el.style.backgroundImage = `url("${fallbackUrl}")`;
+        }
+      };
+      fb.src = fallbackUrl;
+    };
+    img.src = primaryUrl;
+  }
+}
+
+function hydrateStaticSkinHeads() {
+  document.querySelectorAll('#listWhitelist .skin-head, #listOps .skin-head').forEach(head => {
+    const item = head.closest('.player-item');
+    const span = item ? item.querySelector('span') : null;
+    const skinName = head.dataset.skin || (span ? span.textContent : 'Steve');
+    applyPlayerSkinHead(head, skinName);
+  });
+}
+
 // Dashboard Player List Rendering
 function renderDashboardPlayers() {
   const container = document.getElementById('dashboardPlayerList');
@@ -1322,7 +1473,7 @@ function renderDashboardPlayers() {
     div.dataset.player = p.name;
     const skinHead = document.createElement('div');
     skinHead.className = 'skin-head';
-    skinHead.style.background = p.color || '#4ade80';
+    applyPlayerSkinHead(skinHead, p.name);
     const nameEl = document.createElement('strong');
     nameEl.textContent = p.name;
     div.appendChild(skinHead);
@@ -1982,7 +2133,7 @@ function addAccessListItem(listId, name, isOp) {
   item.className = 'player-item';
   const head = document.createElement('div');
   head.className = 'skin-head';
-  if (isOp) head.style.background = '#ef4444';
+  applyPlayerSkinHead(head, name);
   const span = document.createElement('span');
   span.textContent = label;
   item.appendChild(head);
@@ -2877,6 +3028,7 @@ setLanguage('tr');
 setTheme('dark');
 setPage('panel');
 setSettingsSubTab('gen');
+hydrateStaticSkinHeads();
 renderDashboardPlayers();
 syncDashboardControlLocks();
 updateTelemetryVisuals(false);
