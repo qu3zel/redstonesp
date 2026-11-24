@@ -86,6 +86,7 @@ enum {
     ID_CHK_NETHER, ID_CHK_MONSTERS, ID_CHK_ANIMALS, ID_CHK_NPCS,
     ID_BTN_WL_ADD, ID_BTN_WL_REM, ID_BTN_WL_RELOAD,
     ID_BTN_OP_ADD, ID_BTN_OP_REM, ID_BTN_OP_RELOAD,
+    ID_BTN_BAN_ADD, ID_BTN_BAN_REM, ID_BTN_BAN_RELOAD,
     ID_BTN_BK_CREATE, ID_BTN_BK_OPEN, ID_BTN_BK_RESTORE, ID_BTN_BK_DEL, ID_BTN_BK_RELOAD,
     ID_BTN_PROF_SAVE, ID_BTN_PROF_LOAD, ID_BTN_PROF_DEL,
     ID_BTN_PLUG_TOGGLE, ID_BTN_PLUG_ADD, ID_BTN_PLUG_DEL, ID_BTN_PLUG_OPEN, ID_BTN_PLUG_RELOAD,
@@ -93,6 +94,7 @@ enum {
     ID_CHK_SCHED_BK, ID_BTN_SCHED_BK_SAVE,
     ID_CHK_SCHED_RESTART, ID_BTN_SCHED_RESTART_SAVE,
     ID_BTN_OPEN_SRVDIR, ID_BTN_FILT_ALL, ID_BTN_FILT_WARN, ID_BTN_FILT_CHAT,
+    ID_BTN_CON_FIND, ID_BTN_CON_PREV, ID_BTN_CON_NEXT, ID_BTN_CON_FIND_CLOSE,
     ID_BTN_CON_SAVE, ID_BTN_CON_CLEAR, ID_BTN_JAVA_BROWSE, ID_BTN_JAVA_AUTO, ID_BTN_JAVA_SAVE,
     ID_CHK_MIN_TRAY, ID_CHK_SPLASH, ID_BTN_APP_EXIT,
     ID_EDIT_JAR = 1101, ID_EDIT_IP, ID_EDIT_PORT, ID_EDIT_RAM, ID_EDIT_UNBAN,
@@ -100,6 +102,7 @@ enum {
     ID_EDIT_MOTD, ID_EDIT_MAXPL, ID_EDIT_VIEWDIST, ID_EDIT_SPAWNPROT,
     ID_EDIT_SIMDIST, ID_EDIT_LEVELNAME, ID_EDIT_LEVELSEED,
     ID_EDIT_WL, ID_EDIT_OP, ID_LIST_WL, ID_LIST_OP,
+    ID_EDIT_BAN_ADD, ID_LIST_BAN, ID_EDIT_CON_FIND,
     ID_EDIT_BK_TAG, ID_LIST_BK, ID_EDIT_PROF_NAME, ID_LIST_PROF,
     ID_LIST_PLUGINS, ID_LIST_MODS, ID_EDIT_BK_HOURS, ID_EDIT_RESTART_TIME,
     ID_EDIT_JAVA_PATH, ID_EDIT_BK_KEEP,
@@ -107,7 +110,7 @@ enum {
     ID_MENU_LANG_TR = 2101, ID_MENU_LANG_EN, ID_MENU_THEME_DARK, ID_MENU_THEME_LIGHT,
     ID_MENU_THEME_REDSTONE, ID_MENU_THEME_MC,
     ID_MENU_AUTORESTART, ID_MENU_OPENLOGS,
-    ID_CTX_KICK = 2201, ID_CTX_BAN, ID_CTX_OP, ID_CTX_DEOP, ID_CTX_WHITELIST, ID_CTX_COPY_NAME
+    ID_CTX_KICK = 2201, ID_CTX_BAN, ID_CTX_OP, ID_CTX_DEOP, ID_CTX_WHITELIST, ID_CTX_COPY_NAME, ID_CTX_UNBAN
 };
 enum { TID_STATS = 1, TID_TIME = 2, TID_STOPWATCH = 3, TID_RESTART = 4, TID_ANIM = 5, TID_ACCESS_SYNC = 6, TID_STOP_RETRY = 7 };
 
@@ -551,7 +554,7 @@ static HFONT g_fUI, g_fSemi, g_fCap, g_fVal, g_fMono;
 static HBRUSH g_bBg = NULL, g_bField = NULL, g_bLog = NULL;
 static int g_textH = 16;
 
-static WNDPROC g_oldEdit = NULL, g_oldBtn = NULL;
+static WNDPROC g_oldEdit = NULL, g_oldBtn = NULL, g_oldList = NULL;
 
 static SrvState g_state = SrvState::Stopped;
 static HANDLE g_hProc = NULL, g_hStdinWr = NULL, g_hJob = NULL;
@@ -574,8 +577,8 @@ static int  g_procExitedTicks = 0;
 static std::atomic<int> g_monitorHz{60};
 
 static constexpr int TELEM_HIST = 48;
-static std::wstring g_igTime = L"--:--", g_ramText = L"0 MB", g_ramDetailText = L"0 MB / 4096 MB", g_cpuText = L"0.0%", g_upText = L"00:00:00";
-static unsigned long long g_ramUsedMb = 0, g_ramLimitMb = 4096;
+static std::wstring g_igTime = L"--:--", g_ramDetailText = L"0 MB / 4096 MB", g_cpuText = L"0.0%", g_upText = L"00:00:00";
+static unsigned long long g_ramLimitMb = 4096;
 static float g_ramPct = 0.0f, g_cpuPct = 0.0f;
 static int g_maxPlayersProp = 20;
 static std::vector<float> g_ramHist(TELEM_HIST, 0.0f);
@@ -602,18 +605,21 @@ static std::wstring g_lastTip;
 static int g_lastTrayIcon = -1;
 
 // Layout
-enum { F_JAR, F_IP, F_PORT, F_RAM, F_UNBAN, F_CMD, F_JVM, F_MOTD, F_MAXPL, F_VIEWDIST, F_SIMDIST, F_SPAWNPROT, F_LEVELNAME, F_LEVELSEED, F_WL, F_OP, F_BK_TAG, F_PROF_NAME, F_BK_HOURS, F_RESTART_TIME, F_JAVA_PATH, F_BK_KEEP, F_COUNT };
+enum { F_JAR, F_IP, F_PORT, F_RAM, F_UNBAN, F_CMD, F_CON_FIND, F_JVM, F_MOTD, F_MAXPL, F_VIEWDIST, F_SIMDIST, F_SPAWNPROT, F_LEVELNAME, F_LEVELSEED, F_WL, F_OP, F_BAN_ADD, F_BK_TAG, F_PROF_NAME, F_BK_HOURS, F_RESTART_TIME, F_JAVA_PATH, F_BK_KEEP, F_COUNT };
 struct Field { HWND h; RECT rc; const wchar_t* caption; };
 static Field g_f[F_COUNT];
 static RECT g_rcSet, g_rcPl, g_rcCon, g_rcStats, g_rcTile[4], g_rcChart[2], g_rcListBg, g_rcLogBg;
-static RECT g_rcWlBg, g_rcOpBg, g_rcBkBg, g_rcProfBg, g_rcPlugBg, g_rcModBg;
+static RECT g_rcWlBg, g_rcOpBg, g_rcBanBg, g_rcBkBg, g_rcProfBg, g_rcPlugBg, g_rcModBg;
 
-// Console structured log buffer & filter
+// Console structured log buffer, filter & inline search
 enum LogCat { LCAT_INFO = 0, LCAT_WARN = 1, LCAT_ERR = 2, LCAT_CHAT = 3, LCAT_EVENT = 4, LCAT_SYS = 5, LCAT_CMD = 6, LCAT_DEBUG = 7 };
 struct LogEntry { std::wstring text; int cat; };
 static std::vector<LogEntry> g_logLines;
 static constexpr size_t MAX_LOG_LINES = 2500;
-static int g_logFilter = 0; // 0=All, 1=Warn&Err, 2=Chat
+static int  g_logFilter = 0; // 0=All, 1=Warn&Err, 2=Chat
+static bool g_conFindOpen = false;
+static int  g_conFindIdx = -1, g_conFindTotal = 0;
+static RECT g_rcConFindStat = {};
 
 // New panel & settings controls / state
 static std::wstring g_javaPath, g_mcVersion, g_detectedJavaLabel;
@@ -622,6 +628,7 @@ static bool g_minimizeToTray = true;
 static bool g_splashEnabled = true;
 static bool g_manualRestartPending = false;
 static HWND g_hBtnOpenSrvDir = NULL, g_hBtnFiltAll = NULL, g_hBtnFiltWarn = NULL, g_hBtnFiltChat = NULL;
+static HWND g_hBtnConFind = NULL, g_hEditConFind = NULL, g_hBtnConPrev = NULL, g_hBtnConNext = NULL, g_hBtnConFindClose = NULL;
 static HWND g_hBtnConSave = NULL, g_hBtnConClear = NULL;
 static HWND g_hEditJavaPath = NULL, g_hBtnJavaBrowse = NULL, g_hBtnJavaAuto = NULL, g_hBtnJavaSave = NULL;
 static HWND g_hEditBkKeep = NULL, g_hChkMinTray = NULL, g_hChkSplash = NULL, g_hBtnAppExit = NULL;
@@ -629,7 +636,9 @@ static HWND g_hEditBkKeep = NULL, g_hChkMinTray = NULL, g_hChkSplash = NULL, g_h
 // Window / page navigation (tab bar + title bar + sub-tabs + card pages)
 enum { PG_PANEL, PG_PROPS, PG_ACCESS, PG_BACKUPS, PG_PLUGINS, PG_PROFILES, PG_SETTINGS, PG_COUNT };
 struct TxtBlock { RECT rc; int id; };
-static int g_page = PG_PANEL, g_subTab = 0;
+static int g_page = PG_PANEL, g_subTab = 0, g_accSubTab = 0;
+static bool PageHasSubTabs(int pg) { return pg == PG_SETTINGS || pg == PG_ACCESS; }
+static int& CurSubTab() { return g_page == PG_ACCESS ? g_accSubTab : g_subTab; }
 static RECT g_rcTab[PG_COUNT], g_rcSub[2];
 static float g_tabCurX = -1.0f, g_tabCurW = -1.0f;
 static float g_tabTargetX = 0.0f, g_tabTargetW = 0.0f;
@@ -688,9 +697,11 @@ static bool g_propOnline = true, g_propPvp = true, g_propWhitelist = false, g_pr
 static bool g_propHardcore = false, g_propForceGm = false, g_propSecureProf = true, g_propHidePlayers = false;
 static bool g_propNether = true, g_propMonsters = true, g_propAnimals = true, g_propNpcs = true;
 
-// Access (Whitelist & OP) page controls
+// Access (Whitelist, OP & Banned Players) page controls
 static HWND g_hListWl, g_hEditWl, g_hBtnWlAdd, g_hBtnWlRem, g_hBtnWlReload;
 static HWND g_hListOp, g_hEditOp, g_hBtnOpAdd, g_hBtnOpRem, g_hBtnOpReload;
+static HWND g_hListBan, g_hEditBan, g_hBtnBanAdd, g_hBtnBanRem, g_hBtnBanReload;
+static std::map<std::wstring, std::wstring> g_banReasons;
 
 // Backups page controls & state
 static HWND g_hEditBkTag, g_hBtnBkCreate, g_hBtnBkOpen;
@@ -754,6 +765,7 @@ static const wchar_t* CardTitle(int id) {
         case 19: return Tx(L"DÜNYA & VARLIKLAR", L"WORLD & ENTITIES");
         case 20: return Tx(L"JAVA ÇALIŞMA ZAMANI", L"JAVA RUNTIME");
         case 21: return Tx(L"TEPSİ & ÇIKIŞ", L"TRAY & EXIT");
+        case 22: return Tx(L"BANLI OYUNCULAR (BANNED-PLAYERS.JSON)", L"BANNED PLAYERS (BANNED-PLAYERS.JSON)");
         default: return L"";
     }
 }
@@ -1436,12 +1448,17 @@ struct SkinFetchArgs {
 static DWORD WINAPI SkinFetchThread(LPVOID p) {
     std::unique_ptr<SkinFetchArgs> a((SkinFetchArgs*)p);
     if (g_appClosing.load()) return 0;
-    std::wstring id = !a->uuid.empty() ? a->uuid : a->name;
+    auto isOfflineV3 = [](const std::wstring& u) {
+        return (u.size() == 36 && u[8] == L'-' && u[13] == L'-' && u[14] == L'3') ||
+               (u.size() == 32 && u[12] == L'3');
+    };
+    std::wstring cleanName = a->name;
+    while (!cleanName.empty() && (cleanName[0] == L'.' || cleanName[0] == L'*')) cleanName.erase(0, 1);
+    std::wstring id = (!a->uuid.empty() && !isOfflineV3(a->uuid)) ? a->uuid : cleanName;
     // Strip leading Bedrock '.' or '*' prefix if present when querying skin APIs
     while (!id.empty() && (id[0] == L'.' || id[0] == L'*')) id.erase(0, 1);
 
-    std::wstring lowName = ToLowerW(a->name);
-    while (!lowName.empty() && (lowName[0] == L'.' || lowName[0] == L'*')) lowName.erase(0, 1);
+    std::wstring lowName = ToLowerW(cleanName);
     std::wstring lowId = ToLowerW(id);
     if (lowName == L"steve" || lowId == L"8667ba71-b85a-4004-af54-457a9734eed7" || lowId == L"8667ba71b85a4004af54457a9734eed7") {
         id = L"MHF_Steve";
@@ -1457,6 +1474,10 @@ static DWORD WINAPI SkinFetchThread(LPVOID p) {
 
         if (!HttpFetchBytes(L"mc-heads.net", p1.c_str(), png) && !g_appClosing.load()) {
             HttpFetchBytes(L"minotar.net", p2.c_str(), png);
+        }
+        if (png.empty() && !cleanName.empty() && ToLowerW(id) != lowName && !g_appClosing.load()) {
+            std::wstring fn = L"/avatar/" + cleanName + L"/32.png";
+            HttpFetchBytes(L"mc-heads.net", fn.c_str(), png);
         }
         if (!png.empty() && !g_appClosing.load()) {
             g_skinGdiActive.fetch_add(1);
@@ -1477,7 +1498,6 @@ static DWORD WINAPI SkinFetchThread(LPVOID p) {
         return 0;
     }
     if (g_appClosing.load() || !PostMessageW(a->hwnd, WM_SC_EVENT, 0, (LPARAM)ev)) {
-        if (hbm) DeleteObject(hbm);
         delete ev;
     }
     return 0;
@@ -1746,13 +1766,11 @@ static void UpdateTelemetryStats(bool pushHist = true) {
     SIZE_T totalBytes = GetTotalTelemetryWorkingSetBytes();
     unsigned long long mb = (unsigned long long)(totalBytes / (1024ULL * 1024ULL));
     if (mb == 0 && totalBytes > 0) mb = 1;
-    g_ramUsedMb = mb;
     g_ramLimitMb = ParseRamLimitMb();
     double rpct = g_ramLimitMb > 0 ? ((double)mb / (double)g_ramLimitMb) * 100.0 : 0.0;
     if (rpct < 0.0) rpct = 0.0;
     if (rpct > 100.0) rpct = 100.0;
     g_ramPct = (float)rpct;
-    g_ramText = std::to_wstring(mb) + L" MB";
     int rpctInt = (int)(g_ramPct + 0.5f);
     g_ramDetailText = std::to_wstring(mb) + L" MB  •  " + std::to_wstring(rpctInt) + L"%";
 
@@ -2110,7 +2128,8 @@ static void AppendLogInternal(const std::wstring& text, bool logToFile) {
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
     GetScrollInfo(g_hLog, SB_VERT, &si);
-    bool wasAtBottom = (si.nMax <= 0 || (si.nPos + (int)si.nPage >= si.nMax - 14));
+    bool wasAtBottom = (si.nMax <= 0 || (si.nPos + (int)si.nPage >= si.nMax - 14)) &&
+                       !(g_conFindOpen && g_conFindTotal > 0);
 
     CHARRANGE savedSel = {};
     POINT savedScroll = {};
@@ -2176,13 +2195,96 @@ static void AppLog(const std::wstring& t) {
     AppendLog(L"» " + t + L"\r\n");
 }
 
+static void Layout(int W, int H);
+
+static void RunConsoleSearch(int step) {
+    if (!g_hLog || !g_hEditConFind) return;
+    std::wstring q = GetText(g_hEditConFind);
+    std::vector<CHARRANGE> hits;
+    if (!q.empty()) {
+        FINDTEXTEXW ft = {};
+        ft.chrg.cpMin = 0;
+        ft.chrg.cpMax = -1;
+        ft.lpstrText = q.c_str();
+        while (hits.size() < 5000) {
+            LRESULT pos = SendMessageW(g_hLog, EM_FINDTEXTEXW, FR_DOWN, (LPARAM)&ft);
+            if (pos < 0 || ft.chrgText.cpMax <= ft.chrgText.cpMin) break;
+            hits.push_back(ft.chrgText);
+            ft.chrg.cpMin = ft.chrgText.cpMax;
+        }
+    }
+    g_conFindTotal = (int)hits.size();
+    if (hits.empty()) {
+        g_conFindIdx = -1;
+        CHARRANGE sel = {};
+        SendMessageW(g_hLog, EM_EXGETSEL, 0, (LPARAM)&sel);
+        if (sel.cpMin != sel.cpMax) {
+            sel.cpMin = sel.cpMax;
+            SendMessageW(g_hLog, EM_EXSETSEL, 0, (LPARAM)&sel);
+        }
+    } else {
+        int n = (int)hits.size();
+        if (step == 0) {
+            CHARRANGE sel = {};
+            SendMessageW(g_hLog, EM_EXGETSEL, 0, (LPARAM)&sel);
+            int pick = 0;
+            for (int i = 0; i < n; i++) {
+                if (hits[i].cpMin >= sel.cpMin) { pick = i; break; }
+            }
+            g_conFindIdx = pick;
+        } else {
+            if (g_conFindIdx < 0 || g_conFindIdx >= n) g_conFindIdx = (step > 0) ? 0 : (n - 1);
+            else g_conFindIdx = (g_conFindIdx + step + n) % n;
+        }
+        SendMessageW(g_hLog, EM_EXSETSEL, 0, (LPARAM)&hits[g_conFindIdx]);
+        SendMessageW(g_hLog, EM_SCROLLCARET, 0, 0);
+        LockConsoleHorizontalScroll();
+    }
+    if (g_hwnd) InvalidateRect(g_hwnd, &g_rcConFindStat, FALSE);
+}
+
+static void ToggleConsoleFind(bool open) {
+    if (g_animatingPage && g_hwnd) FinishPageAnimation(g_hwnd);
+    bool changed = (g_conFindOpen != open);
+    g_conFindOpen = open;
+    if (!open) {
+        g_conFindIdx = -1;
+        g_conFindTotal = 0;
+        if (g_hLog) {
+            CHARRANGE sel = {};
+            SendMessageW(g_hLog, EM_EXGETSEL, 0, (LPARAM)&sel);
+            if (sel.cpMin != sel.cpMax) {
+                sel.cpMin = sel.cpMax;
+                SendMessageW(g_hLog, EM_EXSETSEL, 0, (LPARAM)&sel);
+            }
+        }
+    }
+    if (changed && g_hwnd) {
+        ApplyPageControlVisibility();
+        RECT cr; GetClientRect(g_hwnd, &cr);
+        Layout(cr.right, cr.bottom);
+        if (g_hBtnConFind) InvalidateRect(g_hBtnConFind, NULL, FALSE);
+        RedrawWindow(g_hwnd, &g_rcCon, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
+    }
+    if (open && g_hEditConFind) {
+        SetFocus(g_hEditConFind);
+        SendMessageW(g_hEditConFind, EM_SETSEL, 0, -1);
+        RunConsoleSearch(0);
+    } else if (!open && g_page == PG_PANEL && g_hCmd) {
+        SetFocus(g_hCmd);
+    }
+}
+
 static void ClearConsole() {
     g_logLines.clear();
+    g_conFindIdx = -1;
+    g_conFindTotal = 0;
     if (g_hLog) {
         SetWindowTextW(g_hLog, L"");
         LockConsoleHorizontalScroll();
         InvalidateRect(g_hLog, NULL, TRUE);
     }
+    if (g_conFindOpen && g_hwnd) InvalidateRect(g_hwnd, &g_rcConFindStat, FALSE);
 }
 
 static void ReapplyLogColors() {
@@ -2411,7 +2513,7 @@ static void HandleLine(const ReaderArgs& a, std::string line, std::wstring& chun
         std::string ver = TrimA(msg.substr(34));
         if (!ver.empty()) {
             PostEv(a.hwnd, a.gen, EV_MC_VER, FromUtf8(ver));
-            if (!StartsWith(ver, "1.")) {
+            if (!StartsWith(ver, "1.") && atoi(ver.c_str()) >= 26) {
                 g_useTimelineCmd = true; // Minecraft 26.1+ uses timeline syntax ("time query day")
             }
         }
@@ -2422,7 +2524,12 @@ static void HandleLine(const ReaderArgs& a, std::string line, std::wstring& chun
         if (isPos != std::string::npos) {
             std::string pName = TrimA(msg.substr(UUID_PRE.size(), isPos - UUID_PRE.size()));
             std::string uuid = TrimA(msg.substr(isPos + 4));
-            if (IsValidMcToken(pName) && !uuid.empty()) {
+            auto isValidUuid = [](const std::string& u) {
+                if (u.size() != 32 && u.size() != 36) return false;
+                for (unsigned char ch : u) if (!isxdigit(ch) && ch != '-') return false;
+                return true;
+            };
+            if (IsValidMcToken(pName) && isValidUuid(uuid) && !g_appClosing.load()) {
                 EnterCriticalSection(&g_csUuid);
                 g_playerUuids[ToLowerW(FromUtf8(pName))] = FromUtf8(uuid);
                 LeaveCriticalSection(&g_csUuid);
@@ -2452,7 +2559,10 @@ static void HandleLine(const ReaderArgs& a, std::string line, std::wstring& chun
     // 5. "<Name> lost connection: ..."
     else if (msg.find(LOST_CONN) != std::string::npos && msg.find('<') == std::string::npos) {
         size_t lc = msg.find(LOST_CONN);
-        if (ExtractJoinLeaveName(msg.substr(0, lc), name)) {
+        std::string who = TrimA(msg.substr(0, lc));
+        size_t br = who.find("[/");
+        if (br != std::string::npos && !who.empty() && who.back() == ']') who = TrimA(who.substr(0, br));
+        if (ExtractJoinLeaveName(who, name)) {
             PostEv(a.hwnd, a.gen, EV_LEAVE, FromUtf8(name));
         }
     }
@@ -2514,7 +2624,7 @@ static DWORD WINAPI ReaderThread(LPVOID p) {
         std::wstring chunk;
         for (DWORD i = 0; i < n; i++) {
             char c = buf[i];
-            if (c == '\n' || line.size() > 16384) {
+            if (c == '\n' || (line.size() > 16384 && ((unsigned char)c & 0xC0) != 0x80)) {
                 HandleLine(a, line, chunk);
                 line.clear();
                 if (c != '\n' && c != '\r') line.push_back(c);
@@ -2535,13 +2645,11 @@ static bool ValidRam(const std::wstring& r) {
     if (r.size() < 2 || r.size() > 7) return false;
     wchar_t u = towupper(r.back());
     if (u != L'G' && u != L'M') return false;
-    if (r.size() < 2) return false;
     for (size_t i = 0; i + 1 < r.size(); i++) if (r[i] < L'0' || r[i] > L'9') return false;
     return _wtoi(r.substr(0, r.size() - 1).c_str()) > 0;
 }
 static bool ValidPort(const std::wstring& p) {
     if (p.empty() || p.size() > 5) return false;
-    if (p.empty()) return false;
     for (wchar_t c : p) if (c < L'0' || c > L'9') return false;
     int v = _wtoi(p.c_str()); return v >= 1 && v <= 65535;
 }
@@ -2663,7 +2771,7 @@ static JavaCand DetectBestAutoJavaCand() {
     REGSAM views[] = { KEY_READ | KEY_WOW64_64KEY, KEY_READ | KEY_WOW64_32KEY };
 
     auto readStr = [](HKEY k, const wchar_t* name) -> std::wstring {
-        wchar_t buf[MAX_PATH]; DWORD sz = sizeof(buf), type = 0;
+        wchar_t buf[MAX_PATH] = {}; DWORD sz = sizeof(buf), type = 0;
         if (RegQueryValueExW(k, name, NULL, &type, (BYTE*)buf, &sz) != ERROR_SUCCESS || type != REG_SZ) return L"";
         buf[MAX_PATH - 1] = 0;
         return buf;
@@ -2715,8 +2823,9 @@ static JavaCand DetectBestAutoJavaCand() {
 
     // Also scan standard vendor install roots directly in case registry entries were omitted
     for (const wchar_t* env : { L"ProgramFiles", L"ProgramFiles(x86)" }) {
-        wchar_t pf[MAX_PATH];
-        if (!GetEnvironmentVariableW(env, pf, MAX_PATH)) continue;
+        wchar_t pf[MAX_PATH] = {};
+        DWORD nPf = GetEnvironmentVariableW(env, pf, MAX_PATH);
+        if (nPf == 0 || nPf >= MAX_PATH) continue;
         for (const wchar_t* vendor : { L"Java", L"Eclipse Adoptium", L"Microsoft", L"Zulu", L"BellSoft", L"Amazon Corretto" }) {
             std::wstring baseDir = std::wstring(pf) + L"\\" + vendor;
             WIN32_FIND_DATAW fd = {};
@@ -2932,7 +3041,7 @@ static void LoadServerPropertiesToUi() {
     g_propAnimals     = getBool("spawn-animals", true);
     g_propNpcs        = getBool("spawn-npcs", true);
 
-    if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+    if (g_hwnd) RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
 
 static void SaveServerPropertiesFromUi() {
@@ -3026,6 +3135,10 @@ struct JsonPlayerEntry {
     std::string name;
     int level = 4;
     bool bypassesPlayerLimit = false;
+    std::string created;
+    std::string source;
+    std::string expires;
+    std::string reason;
 };
 
 static bool FindJsonKeyValuePos(const std::string& obj, const std::string& key, size_t& valPos) {
@@ -3105,6 +3218,10 @@ static std::vector<JsonPlayerEntry> ReadPlayerJsonList(const std::wstring& path)
         pe.uuid = ExtractJsonField(obj, "uuid");
         pe.level = ExtractJsonInt(obj, "level", 4);
         pe.bypassesPlayerLimit = ExtractJsonBool(obj, "bypassesPlayerLimit", false);
+        pe.created = ExtractJsonField(obj, "created");
+        pe.source  = ExtractJsonField(obj, "source");
+        pe.expires = ExtractJsonField(obj, "expires");
+        pe.reason  = ExtractJsonField(obj, "reason");
         if (!pe.name.empty()) out.push_back(pe);
         pos = e + 1;
     }
@@ -3203,6 +3320,42 @@ static bool WritePlayerJsonList(const std::wstring& path, const std::vector<Json
     return WriteAll(path, out);
 }
 
+static std::string JsonEscapeA(const std::string& s) {
+    std::string o;
+    o.reserve(s.size());
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\') { o.push_back('\\'); o.push_back((char)c); }
+        else if (c >= 0x20) o.push_back((char)c);
+    }
+    return o;
+}
+
+static bool WriteBannedJsonList(const std::wstring& path, const std::vector<JsonPlayerEntry>& list) {
+    SYSTEMTIME st; GetLocalTime(&st);
+    char nowBuf[64] = {};
+    snprintf(nowBuf, sizeof(nowBuf), "%04d-%02d-%02d %02d:%02d:%02d +0000",
+             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    std::string out = "[\n";
+    for (size_t i = 0; i < list.size(); i++) {
+        const auto& e = list[i];
+        std::string u = e.uuid.empty() ? OfflineUuidFor(e.name) : e.uuid;
+        std::string cr = e.created.empty() ? std::string(nowBuf) : e.created;
+        std::string sr = e.source.empty()  ? std::string("RedstoneSP") : e.source;
+        std::string ex = e.expires.empty() ? std::string("forever") : e.expires;
+        std::string rs = e.reason.empty()  ? std::string("Banned by an operator.") : e.reason;
+        out += "  {\n";
+        out += "    \"uuid\": \"" + JsonEscapeA(u) + "\",\n";
+        out += "    \"name\": \"" + JsonEscapeA(e.name) + "\",\n";
+        out += "    \"created\": \"" + JsonEscapeA(cr) + "\",\n";
+        out += "    \"source\": \"" + JsonEscapeA(sr) + "\",\n";
+        out += "    \"expires\": \"" + JsonEscapeA(ex) + "\",\n";
+        out += "    \"reason\": \"" + JsonEscapeA(rs) + "\"\n";
+        out += (i + 1 < list.size()) ? "  },\n" : "  }\n";
+    }
+    out += "]\n";
+    return WriteAll(path, out);
+}
+
 static std::string LookupUuidFor(const std::wstring& dir, const std::wstring& name) {
     std::string uuid;
     std::wstring key = ToLowerW(name);
@@ -3213,7 +3366,7 @@ static std::string LookupUuidFor(const std::wstring& dir, const std::wstring& na
     if (!uuid.empty()) return uuid;
 
     std::string lowA = ToLowerA(ToUtf8(name));
-    for (const wchar_t* fn : { L"usercache.json", L"whitelist.json", L"ops.json" }) {
+    for (const wchar_t* fn : { L"usercache.json", L"whitelist.json", L"ops.json", L"banned-players.json" }) {
         for (const auto& e : ReadPlayerJsonList(JoinPath(dir, fn))) {
             if (ToLowerA(e.name) == lowA && !e.uuid.empty()) return e.uuid;
         }
@@ -3225,30 +3378,97 @@ static void LoadAccessListsToUi() {
     if (!g_hListWl || !g_hListOp) return;
     SendMessageW(g_hListWl, LB_RESETCONTENT, 0, 0);
     SendMessageW(g_hListOp, LB_RESETCONTENT, 0, 0);
+    if (g_hListBan) SendMessageW(g_hListBan, LB_RESETCONTENT, 0, 0);
+    g_banReasons.clear();
     if (!HasServerJar()) {
-        if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+        if (g_hwnd) RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
         return;
     }
     std::wstring dir = GetServerDir();
-    auto populateAccessList = [&](const wchar_t* fn, HWND hList) {
+    auto populateAccessList = [&](const wchar_t* fn, HWND hList, bool isBan) {
         if (!hList) return;
         for (const auto& e : ReadPlayerJsonList(JoinPath(dir, fn))) {
             std::wstring w = FromUtf8(e.name);
             if (!ValidPlayerName(w)) continue;
+            std::wstring low = ToLowerW(w);
             if (!e.uuid.empty()) {
                 EnterCriticalSection(&g_csUuid);
-                g_playerUuids[ToLowerW(w)] = FromUtf8(e.uuid);
+                g_playerUuids[low] = FromUtf8(e.uuid);
                 LeaveCriticalSection(&g_csUuid);
             }
+            if (isBan && !e.reason.empty()) g_banReasons[low] = FromUtf8(e.reason);
             RequestPlayerSkin(w);
             if (SendMessageW(hList, LB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)w.c_str()) == LB_ERR) {
                 SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)w.c_str());
             }
         }
     };
-    populateAccessList(L"whitelist.json", g_hListWl);
-    populateAccessList(L"ops.json", g_hListOp);
-    if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+    populateAccessList(L"whitelist.json", g_hListWl, false);
+    populateAccessList(L"ops.json", g_hListOp, false);
+    populateAccessList(L"banned-players.json", g_hListBan, true);
+    if (g_hwnd) RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
+}
+
+static bool UpdateBanListForName(const std::wstring& name, bool ban) {
+    if (g_state == SrvState::Starting || g_state == SrvState::Stopping) {
+        AppLog(Tx(L"Sunucu başlatılırken veya kapatılırken ban listesi değiştirilemez.",
+                  L"Cannot modify ban list while server is starting or stopping."));
+        return false;
+    }
+    if (g_state == SrvState::Running) {
+        WriteToConsole((ban ? L"ban " : L"pardon ") + name);
+        SetTimer(g_hwnd, TID_ACCESS_SYNC, 700, NULL);
+        return true;
+    }
+
+    std::wstring dir = GetServerDir();
+    std::wstring path = JoinPath(dir, L"banned-players.json");
+    auto list = ReadPlayerJsonList(path);
+    std::string targetLow = ToLowerA(ToUtf8(name));
+    bool writeOk = true;
+
+    if (ban) {
+        bool exists = false;
+        for (const auto& e : list) if (ToLowerA(e.name) == targetLow) { exists = true; break; }
+        if (!exists) {
+            JsonPlayerEntry ne;
+            ne.uuid = LookupUuidFor(dir, name);
+            ne.name = ToUtf8(name);
+            list.push_back(ne);
+            writeOk = WriteBannedJsonList(path, list);
+        }
+    } else {
+        std::vector<JsonPlayerEntry> filtered;
+        for (const auto& e : list) if (ToLowerA(e.name) != targetLow) filtered.push_back(e);
+        writeOk = WriteBannedJsonList(path, filtered);
+    }
+
+    if (!writeOk) AppLog(Tx(L"Ban listesi yazılamadı!", L"Failed to write banned-players.json!"));
+    LoadAccessListsToUi();
+    return writeOk;
+}
+
+static std::wstring ListTextFrom(HWND hLb, int idx);
+
+static void ModifyBanList(bool ban) {
+    if (!g_hListBan || !g_hEditBan) return;
+    std::wstring name;
+    if (ban) {
+        name = Trim(GetText(g_hEditBan));
+        if (name.empty()) return;
+    } else {
+        int idx = (int)SendMessageW(g_hListBan, LB_GETCURSEL, 0, 0);
+        if (idx != LB_ERR) name = ListTextFrom(g_hListBan, idx);
+        else name = Trim(GetText(g_hEditBan));
+    }
+    if (!ban && name.empty()) { AppLog(L().logSelectPlayer); return; }
+    if (!ValidPlayerName(name)) { AppLog(L().logInvalidPlayer); return; }
+    if (!HasServerJar()) { Msg(L().msgSelectJar, L().titleMissingInfo, MB_OK | MB_ICONWARNING); return; }
+    if (ban && Msg(L"\"" + name + L"\"" + L().msgBanConfirm, L().titleBanConfirm, MB_YESNO | MB_ICONWARNING) != IDYES) return;
+    if (UpdateBanListForName(name, ban)) {
+        if (ban) SetWindowTextW(g_hEditBan, L"");
+        AppLog((ban ? Tx(L"Banlandı: ", L"Banned: ") : std::wstring(L().logUnbanReq)) + name);
+    }
 }
 
 static bool UpdateAccessListForName(const std::wstring& name, bool isOp, bool add) {
@@ -3278,7 +3498,7 @@ static bool UpdateAccessListForName(const std::wstring& name, bool isOp, bool ad
         for (const auto& e : list) if (ToLowerA(e.name) == targetLow) { exists = true; break; }
         if (!exists) {
             std::string uuid = LookupUuidFor(dir, name);
-            list.push_back({ uuid, ToUtf8(name), 4, false });
+            list.push_back({ uuid, ToUtf8(name), 4, false, "", "", "", "" });
             writeOk = WritePlayerJsonList(path, list, isOp);
         }
     } else {
@@ -3478,7 +3698,7 @@ static void LoadBackupsListToUi() {
         g_backupFiles.push_back(it.file);
         SendMessageW(g_hListBk, LB_ADDSTRING, 0, (LPARAM)it.label.c_str());
     }
-    if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+    if (g_hwnd) RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
 
 struct BackupTaskArgs {
@@ -3798,7 +4018,7 @@ static void LoadProfilesListToUi() {
                            L"   •   :" + (pr.port.empty() ? L"25565" : pr.port);
         SendMessageW(g_hListProf, LB_ADDSTRING, 0, (LPARAM)lbl.c_str());
     }
-    if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+    if (g_hwnd) RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
 
 static void SaveCurrentAsProfile() {
@@ -3929,7 +4149,7 @@ static void LoadModFolder(const std::wstring& subDir, std::vector<ModItem>& outL
             SendMessageW(hLb, LB_ADDSTRING, 0, (LPARAM)it.displayName.c_str());
         }
     }
-    if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
+    if (g_hwnd) RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
 
 static void ToggleModItem(bool isPlugin) {
@@ -4090,7 +4310,8 @@ static void UpdateUi() {
     EnableWindow(g_hBtnSend, active || g_state == SrvState::Stopping);
     if (g_hBtnConSave) EnableWindow(g_hBtnConSave, running);
     HWND ro[4] = { g_hJar, g_hIp, g_hPort, g_hRam };
-    for (HWND h : ro) SendMessageW(h, EM_SETREADONLY, !stopped, 0);
+    for (HWND h : ro) if (h) { SendMessageW(h, EM_SETREADONLY, !stopped, 0); InvalidateRect(h, NULL, TRUE); }
+    if (g_hList) InvalidateRect(g_hList, NULL, FALSE);
     TrayUpdate();
     InvalidateRect(g_hwnd, NULL, FALSE);
 }
@@ -4141,6 +4362,7 @@ static void ApplyTheme() {
         ApplyScrollTheme(g_hList);
         ApplyScrollTheme(g_hListWl);
         ApplyScrollTheme(g_hListOp);
+        ApplyScrollTheme(g_hListBan);
         ApplyScrollTheme(g_hListBk);
         ApplyScrollTheme(g_hListProf);
         ApplyScrollTheme(g_hListPlugins);
@@ -4173,6 +4395,7 @@ static void ApplyLanguage() {
     if (g_hBtnFiltAll)    SetWindowTextW(g_hBtnFiltAll,    Tx(L"Tümü", L"All"));
     if (g_hBtnFiltWarn)   SetWindowTextW(g_hBtnFiltWarn,   Tx(L"Uyarı", L"Warn"));
     if (g_hBtnFiltChat)   SetWindowTextW(g_hBtnFiltChat,   Tx(L"Sohbet", L"Chat"));
+    if (g_hBtnConFind)    SetWindowTextW(g_hBtnConFind,    Tx(L"Ara", L"Find"));
     if (g_hBtnConSave)    SetWindowTextW(g_hBtnConSave,    Tx(L"Kaydet", L"Save"));
     if (g_hBtnConClear)   SetWindowTextW(g_hBtnConClear,   Tx(L"Temizle", L"Clear"));
 
@@ -4181,7 +4404,8 @@ static void ApplyLanguage() {
     g_f[F_PORT].caption  = L().capPort;
     g_f[F_RAM].caption   = L().capRam;
     g_f[F_UNBAN].caption = L().capUnban;
-    g_f[F_CMD].caption   = NULL;
+    g_f[F_CMD].caption      = NULL;
+    g_f[F_CON_FIND].caption = NULL;
     g_f[F_JVM].caption   = Tx(L"JVM argümanları", L"JVM arguments");
     g_f[F_MOTD].caption      = Tx(L"Sunucu açıklaması (MOTD)", L"Server description (MOTD)");
     g_f[F_MAXPL].caption     = Tx(L"Maks. oyuncu (max-players)", L"Max players (max-players)");
@@ -4192,6 +4416,7 @@ static void ApplyLanguage() {
     g_f[F_LEVELSEED].caption = Tx(L"Dünya tohumu (level-seed)", L"World seed (level-seed)");
     g_f[F_WL].caption        = Tx(L"Oyuncu adı", L"Player name");
     g_f[F_OP].caption        = Tx(L"Oyuncu adı", L"Player name");
+    g_f[F_BAN_ADD].caption   = Tx(L"Oyuncu adı", L"Player name");
     g_f[F_BK_TAG].caption    = Tx(L"Yedek etiketi (isteğe bağlı, ör: sezon1)", L"Backup label (optional, e.g. pre-update)");
     g_f[F_PROF_NAME].caption = Tx(L"Profil adı (ör: Survival 1.21)", L"Profile name (e.g. Survival 1.21)");
     g_f[F_BK_HOURS].caption      = Tx(L"Aralık (saat)", L"Interval (hours)");
@@ -4253,6 +4478,9 @@ static void ApplyLanguage() {
     SetWindowTextW(g_hBtnOpAdd,       Tx(L"OP Ver", L"Grant OP"));
     SetWindowTextW(g_hBtnOpRem,       Tx(L"OP Al (Deop)", L"Revoke OP"));
     SetWindowTextW(g_hBtnOpReload,    Tx(L"Yenile", L"Reload"));
+    if (g_hBtnBanAdd)    SetWindowTextW(g_hBtnBanAdd,    L().btnBan);
+    if (g_hBtnBanRem)    SetWindowTextW(g_hBtnBanRem,    Tx(L"Seçilenin Banını Kaldır", L"Unban Selected"));
+    if (g_hBtnBanReload) SetWindowTextW(g_hBtnBanReload, Tx(L"Yenile", L"Reload"));
 
     SetWindowTextW(g_hBtnBkCreate,    Tx(L"Şimdi Yedek Oluştur (.zip)", L"Create Backup Now (.zip)"));
     SetWindowTextW(g_hBtnBkOpen,      Tx(L"Yedekler Klasörünü Aç", L"Open Backups Folder"));
@@ -4384,6 +4612,187 @@ static bool IsServerDirLocked(const std::wstring& dir, bool* worldLockOut) {
     return IsFileLockedByProcess(JoinPath(JoinPath(dir, L"logs"), L"latest.log"), false);
 }
 
+static int DetectJavaMajorVersion(const std::wstring& javaExe) {
+    if (javaExe.empty()) return 0;
+    const std::wstring tail = L"\\bin\\java.exe";
+    std::wstring low = ToLowerW(javaExe);
+    JavaCand c;
+    if (low.size() > tail.size() && low.compare(low.size() - tail.size(), tail.size(), tail) == 0 &&
+        ReadJavaCandidate(javaExe.substr(0, javaExe.size() - tail.size()), c) && c.v[0] > 0) {
+        return c.v[0];
+    }
+    DWORD exitCode = 1;
+    std::string out;
+    if (RunProcessCapture(L"\"" + javaExe + L"\" -version", L".", exitCode, &out) && !out.empty()) {
+        size_t vp = out.find("version \"");
+        std::string sub = (vp != std::string::npos) ? out.substr(vp + 9) : out;
+        int v[4] = {};
+        ParseJavaVerTokens(sub, v);
+        if (v[0] > 0) return v[0];
+    }
+    return 0;
+}
+
+static int McVersionRequiredJava(const std::string& mcVer) {
+    if (mcVer.empty()) return 0;
+    if (!StartsWith(mcVer, "1.")) {
+        int yr = atoi(mcVer.c_str());
+        if (yr >= 26) return 25;
+        if (yr >= 24) return 21;
+        if (yr >= 21) return 17;
+        return 0;
+    }
+    int minor = 0, patch = 0;
+    if (sscanf(mcVer.c_str(), "1.%d.%d", &minor, &patch) < 1) return 0;
+    if (minor >= 21 || (minor == 20 && patch >= 5)) return 21;
+    if (minor >= 18) return 17;
+    if (minor == 17) return 16;
+    if (minor >= 1)  return 8;
+    return 0;
+}
+
+static int DetectJarRequiredJavaMajor(const std::wstring& jarPath) {
+    HANDLE h = CreateFileW(jarPath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+
+    LARGE_INTEGER fsz = {};
+    if (!GetFileSizeEx(h, &fsz) || fsz.QuadPart < 22) { CloseHandle(h); return 0; }
+
+    DWORD tailLen = (DWORD)std::min<LONGLONG>(fsz.QuadPart, 65557LL);
+    LARGE_INTEGER seekPos;
+    seekPos.QuadPart = fsz.QuadPart - tailLen;
+    std::vector<BYTE> tail(tailLen);
+    DWORD rd = 0;
+    if (!SetFilePointerEx(h, seekPos, NULL, FILE_BEGIN) || !ReadFile(h, tail.data(), tailLen, &rd, NULL) || rd < 22) {
+        CloseHandle(h);
+        return 0;
+    }
+
+    auto u16 = [](const BYTE* p) -> WORD  { return (WORD)p[0] | ((WORD)p[1] << 8); };
+    auto u32 = [](const BYTE* p) -> DWORD { return (DWORD)p[0] | ((DWORD)p[1] << 8) | ((DWORD)p[2] << 16) | ((DWORD)p[3] << 24); };
+
+    long eocd = -1;
+    for (long i = (long)rd - 22; i >= 0; i--) {
+        if (tail[i] == 0x50 && tail[i + 1] == 0x4B && tail[i + 2] == 0x05 && tail[i + 3] == 0x06) { eocd = i; break; }
+    }
+    if (eocd < 0) { CloseHandle(h); return 0; }
+
+    DWORD cdSize = u32(&tail[eocd + 12]);
+    DWORD cdOff  = u32(&tail[eocd + 16]);
+    if (cdSize == 0 || cdSize > 4u * 1024u * 1024u || (LONGLONG)cdOff + cdSize > fsz.QuadPart) {
+        CloseHandle(h);
+        return 0;
+    }
+
+    std::vector<BYTE> cd(cdSize);
+    seekPos.QuadPart = cdOff;
+    if (!SetFilePointerEx(h, seekPos, NULL, FILE_BEGIN) || !ReadFile(h, cd.data(), cdSize, &rd, NULL) || rd != cdSize) {
+        CloseHandle(h);
+        return 0;
+    }
+
+    struct ZipRef { bool found = false; WORD method = 0; DWORD uncomp = 0, locOff = 0; std::string name; };
+    ZipRef verRef, mfRef, clsRef;
+    std::map<std::string, ZipRef> allClasses;
+    int reqJava = 0;
+
+    for (size_t p = 0; p + 46 <= cd.size(); ) {
+        if (!(cd[p] == 0x50 && cd[p + 1] == 0x4B && cd[p + 2] == 0x01 && cd[p + 3] == 0x02)) break;
+        WORD method  = u16(&cd[p + 10]);
+        DWORD uncomp = u32(&cd[p + 24]);
+        WORD nLen    = u16(&cd[p + 28]);
+        WORD xLen    = u16(&cd[p + 30]);
+        WORD cLen    = u16(&cd[p + 32]);
+        DWORD locOff = u32(&cd[p + 42]);
+        if (p + 46 + nLen > cd.size()) break;
+        std::string name((const char*)&cd[p + 46], nLen);
+        p += 46 + (size_t)nLen + xLen + cLen;
+
+        if (name == "version.json" && uncomp > 0 && uncomp <= 65536) {
+            verRef = { true, method, uncomp, locOff, name };
+        } else if (name == "META-INF/MANIFEST.MF" && uncomp > 0 && uncomp <= 65536) {
+            mfRef = { true, method, uncomp, locOff, name };
+        } else if (StartsWith(name, "META-INF/versions/") && EndsWith(name, ".jar")) {
+            size_t sl = name.find('/', 18);
+            if (sl != std::string::npos) {
+                std::string mv = name.substr(18, sl - 18);
+                if (mv.find('.') != std::string::npos || mv.find('w') != std::string::npos) {
+                    reqJava = std::max(reqJava, McVersionRequiredJava(mv));
+                }
+            }
+        } else if (EndsWith(name, ".class") && !StartsWith(name, "META-INF/") && uncomp >= 8) {
+            ZipRef r = { true, method, uncomp, locOff, name };
+            if (!clsRef.found) clsRef = r;
+            if (allClasses.size() < 4096) allClasses[name] = r;
+        }
+    }
+
+    auto readEntry = [&](const ZipRef& r, std::string& out, size_t maxBytes) -> bool {
+        out.clear();
+        if (!r.found) return false;
+        if (r.method == 0) {
+            BYTE lh[30];
+            LARGE_INTEGER lp; lp.QuadPart = r.locOff;
+            DWORD n = 0;
+            if (!SetFilePointerEx(h, lp, NULL, FILE_BEGIN) || !ReadFile(h, lh, 30, &n, NULL) || n != 30) return false;
+            if (!(lh[0] == 0x50 && lh[1] == 0x4B && lh[2] == 0x03 && lh[3] == 0x04)) return false;
+            lp.QuadPart = (LONGLONG)r.locOff + 30 + u16(&lh[26]) + u16(&lh[28]);
+            DWORD want = (DWORD)std::min<size_t>(r.uncomp, maxBytes);
+            out.resize(want);
+            if (!SetFilePointerEx(h, lp, NULL, FILE_BEGIN) || !ReadFile(h, &out[0], want, &n, NULL) || n != want) return false;
+            return true;
+        }
+        if (r.method == 8 && r.name.find('"') == std::string::npos) {
+            size_t sl = jarPath.find_last_of(L"\\/");
+            std::wstring wDir = (sl == std::wstring::npos) ? L"." : jarPath.substr(0, sl);
+            std::wstring jName = (sl == std::wstring::npos) ? jarPath : jarPath.substr(sl + 1);
+            DWORD ec = 1;
+            std::wstring cmd = L"\"" + ResolveTarExe() + L"\" -x -O -f \"" + jName + L"\" \"" + FromUtf8(r.name) + L"\"";
+            if (RunProcessCapture(cmd, wDir, ec, &out) && ec == 0 && !out.empty()) {
+                if (out.size() > maxBytes) out.resize(maxBytes);
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (verRef.found) {
+        std::string vj;
+        if (readEntry(verRef, vj, 65536)) {
+            int jv = ExtractJsonInt(vj, "java_version", 0);
+            if (jv <= 0) jv = McVersionRequiredJava(ExtractJsonField(vj, "id"));
+            reqJava = std::max(reqJava, jv);
+        }
+    }
+
+    if (reqJava == 0) {
+        ZipRef targetCls = clsRef;
+        if (mfRef.found) {
+            std::string mf;
+            if (readEntry(mfRef, mf, 65536)) {
+                size_t mp = mf.find("Main-Class:");
+                if (mp != std::string::npos) {
+                    size_t le = mf.find_first_of("\r\n", mp);
+                    std::string mc = TrimA(mf.substr(mp + 11, le == std::string::npos ? std::string::npos : le - (mp + 11)));
+                    std::replace(mc.begin(), mc.end(), '.', '/');
+                    auto it = allClasses.find(mc + ".class");
+                    if (it != allClasses.end()) targetCls = it->second;
+                }
+            }
+        }
+        std::string cb;
+        if (targetCls.found && readEntry(targetCls, cb, 8) && cb.size() >= 8 &&
+            (BYTE)cb[0] == 0xCA && (BYTE)cb[1] == 0xFE && (BYTE)cb[2] == 0xBA && (BYTE)cb[3] == 0xBE) {
+            int major = ((int)(BYTE)cb[6] << 8) | (int)(BYTE)cb[7];
+            if (major >= 49) reqJava = major - 44;
+        }
+    }
+
+    CloseHandle(h);
+    return reqJava;
+}
+
 static void StartServer() {
     if (g_backupBusy.load()) {
         Msg(Tx(L"Dünya yedeği veya geri yükleme devam ederken sunucu başlatılamaz.",
@@ -4428,6 +4837,22 @@ static void StartServer() {
             Msg(L().msgJavaNotFound, L().titleJavaMissing, MB_OK | MB_ICONERROR);
         }
         return;
+    }
+
+    {
+        int curJava = DetectJavaMajorVersion(java);
+        int reqJava = DetectJarRequiredJavaMajor(jar);
+        if (curJava > 0 && reqJava > 0 && curJava < reqJava) {
+            std::wstring warnMsg = (g_lang == Lang::TR)
+                ? (L"Seçilen sunucu .jar dosyası en az Java " + std::to_wstring(reqJava) +
+                   L" gerektiriyor, ancak sistemde seçili olan sürüm Java " + std::to_wstring(curJava) +
+                   L".\n\nSunucu büyük olasılıkla başlatılamayacaktır (UnsupportedClassVersionError).\nYine de başlatmayı denemek istiyor musunuz?")
+                : (L"The selected server .jar requires Java " + std::to_wstring(reqJava) +
+                   L" or newer, but the selected runtime is Java " + std::to_wstring(curJava) +
+                   L".\n\nThe server will likely fail to start (UnsupportedClassVersionError).\nTry starting anyway?");
+            if (Msg(warnMsg, Tx(L"Java Sürüm Uyumsuzluğu", L"Java Version Mismatch"), MB_YESNO | MB_ICONWARNING) != IDYES) return;
+            if (g_state != SrvState::Stopped || g_backupBusy.load() || g_appClosing.load()) return;
+        }
     }
 
     std::wstring dir = GetServerDir();
@@ -4596,6 +5021,10 @@ static void StopServer(bool fromRestart = false) {
         g_scheduledRestartTrigger = false;
         KillTimer(g_hwnd, TID_RESTART);
     }
+    if (g_backupSaveOffSent) {
+        g_backupSaveOffSent = false;
+        WriteToConsole(L"save-on");
+    }
     g_state = SrvState::Stopping;
     g_srvStopAck = false;
     g_stopRetryCount = 0;
@@ -4626,16 +5055,28 @@ static void RestartServer() {
     StopServer(true);
 }
 
+static void CancelReaderIo(HANDLE hThread) {
+    if (!hThread) return;
+    typedef BOOL (WINAPI *PfnCancelSyncIo)(HANDLE);
+    static PfnCancelSyncIo pfn = reinterpret_cast<PfnCancelSyncIo>(
+        reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "CancelSynchronousIo")));
+    if (pfn) pfn(hThread);
+}
+
 static void OnServerExited() {
     DWORD code = 0;
     if (g_hProc) { WaitForSingleObject(g_hProc, 3000); GetExitCodeProcess(g_hProc, &code); CloseHandle(g_hProc); g_hProc = NULL; }
     if (g_hStdinWr) { CloseHandle(g_hStdinWr); g_hStdinWr = NULL; }
     if (g_hJob) { CloseHandle(g_hJob); g_hJob = NULL; }
     if (g_hReaderThread) {
-        WaitForSingleObject(g_hReaderThread, 1500);
+        if (WaitForSingleObject(g_hReaderThread, 400) == WAIT_TIMEOUT) {
+            CancelReaderIo(g_hReaderThread);
+            WaitForSingleObject(g_hReaderThread, 1000);
+        }
         CloseHandle(g_hReaderThread);
         g_hReaderThread = NULL;
     }
+    g_backupSaveOffSent = false;
     bool expected = (g_state == SrvState::Stopping);
     ULONGLONG upSec = (GetTickCount64() - g_startTick) / 1000;
     KillTimer(g_hwnd, TID_TIME); KillTimer(g_hwnd, TID_STOPWATCH); KillTimer(g_hwnd, TID_STOP_RETRY);
@@ -4716,10 +5157,13 @@ static void RequestExit() {
 }
 
 static void QueryTime() {
-    ++g_pendingTime;
     const wchar_t* cmd = g_useTimelineCmd.load() ? L"time query day" : L"time query daytime";
-    if (!WriteToConsole(cmd)) --g_pendingTime;
-    if (g_pendingTime.load() > 3) g_pendingTime = 0;
+    int cur = g_pendingTime.load();
+    bool added = false;
+    while (cur < 3) {
+        if (g_pendingTime.compare_exchange_weak(cur, cur + 1)) { added = true; break; }
+    }
+    if (!WriteToConsole(cmd) && added) --g_pendingTime;
 }
 
 // ----------------------------------------------------------------------------
@@ -4745,6 +5189,7 @@ static void DoKickBan(bool ban) {
     if (ban && Msg(L"\"" + name + L"\"" + L().msgBanConfirm, L().titleBanConfirm, MB_YESNO | MB_ICONWARNING) != IDYES) return;
     if (g_state != SrvState::Running) { AppLog(L().logSrvNotRunning); return; }
     WriteToConsole((ban ? L"ban " : L"kick ") + name);
+    if (ban) SetTimer(g_hwnd, TID_ACCESS_SYNC, 700, NULL);
 }
 static void DoUnban() {
     if (g_state != SrvState::Running) { AppLog(L().logSrvNotRunning); return; }
@@ -4754,6 +5199,7 @@ static void DoUnban() {
     WriteToConsole(L"pardon " + n);
     AppLog(std::wstring(L().logUnbanReq) + n);
     SetWindowTextW(g_hUnban, L"");
+    SetTimer(g_hwnd, TID_ACCESS_SYNC, 700, NULL);
 }
 static void SaveJvmFromUi() {
     std::wstring a = Trim(GetText(g_hJvm));
@@ -5031,6 +5477,14 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             SendMessageW(h, EM_SETSEL, 0, -1);
             return 0;
         }
+        if (ctrl && w == 'F' && g_page == PG_PANEL) {
+            ToggleConsoleFind(true);
+            return 0;
+        }
+        if (w == VK_F3 && g_page == PG_PANEL && g_conFindOpen) {
+            RunConsoleSearch((GetKeyState(VK_SHIFT) & 0x8000) ? -1 : 1);
+            return 0;
+        }
         if (ctrl && w == VK_BACK) {
             DeleteWordBackward(h);
             return 0;
@@ -5040,10 +5494,15 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             NavigateTo((g_page + (shift ? -1 : 1) + PG_COUNT) % PG_COUNT);
             return 0;
         }
+        if (h == g_hEditConFind && w == VK_ESCAPE) {
+            ToggleConsoleFind(false);
+            return 0;
+        }
     }
     if (m == WM_CHAR && ((GetKeyState(VK_CONTROL) & 0x8000) != 0)) {
-        if (w == 1 || w == 127) return 0; // suppress Ctrl+A / Ctrl+Backspace control chars
+        if (w == 1 || w == 6 || w == 127) return 0; // suppress Ctrl+A / Ctrl+F / Ctrl+Backspace control chars
     }
+    if (m == WM_CHAR && h == g_hEditConFind && w == VK_ESCAPE) return 0;
 
     if (h == g_hCmd) {
         if (m == WM_KEYDOWN) {
@@ -5076,11 +5535,13 @@ static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (w == VK_TAB) { FocusNext(h); return 0; }
             if (w == VK_RETURN) {
                 if (h == g_hCmd) SendCommandFromUi();
+                else if (h == g_hEditConFind) RunConsoleSearch((GetKeyState(VK_SHIFT) & 0x8000) ? -1 : 1);
                 else if (h == g_hUnban) DoUnban();
                 else if (h == g_hJvm) SaveJvmFromUi();
                 else if (h == g_hEditJavaPath) SaveJavaFromUi();
                 else if (h == g_hEditWl) ModifyAccessList(false, true);
                 else if (h == g_hEditOp) ModifyAccessList(true, true);
+                else if (h == g_hEditBan) ModifyBanList(true);
                 else if (h == g_hEditBkTag) StartCreateBackup();
                 else if (h == g_hEditProfName) SaveCurrentAsProfile();
                 else if (h == g_hEditBkHours || h == g_hEditBkKeep) PostMessageW(g_hwnd, WM_COMMAND, ID_BTN_SCHED_BK_SAVE, 0);
@@ -5147,6 +5608,34 @@ static void DrawTxt(HDC dc, const std::wstring& t, RECT r, HFONT f, COLORREF c, 
     SetTextColor(dc, c); SetBkMode(dc, TRANSPARENT);
     DrawTextW(dc, t.c_str(), -1, &r, fmt | DT_NOPREFIX | DT_END_ELLIPSIS);
     SelectObject(dc, of);
+}
+
+static const wchar_t* EmptyListPlaceholder(HWND h) {
+    if (h == g_hList)        return g_state == SrvState::Running ? L().noPlayersOnline : L().serverOffline;
+    if (h == g_hListWl)      return Tx(L"Whitelist boş", L"Whitelist is empty");
+    if (h == g_hListOp)      return Tx(L"Kayıtlı OP oyuncu yok", L"No operators registered");
+    if (h == g_hListBan)     return Tx(L"Banlı oyuncu yok", L"No banned players");
+    if (h == g_hListBk)      return Tx(L"Henüz alınmış yedek yok", L"No backups found yet");
+    if (h == g_hListProf)    return Tx(L"Kayıtlı profil yok", L"No saved profiles");
+    if (h == g_hListPlugins) return Tx(L"plugins\\ klasöründe eklenti yok", L"No plugins found in plugins\\");
+    if (h == g_hListMods)    return Tx(L"mods\\ klasöründe mod yok", L"No mods found in mods\\");
+    return NULL;
+}
+
+static LRESULT CALLBACK ListBoxProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if ((m == WM_ERASEBKGND || m == WM_PAINT) && SendMessageW(h, LB_GETCOUNT, 0, 0) == 0) {
+        if (m == WM_ERASEBKGND) return 1;
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+        RECT rc;
+        GetClientRect(h, &rc);
+        if (g_bLog) FillRect(dc, &rc, g_bLog);
+        const wchar_t* txt = EmptyListPlaceholder(h);
+        if (txt && *txt) DrawTxt(dc, txt, rc, g_fCap, P.muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    return CallWindowProcW(g_oldList, h, m, w, l);
 }
 
 static void FillRc(HDC dc, const RECT& r, COLORREF c) {
@@ -5365,7 +5854,7 @@ static void ComputeChrome() {
 
 static bool OverChrome(POINT pt) {
     for (int i = 0; i < PG_COUNT; i++) if (PtInRect(&g_rcTab[i], pt)) return true;
-    if (g_page == PG_SETTINGS) for (int i = 0; i < 2; i++) if (PtInRect(&g_rcSub[i], pt)) return true;
+    if (PageHasSubTabs(g_page)) for (int i = 0; i < 2; i++) if (PtInRect(&g_rcSub[i], pt)) return true;
     return false;
 }
 
@@ -5427,15 +5916,17 @@ static void PaintHeader(HDC mem, int W) {
 
         // Accent outline on top-left, top, and top-right (bottom is open into the sub-header)
         HPEN pAccent = CreatePen(PS_SOLID, 1, P.accent);
-        HGDIOBJ op = SelectObject(mem, pAccent);
-        HGDIOBJ ob = SelectObject(mem, GetStockObject(NULL_BRUSH));
+        if (pAccent) {
+            HGDIOBJ op = SelectObject(mem, pAccent);
+            HGDIOBJ ob = SelectObject(mem, GetStockObject(NULL_BRUSH));
 
-        // Drawing RoundRect with bottom below tabH ensures bottom border is hidden under subBar
-        RoundRect(mem, ax, tabTop, ax + aw, tabH + rad + 2, rad * 2, rad * 2);
+            // Drawing RoundRect with bottom below tabH ensures bottom border is hidden under subBar
+            RoundRect(mem, ax, tabTop, ax + aw, tabH + rad + 2, rad * 2, rad * 2);
 
-        SelectObject(mem, op);
-        SelectObject(mem, ob);
-        DeleteObject(pAccent);
+            SelectObject(mem, op);
+            SelectObject(mem, ob);
+            DeleteObject(pAccent);
+        }
     }
 
     // 4. Tab text labels (smoothly blended across sliding active pill)
@@ -5486,10 +5977,12 @@ static void DrawPlayer(const DRAWITEMSTRUCT* di);
 
 static bool IsFieldActiveOnCurrentPage(int idx) {
     if (idx < 0 || idx >= F_COUNT) return false;
+    if (idx == F_CON_FIND) return (g_page == PG_PANEL && g_conFindOpen);
     if (idx < F_JVM) return (g_page == PG_PANEL);
     if (idx == F_JVM || (idx >= F_BK_HOURS && idx <= F_BK_KEEP)) return (g_page == PG_SETTINGS && g_subTab == 1);
     if (idx >= F_MOTD && idx <= F_LEVELSEED) return (g_page == PG_PROPS);
-    if (idx >= F_WL && idx <= F_OP) return (g_page == PG_ACCESS);
+    if (idx >= F_WL && idx <= F_OP) return (g_page == PG_ACCESS && g_accSubTab == 0);
+    if (idx == F_BAN_ADD) return (g_page == PG_ACCESS && g_accSubTab == 1);
     if (idx == F_BK_TAG) return (g_page == PG_BACKUPS);
     if (idx == F_PROF_NAME) return (g_page == PG_PROFILES);
     return false;
@@ -5498,13 +5991,14 @@ static bool IsFieldActiveOnCurrentPage(int idx) {
 template <typename Fn>
 static void EnumPageControls(Fn&& fn) {
     bool pan = (g_page == PG_PANEL), prp = (g_page == PG_PROPS), acc = (g_page == PG_ACCESS),
-         bkp = (g_page == PG_BACKUPS), plug = (g_page == PG_PLUGINS), prof = (g_page == PG_PROFILES),
-         st = (g_page == PG_SETTINGS);
+        bkp = (g_page == PG_BACKUPS), plug = (g_page == PG_PLUGINS), prof = (g_page == PG_PROFILES),
+        st = (g_page == PG_SETTINGS);
     struct Group { bool active; const HWND* items; size_t count; };
     const HWND panelCtl[] = { g_hJar, g_hBtnBrowse, g_hBtnOpenSrvDir, g_hIp, g_hPort, g_hRam, g_hBtnStart, g_hBtnStop, g_hList,
                               g_hBtnKick, g_hBtnBan, g_hUnban, g_hBtnUnban,
-                              g_hBtnFiltAll, g_hBtnFiltWarn, g_hBtnFiltChat, g_hBtnConSave, g_hBtnConClear,
+                              g_hBtnFiltAll, g_hBtnFiltWarn, g_hBtnFiltChat, g_hBtnConFind, g_hBtnConSave, g_hBtnConClear,
                               g_hLog, g_hCmd, g_hBtnSend };
+    const HWND findCtl[]  = { g_hEditConFind, g_hBtnConPrev, g_hBtnConNext, g_hBtnConFindClose };
     const HWND propCtl[]  = { g_hMotd, g_hMaxPl, g_hViewDist, g_hSimDist, g_hSpawnProt, g_hLevelName, g_hLevelSeed,
                               g_hBtnPropSave, g_hBtnPropReload,
                               g_hBtnGm[0], g_hBtnGm[1], g_hBtnGm[2], g_hBtnGm[3],
@@ -5515,6 +6009,7 @@ static void EnumPageControls(Fn&& fn) {
                               g_hChkNether, g_hChkMonsters, g_hChkAnimals, g_hChkNpcs };
     const HWND accCtl[]   = { g_hListWl, g_hEditWl, g_hBtnWlAdd, g_hBtnWlRem, g_hBtnWlReload,
                               g_hListOp, g_hEditOp, g_hBtnOpAdd, g_hBtnOpRem, g_hBtnOpReload };
+    const HWND banCtl[]   = { g_hListBan, g_hEditBan, g_hBtnBanAdd, g_hBtnBanRem, g_hBtnBanReload };
     const HWND bkpCtl[]   = { g_hEditBkTag, g_hBtnBkCreate, g_hBtnBkOpen, g_hListBk, g_hBtnBkRestore, g_hBtnBkDel, g_hBtnBkReload };
     const HWND plugCtl[]  = { g_hListPlugins, g_hBtnPlugToggle, g_hBtnPlugAdd, g_hBtnPlugDel, g_hBtnPlugOpen, g_hBtnPlugReload,
                               g_hListMods,    g_hBtnModToggle,  g_hBtnModAdd,  g_hBtnModDel,  g_hBtnModOpen,  g_hBtnModReload };
@@ -5527,14 +6022,16 @@ static void EnumPageControls(Fn&& fn) {
                               g_hChkSchedBk, g_hEditBkHours, g_hEditBkKeep, g_hBtnSchedBkSave,
                               g_hChkSchedRestart, g_hEditRestartTime, g_hBtnSchedRestartSave };
     const Group groups[] = {
-        { pan,                 panelCtl, sizeof(panelCtl) / sizeof(panelCtl[0]) },
-        { prp,                 propCtl,  sizeof(propCtl)  / sizeof(propCtl[0])  },
-        { acc,                 accCtl,   sizeof(accCtl)   / sizeof(accCtl[0])   },
-        { bkp,                 bkpCtl,   sizeof(bkpCtl)   / sizeof(bkpCtl[0])   },
-        { plug,                plugCtl,  sizeof(plugCtl)  / sizeof(plugCtl[0])  },
-        { prof,                profCtl,  sizeof(profCtl)  / sizeof(profCtl[0])  },
-        { st && g_subTab == 0, genCtl,   sizeof(genCtl)   / sizeof(genCtl[0])   },
-        { st && g_subTab == 1, srvCtl,   sizeof(srvCtl)   / sizeof(srvCtl[0])   }
+        { pan,                   panelCtl, sizeof(panelCtl) / sizeof(panelCtl[0]) },
+        { pan && g_conFindOpen,  findCtl,  sizeof(findCtl)  / sizeof(findCtl[0])  },
+        { prp,                   propCtl,  sizeof(propCtl)  / sizeof(propCtl[0])  },
+        { acc && g_accSubTab == 0, accCtl, sizeof(accCtl)   / sizeof(accCtl[0])   },
+        { acc && g_accSubTab == 1, banCtl, sizeof(banCtl)   / sizeof(banCtl[0])   },
+        { bkp,                   bkpCtl,   sizeof(bkpCtl)   / sizeof(bkpCtl[0])   },
+        { plug,                  plugCtl,  sizeof(plugCtl)  / sizeof(plugCtl[0])  },
+        { prof,                  profCtl,  sizeof(profCtl)  / sizeof(profCtl[0])  },
+        { st && g_subTab == 0,   genCtl,   sizeof(genCtl)   / sizeof(genCtl[0])   },
+        { st && g_subTab == 1,   srvCtl,   sizeof(srvCtl)   / sizeof(srvCtl[0])   }
     };
     for (const Group& grp : groups) {
         for (size_t i = 0; i < grp.count; i++) {
@@ -5705,21 +6202,27 @@ static void FinishPageAnimation(HWND hwnd) {
 // Card pages (Properties & Settings): subTabMode 0=all, 1=sub-tab pills only, 2=cards/fields/descriptions only
 static void PaintCardPage(HDC mem, int subTabMode = 0) {
     int p = S(16);
-    if (g_page == PG_SETTINGS && subTabMode != 2) {
-        static const wchar_t* subTr[2] = { L"GENEL", L"SUNUCU" };
-        static const wchar_t* subEn[2] = { L"GENERAL", L"SERVER" };
-        if (g_subCurX < 0 && g_rcSub[g_subTab].right > g_rcSub[g_subTab].left) {
-            g_subCurX = (float)g_rcSub[g_subTab].left;
+    if (PageHasSubTabs(g_page) && subTabMode != 2) {
+        static const wchar_t* setTr[2] = { L"GENEL", L"SUNUCU" };
+        static const wchar_t* setEn[2] = { L"GENERAL", L"SERVER" };
+        static const wchar_t* accTr[2] = { L"WHITELIST & OP", L"BANLI OYUNCULAR" };
+        static const wchar_t* accEn[2] = { L"WHITELIST & OP", L"BANNED PLAYERS" };
+        const wchar_t* const* labels = (g_page == PG_ACCESS)
+            ? (g_lang == Lang::TR ? accTr : accEn)
+            : (g_lang == Lang::TR ? setTr : setEn);
+        int curSub = CurSubTab();
+        if (g_subCurX < 0 && g_rcSub[curSub].right > g_rcSub[curSub].left) {
+            g_subCurX = (float)g_rcSub[curSub].left;
             g_subTargetX = g_subCurX;
         }
         for (int i = 0; i < 2; i++) {
-            bool hov = (i == g_subTabHover && i != g_subTab);
+            bool hov = (i == g_subTabHover && i != curSub);
             COLORREF bg = hov ? P.field : P.card;
             COLORREF bdr = hov ? P.accent : P.border;
             FillRound(mem, g_rcSub[i], bg, bdr, S(30));
         }
         int subW = g_rcSub[0].right - g_rcSub[0].left;
-        int sx = (g_subCurX >= 0) ? (int)(g_subCurX + 0.5f) : g_rcSub[g_subTab].left;
+        int sx = (g_subCurX >= 0) ? (int)(g_subCurX + 0.5f) : g_rcSub[curSub].left;
         if (subW > 0) {
             RECT actPill = { sx, g_rcSub[0].top, sx + subW, g_rcSub[0].bottom };
             FillRound(mem, actPill, P.accent, P.accent, S(30));
@@ -5731,13 +6234,12 @@ static void PaintCardPage(HDC mem, int subTabMode = 0) {
                 int ox1 = std::max((int)g_rcSub[i].left, sx);
                 int ox2 = std::min((int)g_rcSub[i].right, sx + subW);
                 if (ox2 > ox1) overlap = (float)(ox2 - ox1) / (float)(g_rcSub[i].right - g_rcSub[i].left);
-            } else if (i == g_subTab) {
+            } else if (i == curSub) {
                 overlap = 1.0f;
             }
             COLORREF baseTxt = (i == g_subTabHover) ? P.text : P.muted;
             COLORREF txt = BlendCol(baseTxt, actTxt, overlap);
-            DrawTxt(mem, g_lang == Lang::TR ? subTr[i] : subEn[i], g_rcSub[i], g_fCap,
-                    txt, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            DrawTxt(mem, labels[i], g_rcSub[i], g_fCap, txt, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
         if (subTabMode == 1) return;
     } else if (subTabMode == 1) {
@@ -5749,12 +6251,18 @@ static void PaintCardPage(HDC mem, int subTabMode = 0) {
         DrawTxt(mem, CardTitle(c.id), r, g_fCap, P.accent, DT_LEFT | DT_SINGLELINE);
     }
     if (g_page == PG_ACCESS) {
-        FillRound(mem, g_rcWlBg, P.logBg, P.border, S(10));
-        FillRound(mem, g_rcOpBg, P.logBg, P.border, S(10));
-        if (g_hListWl && SendMessageW(g_hListWl, LB_GETCOUNT, 0, 0) == 0)
-            DrawTxt(mem, Tx(L"Whitelist boş", L"Whitelist is empty"), g_rcWlBg, g_fCap, P.muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        if (g_hListOp && SendMessageW(g_hListOp, LB_GETCOUNT, 0, 0) == 0)
-            DrawTxt(mem, Tx(L"Kayıtlı OP oyuncu yok", L"No operators registered"), g_rcOpBg, g_fCap, P.muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        if (g_accSubTab == 0) {
+            FillRound(mem, g_rcWlBg, P.logBg, P.border, S(10));
+            FillRound(mem, g_rcOpBg, P.logBg, P.border, S(10));
+            if (g_hListWl && SendMessageW(g_hListWl, LB_GETCOUNT, 0, 0) == 0)
+                DrawTxt(mem, Tx(L"Whitelist boş", L"Whitelist is empty"), g_rcWlBg, g_fCap, P.muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            if (g_hListOp && SendMessageW(g_hListOp, LB_GETCOUNT, 0, 0) == 0)
+                DrawTxt(mem, Tx(L"Kayıtlı OP oyuncu yok", L"No operators registered"), g_rcOpBg, g_fCap, P.muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        } else {
+            FillRound(mem, g_rcBanBg, P.logBg, P.border, S(10));
+            if (g_hListBan && SendMessageW(g_hListBan, LB_GETCOUNT, 0, 0) == 0)
+                DrawTxt(mem, Tx(L"Banlı oyuncu yok", L"No banned players"), g_rcBanBg, g_fCap, P.muted, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
     }
     if (g_page == PG_BACKUPS) {
         FillRound(mem, g_rcBkBg, P.logBg, P.border, S(10));
@@ -5818,6 +6326,14 @@ static void PaintPanelPage(HDC mem) {
     }
     FillRound(mem, g_rcListBg, P.logBg, P.border, S(10));
     FillRound(mem, g_rcLogBg, P.logBg, P.border, S(10));
+    if (g_conFindOpen && g_hEditConFind) {
+        std::wstring q = GetText(g_hEditConFind);
+        std::wstring statTxt = q.empty() ? Tx(L"Ara…", L"Find…")
+            : (g_conFindTotal > 0 ? (std::to_wstring(g_conFindIdx + 1) + L" / " + std::to_wstring(g_conFindTotal))
+                                  : L"0 / 0");
+        COLORREF statCol = (!q.empty() && g_conFindTotal == 0) ? P.red : P.muted;
+        DrawTxt(mem, statTxt, g_rcConFindStat, g_fCap, statCol, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    }
 
     if (PlayerCount() == 0) {
         RECT r = g_rcListBg;
@@ -6003,13 +6519,15 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         FillRound(dc, box, on ? P.accent : P.field, on ? P.accent : ((hover || focus) ? P.accent : P.border), S(6));
         if (on) {
             HPEN pen = CreatePen(PS_SOLID, std::max(2, S(2)), ContrastText(P.accent));
-            HGDIOBJ op = SelectObject(dc, pen);
-            MoveToEx(dc, box.left + S(4), box.top + bs / 2, NULL);
-            LineTo(dc, box.left + S(7), box.bottom - S(5));
-            LineTo(dc, box.right - S(4), box.top + S(5));
-            SelectObject(dc, op); DeleteObject(pen);
+            if (pen) {
+                HGDIOBJ op = SelectObject(dc, pen);
+                MoveToEx(dc, box.left + S(4), box.top + bs / 2, NULL);
+                LineTo(dc, box.left + S(7), box.bottom - S(5));
+                LineTo(dc, box.right - S(4), box.top + S(5));
+                SelectObject(dc, op); DeleteObject(pen);
+            }
         }
-        wchar_t ctxt[128]; GetWindowTextW(di->hwndItem, ctxt, 128);
+        wchar_t ctxt[128] = {}; GetWindowTextW(di->hwndItem, ctxt, 128);
         RECT tr = { box.right + S(10), r.top, r.right, r.bottom };
         DrawTxt(dc, ctxt, tr, g_fUI, P.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         return;
@@ -6017,14 +6535,16 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
 
     // Selector buttons (language, theme, gamemode, difficulty, level-type, console filter pills) highlight active choice
     bool isFilt = (id == ID_BTN_FILT_ALL || id == ID_BTN_FILT_WARN || id == ID_BTN_FILT_CHAT);
-    bool isCompact = (id == ID_BTN_OPEN_SRVDIR || id == ID_BTN_CON_SAVE || id == ID_BTN_CON_CLEAR || isFilt);
-    bool isSel = isFilt || (id == ID_MENU_LANG_TR || id == ID_MENU_LANG_EN ||
+    bool isFindNav = (id == ID_BTN_CON_PREV || id == ID_BTN_CON_NEXT || id == ID_BTN_CON_FIND_CLOSE);
+    bool isCompact = (id == ID_BTN_OPEN_SRVDIR || id == ID_BTN_CON_SAVE || id == ID_BTN_CON_CLEAR || id == ID_BTN_CON_FIND || isFindNav || isFilt);
+    bool isSel = isFilt || id == ID_BTN_CON_FIND || (id == ID_MENU_LANG_TR || id == ID_MENU_LANG_EN ||
                   id == ID_MENU_THEME_DARK || id == ID_MENU_THEME_LIGHT ||
                   id == ID_MENU_THEME_REDSTONE || id == ID_MENU_THEME_MC ||
                   (id >= ID_BTN_GM_SURV && id <= ID_BTN_LVL_AMP));
     bool selActive = (id == ID_BTN_FILT_ALL && g_logFilter == 0) ||
                      (id == ID_BTN_FILT_WARN && g_logFilter == 1) ||
                      (id == ID_BTN_FILT_CHAT && g_logFilter == 2) ||
+                     (id == ID_BTN_CON_FIND && g_conFindOpen) ||
                      (id == ID_MENU_LANG_TR && g_lang == Lang::TR) || (id == ID_MENU_LANG_EN && g_lang == Lang::EN) ||
                      (id == ID_MENU_THEME_DARK && g_theme == Theme::Dark) ||
                      (id == ID_MENU_THEME_LIGHT && g_theme == Theme::Light) ||
@@ -6052,6 +6572,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         case ID_BTN_SCHED_RESTART_SAVE: base = RGB(34, 150, 90);  hov = RGB(46, 176, 108); break;
         case ID_BTN_STOP:
         case ID_BTN_BAN:
+        case ID_BTN_BAN_ADD:
         case ID_BTN_WL_REM:
         case ID_BTN_OP_REM:
         case ID_BTN_BK_DEL:
@@ -6060,6 +6581,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
         case ID_BTN_MOD_DEL:
         case ID_BTN_APP_EXIT: base = RGB(190, 62, 74);  hov = RGB(216, 78, 92);  break;
         case ID_BTN_KICK:
+        case ID_BTN_BAN_REM:
         case ID_BTN_BK_RESTORE: base = RGB(196, 140, 34); hov = RGB(220, 160, 48); break;
         case ID_BTN_SEND:
         case ID_BTN_PROF_LOAD:
@@ -6076,7 +6598,7 @@ static void DrawButton(const DRAWITEMSTRUCT* di) {
     RECT rr = r; InflateRect(&rr, -1, -1);
     FillRound(dc, rr, fill, focus && !dis ? P.accent : ((isSel && selActive) ? P.accent : ((id == ID_BTN_BROWSE || id == ID_BTN_UNBAN || id == ID_BTN_JAVA_BROWSE || id == ID_BTN_JAVA_AUTO || isCompact || isSel) ? P.border : fill)), isCompact ? S(7) : S(10));
 
-    wchar_t txt[128]; GetWindowTextW(di->hwndItem, txt, 128);
+    wchar_t txt[128] = {}; GetWindowTextW(di->hwndItem, txt, 128);
     if (press && !dis) OffsetRect(&r, 0, 1);
     DrawTxt(dc, txt, r, isCompact ? g_fCap : g_fSemi, dis ? P.btnDisTxt : txtCol, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
@@ -6149,6 +6671,18 @@ static void DrawPlayer(const DRAWITEMSTRUCT* di) {
         }
     }
 
+    if (di->hwndItem == g_hListBan) {
+        auto rit = g_banReasons.find(ToLowerW(name));
+        if (rit != g_banReasons.end() && !rit->second.empty()) {
+            int rw = std::min(S(260), (int)(row.right - row.left) / 2);
+            RECT tr = { ax + d + S(10), row.top, row.right - rw - S(12), row.bottom };
+            RECT rr = { row.right - rw - S(8), row.top, row.right - S(10), row.bottom };
+            DrawTxt(dc, name, tr, g_fUI, P.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            DrawTxt(dc, rit->second, rr, g_fCap, P.muted, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+            return;
+        }
+    }
+
     RECT tr = { ax + d + S(10), row.top, row.right - S(8), row.bottom };
     DrawTxt(dc, name, tr, g_fUI, P.text, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 }
@@ -6167,7 +6701,7 @@ static void Layout(int W, int H) {
     if (!g_hCmd) return;
     ComputeChrome();
     int m = S(16), g = S(12), p = S(16), lw = S(330), fh = S(34), oy = HeaderH();
-    HDWP dw = BeginDeferWindowPos(40);
+    HDWP dw = BeginDeferWindowPos(48);
     auto put = [&](HWND h, int x, int y, int w, int hh) {
         if (dw && h) dw = DeferWindowPos(dw, h, NULL, x, y, std::max(w, 1), std::max(hh, 1), SWP_NOZORDER | SWP_NOACTIVATE);
     };
@@ -6222,20 +6756,40 @@ static void Layout(int W, int H) {
     int cx = g_rcCon.left + p, ciw = g_rcCon.right - g_rcCon.left - 2 * p;
     {
         int hy = g_rcCon.top + S(10), hh = S(22), gap = S(4);
-        int clrW = S(64), svW = S(58), chW = S(58), wnW = S(56), alW = S(52);
+        int clrW = S(64), svW = S(58), fnW = S(48), chW = S(58), wnW = S(56), alW = S(52);
         int rxEnd = g_rcCon.right - p;
         put(g_hBtnConClear, rxEnd - clrW, hy, clrW, hh);
         rxEnd -= clrW + gap;
         put(g_hBtnConSave, rxEnd - svW, hy, svW, hh);
-        rxEnd -= svW + S(10);
+        rxEnd -= svW + S(8);
+        put(g_hBtnConFind, rxEnd - fnW, hy, fnW, hh);
+        rxEnd -= fnW + S(8);
         put(g_hBtnFiltChat, rxEnd - chW, hy, chW, hh);
         rxEnd -= chW + gap;
         put(g_hBtnFiltWarn, rxEnd - wnW, hy, wnW, hh);
         rxEnd -= wnW + gap;
         put(g_hBtnFiltAll, rxEnd - alW, hy, alW, hh);
     }
+    int logTopY = g_rcCon.top + S(40);
+    if (g_conFindOpen) {
+        int fy = g_rcCon.top + S(38), fbh = S(28), btnW = S(28), gap = S(4), statW = S(60);
+        int rEnd = cx + ciw;
+        put(g_hBtnConFindClose, rEnd - btnW, fy, btnW, fbh);
+        rEnd -= btnW + gap;
+        put(g_hBtnConNext, rEnd - btnW, fy, btnW, fbh);
+        rEnd -= btnW + gap;
+        put(g_hBtnConPrev, rEnd - btnW, fy, btnW, fbh);
+        rEnd -= btnW + S(6);
+        g_rcConFindStat = { rEnd - statW, fy, rEnd, fy + fbh };
+        int fw = std::max(S(80), (int)(g_rcConFindStat.left - S(8) - cx));
+        g_f[F_CON_FIND].rc = { cx, fy, cx + fw, fy + fbh };
+        put(g_hEditConFind, cx + S(10), fy + (fbh - g_textH) / 2, fw - S(20), g_textH);
+        logTopY = fy + fbh + S(8);
+    } else {
+        g_rcConFindStat = {};
+    }
     int cmdTop = g_rcCon.bottom - p - fh;
-    g_rcLogBg = { cx, g_rcCon.top + S(40), cx + ciw, cmdTop - S(10) };
+    g_rcLogBg = { cx, logTopY, cx + ciw, cmdTop - S(10) };
     put(g_hLog, g_rcLogBg.left + S(10), g_rcLogBg.top + S(8), ciw - S(20), g_rcLogBg.bottom - g_rcLogBg.top - S(16));
     fieldRect(F_CMD, cx, cmdTop, ciw - S(90));
     put(g_hBtnSend, cx + ciw - S(80), cmdTop, S(80), fh);
@@ -6376,16 +6930,21 @@ static void LayoutBackups(int W, int H, int m, int g, int p, int fh) {
     mv(g_hBtnBkReload,  cList.left + p + 2 * (w3 + S(8)), btnRowY, iw - 2 * (w3 + S(8)), fh);
 }
 
-// Access page: two-column card layout for Whitelist & Operators
+// Access page: sub-tab 0 = Whitelist & Operators, sub-tab 1 = Banned Players
 static void LayoutAccess(int W, int H, int m, int g, int p, int fh) {
     g_scards.clear(); g_txts.clear();
-    int oy = HeaderH(), top = oy + m;
+    int oy = HeaderH(), subW = S(156), subH = S(30), cx = W / 2;
+    g_rcSub[0] = { cx - subW - S(4), oy + m, cx - S(4), oy + m + subH };
+    g_rcSub[1] = { cx + S(4), oy + m, cx + S(4) + subW, oy + m + subH };
+    g_subTargetX = (float)g_rcSub[g_accSubTab].left;
+    if (g_subCurX < 0 || !g_animatingSubTab) g_subCurX = g_subTargetX;
+    int top = oy + m + subH + g;
     int colW = (W - 2 * m - g) / 2, lx = m, rxc = m + colW + g;
     int iw = colW - 2 * p;
-    int cardH = std::max(S(320), H - top - m);
+    int cardH = std::max(S(300), H - top - m);
 
-    auto card = [&](int x, int y, int h, int titleId) -> RECT {
-        RECT r = { x, y, x + colW, y + h };
+    auto cardW = [&](int x, int y, int w, int h, int titleId) -> RECT {
+        RECT r = { x, y, x + w, y + h };
         g_scards.push_back({ r, titleId });
         return r;
     };
@@ -6395,28 +6954,43 @@ static void LayoutAccess(int W, int H, int m, int g, int p, int fh) {
         mv(g_f[fi].h, x + S(10), y + (fh - g_textH) / 2, w - S(20), g_textH);
     };
 
-    // Left Card: Whitelist
-    RECT cWl = card(lx, top, cardH, 9);
-    int btnRowY = cWl.bottom - p - fh;
-    int editRowY = btnRowY - S(12) - fh;
-    g_rcWlBg = { cWl.left + p, cWl.top + S(42), cWl.left + p + iw, editRowY - S(26) };
-    RECT liW = g_rcWlBg; InflateRect(&liW, -S(4), -S(4));
-    mv(g_hListWl, liW.left, liW.top, liW.right - liW.left, liW.bottom - liW.top);
-    putField(F_WL, cWl.left + p, editRowY, iw - S(130));
-    mv(g_hBtnWlAdd, cWl.left + p + iw - S(122), editRowY, S(122), fh);
-    int bw = (iw - S(10)) / 2;
-    mv(g_hBtnWlRem,    cWl.left + p,             btnRowY, bw, fh);
-    mv(g_hBtnWlReload, cWl.left + p + bw + S(10), btnRowY, iw - bw - S(10), fh);
+    if (g_accSubTab == 0) {
+        // Left Card: Whitelist
+        RECT cWl = cardW(lx, top, colW, cardH, 9);
+        int btnRowY = cWl.bottom - p - fh;
+        int editRowY = btnRowY - S(12) - fh;
+        g_rcWlBg = { cWl.left + p, cWl.top + S(42), cWl.left + p + iw, editRowY - S(26) };
+        RECT liW = g_rcWlBg; InflateRect(&liW, -S(4), -S(4));
+        mv(g_hListWl, liW.left, liW.top, liW.right - liW.left, liW.bottom - liW.top);
+        putField(F_WL, cWl.left + p, editRowY, iw - S(130));
+        mv(g_hBtnWlAdd, cWl.left + p + iw - S(122), editRowY, S(122), fh);
+        int bw = (iw - S(10)) / 2;
+        mv(g_hBtnWlRem,    cWl.left + p,             btnRowY, bw, fh);
+        mv(g_hBtnWlReload, cWl.left + p + bw + S(10), btnRowY, iw - bw - S(10), fh);
 
-    // Right Card: Operators (OP)
-    RECT cOp = card(rxc, top, cardH, 10);
-    g_rcOpBg = { cOp.left + p, cOp.top + S(42), cOp.left + p + iw, editRowY - S(26) };
-    RECT liO = g_rcOpBg; InflateRect(&liO, -S(4), -S(4));
-    mv(g_hListOp, liO.left, liO.top, liO.right - liO.left, liO.bottom - liO.top);
-    putField(F_OP, cOp.left + p, editRowY, iw - S(130));
-    mv(g_hBtnOpAdd, cOp.left + p + iw - S(122), editRowY, S(122), fh);
-    mv(g_hBtnOpRem,    cOp.left + p,             btnRowY, bw, fh);
-    mv(g_hBtnOpReload, cOp.left + p + bw + S(10), btnRowY, iw - bw - S(10), fh);
+        // Right Card: Operators (OP)
+        RECT cOp = cardW(rxc, top, colW, cardH, 10);
+        g_rcOpBg = { cOp.left + p, cOp.top + S(42), cOp.left + p + iw, editRowY - S(26) };
+        RECT liO = g_rcOpBg; InflateRect(&liO, -S(4), -S(4));
+        mv(g_hListOp, liO.left, liO.top, liO.right - liO.left, liO.bottom - liO.top);
+        putField(F_OP, cOp.left + p, editRowY, iw - S(130));
+        mv(g_hBtnOpAdd, cOp.left + p + iw - S(122), editRowY, S(122), fh);
+        mv(g_hBtnOpRem,    cOp.left + p,             btnRowY, bw, fh);
+        mv(g_hBtnOpReload, cOp.left + p + bw + S(10), btnRowY, iw - bw - S(10), fh);
+    } else {
+        int fullW = W - 2 * m, fiw = fullW - 2 * p;
+        RECT cBan = cardW(lx, top, fullW, cardH, 22);
+        int btnRowY = cBan.bottom - p - fh;
+        int editRowY = btnRowY - S(12) - fh;
+        g_rcBanBg = { cBan.left + p, cBan.top + S(42), cBan.left + p + fiw, editRowY - S(26) };
+        RECT liB = g_rcBanBg; InflateRect(&liB, -S(4), -S(4));
+        mv(g_hListBan, liB.left, liB.top, liB.right - liB.left, liB.bottom - liB.top);
+        putField(F_BAN_ADD, cBan.left + p, editRowY, fiw - S(140));
+        mv(g_hBtnBanAdd, cBan.left + p + fiw - S(132), editRowY, S(132), fh);
+        int bw = (fiw - S(10)) / 2;
+        mv(g_hBtnBanRem,    cBan.left + p,             btnRowY, bw, fh);
+        mv(g_hBtnBanReload, cBan.left + p + bw + S(10), btnRowY, fiw - bw - S(10), fh);
+    }
 }
 
 // Properties page: two-column card layout for server.properties
@@ -6779,7 +7353,7 @@ static void StepAnimations(HWND hwnd) {
         }
     }
 
-    if (g_animatingSubTab && g_page == PG_SETTINGS) {
+    if (g_animatingSubTab && PageHasSubTabs(g_page)) {
         subDirty = true;
         float sx = g_subTargetX - g_subCurX;
         if (fabsf(sx) < 0.35f) {
@@ -6848,10 +7422,8 @@ static void NavigateTo(int pg) {
         g_tabCurW = (float)(g_rcTab[oldPage].right - g_rcTab[oldPage].left);
     }
 
-    if (g_animatingSubTab) {
-        g_animatingSubTab = false;
-        g_subCurX = g_subTargetX;
-    }
+    g_animatingSubTab = false;
+    g_subCurX = -1.0f;
 
     g_animatingTab = true;
     if (g_hwnd && IsWindowVisible(g_hwnd) && !IsIconic(g_hwnd)) {
@@ -6900,9 +7472,12 @@ static bool OnCreate(HWND hwnd) {
     g_bBg = CreateSolidBrush(P.bg); g_bField = CreateSolidBrush(P.field); g_bLog = CreateSolidBrush(P.logBg);
 
     HDC dc = GetDC(hwnd);
-    HGDIOBJ of = SelectObject(dc, g_fUI);
-    TEXTMETRICW tm; GetTextMetricsW(dc, &tm); g_textH = tm.tmHeight;
-    SelectObject(dc, of); ReleaseDC(hwnd, dc);
+    if (dc) {
+        HGDIOBJ of = SelectObject(dc, g_fUI);
+        TEXTMETRICW tm = {};
+        if (GetTextMetricsW(dc, &tm)) g_textH = tm.tmHeight;
+        SelectObject(dc, of); ReleaseDC(hwnd, dc);
+    }
 
     g_hJar  = MakeEdit(ID_EDIT_JAR);
     g_hBtnBrowse = MakeBtn(ID_BTN_BROWSE, L().btnBrowse);
@@ -6925,10 +7500,17 @@ static bool OnCreate(HWND hwnd) {
     g_hBtnFiltAll  = MakeBtn(ID_BTN_FILT_ALL,  Tx(L"Tümü", L"All"));
     g_hBtnFiltWarn = MakeBtn(ID_BTN_FILT_WARN, Tx(L"Uyarı", L"Warn"));
     g_hBtnFiltChat = MakeBtn(ID_BTN_FILT_CHAT, Tx(L"Sohbet", L"Chat"));
+    g_hBtnConFind  = MakeBtn(ID_BTN_CON_FIND,  Tx(L"Ara", L"Find"));
     g_hBtnConSave  = MakeBtn(ID_BTN_CON_SAVE,  Tx(L"Kaydet", L"Save"));
     g_hBtnConClear = MakeBtn(ID_BTN_CON_CLEAR, Tx(L"Temizle", L"Clear"));
 
-    g_hLog = CreateWindowExW(0, GetRichEditClass(), L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
+    g_hEditConFind      = MakeEdit(ID_EDIT_CON_FIND);
+    SendMessageW(g_hEditConFind, EM_LIMITTEXT, 128, 0);
+    g_hBtnConPrev       = MakeBtn(ID_BTN_CON_PREV, L"▲");
+    g_hBtnConNext       = MakeBtn(ID_BTN_CON_NEXT, L"▼");
+    g_hBtnConFindClose  = MakeBtn(ID_BTN_CON_FIND_CLOSE, L"✕");
+
+    g_hLog = CreateWindowExW(0, GetRichEditClass(), L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | ES_NOHIDESEL,
                              0, 0, 10, 10, hwnd, (HMENU)(INT_PTR)ID_EDIT_LOG, g_hInst, NULL);
     SendMessageW(g_hLog, WM_SETFONT, (WPARAM)g_fMono, TRUE);
     SendMessageW(g_hLog, EM_EXLIMITTEXT, 0, 10000000);
@@ -7033,6 +7615,16 @@ static bool OnCreate(HWND hwnd) {
     g_hBtnOpRem    = MakeBtn(ID_BTN_OP_REM,    Tx(L"OP Al (Deop)", L"Revoke OP"));
     g_hBtnOpReload = MakeBtn(ID_BTN_OP_RELOAD, Tx(L"Yenile", L"Reload"));
 
+    g_hListBan = CreateWindowExW(0, L"LISTBOX", L"", WS_CHILD | WS_TABSTOP | WS_VSCROLL |
+                                 LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT,
+                                 0, 0, 10, 10, hwnd, (HMENU)(INT_PTR)ID_LIST_BAN, g_hInst, NULL);
+    SendMessageW(g_hListBan, WM_SETFONT, (WPARAM)g_fUI, TRUE);
+    g_hEditBan      = MakeEdit(ID_EDIT_BAN_ADD);
+    SendMessageW(g_hEditBan, EM_LIMITTEXT, 32, 0);
+    g_hBtnBanAdd    = MakeBtn(ID_BTN_BAN_ADD,    L().btnBan);
+    g_hBtnBanRem    = MakeBtn(ID_BTN_BAN_REM,    Tx(L"Seçilenin Banını Kaldır", L"Unban Selected"));
+    g_hBtnBanReload = MakeBtn(ID_BTN_BAN_RELOAD, Tx(L"Yenile", L"Reload"));
+
     // Backups page controls
     g_hEditBkTag    = MakeEdit(ID_EDIT_BK_TAG);
     SendMessageW(g_hEditBkTag, EM_LIMITTEXT, 32, 0);
@@ -7100,7 +7692,8 @@ static bool OnCreate(HWND hwnd) {
     g_f[F_PORT]  = { g_hPort,  {}, L().capPort };
     g_f[F_RAM]   = { g_hRam,   {}, L().capRam };
     g_f[F_UNBAN] = { g_hUnban, {}, L().capUnban };
-    g_f[F_CMD]   = { g_hCmd,   {}, NULL };
+    g_f[F_CMD]      = { g_hCmd,         {}, NULL };
+    g_f[F_CON_FIND] = { g_hEditConFind, {}, NULL };
     g_f[F_JVM]   = { g_hJvm,   {}, Tx(L"JVM argümanları", L"JVM arguments") };
     g_f[F_MOTD]      = { g_hMotd,      {}, Tx(L"Sunucu açıklaması (MOTD)", L"Server description (MOTD)") };
     g_f[F_MAXPL]     = { g_hMaxPl,     {}, Tx(L"Maks. oyuncu (max-players)", L"Max players (max-players)") };
@@ -7111,6 +7704,7 @@ static bool OnCreate(HWND hwnd) {
     g_f[F_LEVELSEED] = { g_hLevelSeed, {}, Tx(L"Dünya tohumu (level-seed)", L"World seed (level-seed)") };
     g_f[F_WL]        = { g_hEditWl,    {}, Tx(L"Oyuncu adı", L"Player name") };
     g_f[F_OP]        = { g_hEditOp,    {}, Tx(L"Oyuncu adı", L"Player name") };
+    g_f[F_BAN_ADD]   = { g_hEditBan,   {}, Tx(L"Oyuncu adı", L"Player name") };
     g_f[F_BK_TAG]    = { g_hEditBkTag, {}, Tx(L"Yedek etiketi (isteğe bağlı, ör: sezon1)", L"Backup label (optional, e.g. pre-update)") };
     g_f[F_PROF_NAME] = { g_hEditProfName, {}, Tx(L"Profil adı (ör: Survival 1.21)", L"Profile name (e.g. Survival 1.21)") };
     g_f[F_BK_HOURS]      = { g_hEditBkHours,     {}, Tx(L"Aralık (saat)", L"Interval (hours)") };
@@ -7121,10 +7715,17 @@ static bool OnCreate(HWND hwnd) {
     DragAcceptFiles(hwnd, TRUE);
     RefreshDetectedJavaLabel();
 
+    for (HWND lb : { g_hList, g_hListWl, g_hListOp, g_hListBan, g_hListBk, g_hListProf, g_hListPlugins, g_hListMods }) {
+        if (lb) {
+            WNDPROC prev = (WNDPROC)SetWindowLongPtrW(lb, GWLP_WNDPROC, (LONG_PTR)ListBoxProc);
+            if (!g_oldList) g_oldList = prev;
+        }
+    }
     ApplyScrollTheme(g_hLog);
     ApplyScrollTheme(g_hList);
     ApplyScrollTheme(g_hListWl);
     ApplyScrollTheme(g_hListOp);
+    ApplyScrollTheme(g_hListBan);
     ApplyScrollTheme(g_hListBk);
     ApplyScrollTheme(g_hListProf);
     ApplyScrollTheme(g_hListPlugins);
@@ -7213,6 +7814,7 @@ static void HandleServerEvent(SrvEvent* e) {
                 if (g_hList) InvalidateRect(g_hList, NULL, FALSE);
                 if (g_hListWl) InvalidateRect(g_hListWl, NULL, FALSE);
                 if (g_hListOp) InvalidateRect(g_hListOp, NULL, FALSE);
+                if (g_hListBan) InvalidateRect(g_hListBan, NULL, FALSE);
             }
         return;
     }
@@ -7264,6 +7866,8 @@ static void HandleServerEvent(SrvEvent* e) {
                 size_t c = e->text.find(L',', p);
                 if (c == std::wstring::npos) c = e->text.size();
                 std::wstring n = Trim(e->text.substr(p, c - p));
+                size_t lp = n.rfind(L" (");
+                if (lp != std::wstring::npos && !n.empty() && n.back() == L')') n = Trim(n.substr(0, lp));
                 size_t sp = n.rfind(L' ');
                 if (sp != std::wstring::npos) n = n.substr(sp + 1);
                 if (ValidPlayerName(n)) {
@@ -7401,10 +8005,13 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             });
             for (HFONT f : oldF) if (f) DeleteObject(f);
 
-            for (HWND lb : { g_hList, g_hListWl, g_hListOp, g_hListBk, g_hListProf, g_hListPlugins, g_hListMods }) {
+            for (HWND lb : { g_hList, g_hListWl, g_hListOp, g_hListBan, g_hListBk, g_hListProf, g_hListPlugins, g_hListMods }) {
                 if (lb) SendMessageW(lb, LB_SETITEMHEIGHT, 0, S(38));
             }
-            if (g_hLog) SendMessageW(g_hLog, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(S(6), S(6)));
+            if (g_hLog) {
+                SendMessageW(g_hLog, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(S(6), S(6)));
+                ReapplyLogColors();
+            }
 
             const RECT* sug = (const RECT*)lp;
             if (sug) {
@@ -7461,7 +8068,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 for (int i = 0; i < PG_COUNT; i++) {
                     if (PtInRect(&g_rcTab[i], pt)) { hoverTab = i; break; }
                 }
-            } else if (g_page == PG_SETTINGS && pt.y < HeaderH() + S(46)) {
+            } else if (PageHasSubTabs(g_page) && pt.y < HeaderH() + S(46)) {
                 for (int i = 0; i < 2; i++) {
                     if (PtInRect(&g_rcSub[i], pt)) { hoverSub = i; break; }
                 }
@@ -7493,13 +8100,14 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_LBUTTONDOWN: {
             POINT pt = { (short)LOWORD(lp), (short)HIWORD(lp) };
             for (int i = 0; i < PG_COUNT; i++) if (PtInRect(&g_rcTab[i], pt)) { NavigateTo(i); return 0; }
-            if (g_page == PG_SETTINGS)
+            if (PageHasSubTabs(g_page))
                 for (int i = 0; i < 2; i++) if (PtInRect(&g_rcSub[i], pt)) {
-                    if (g_subTab != i) {
-                        if (g_subCurX < 0 && g_rcSub[g_subTab].right > g_rcSub[g_subTab].left) {
-                            g_subCurX = (float)g_rcSub[g_subTab].left;
+                    int& curSub = CurSubTab();
+                    if (curSub != i) {
+                        if (g_subCurX < 0 && g_rcSub[curSub].right > g_rcSub[curSub].left) {
+                            g_subCurX = (float)g_rcSub[curSub].left;
                         }
-                        g_subTab = i;
+                        curSub = i;
                         g_subTargetX = (float)g_rcSub[i].left;
                         g_animatingSubTab = true;
                         if (IsWindowVisible(hwnd) && !IsIconic(hwnd)) {
@@ -7568,6 +8176,10 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_COMMAND: {
             int id = LOWORD(wp), code = HIWORD(wp);
+            if (code == EN_CHANGE && id == ID_EDIT_CON_FIND) {
+                RunConsoleSearch(0);
+                return 0;
+            }
             if (code == EN_SETFOCUS || code == EN_KILLFOCUS) {
                 for (int i = 0; i < F_COUNT; i++) if (g_f[i].h == (HWND)lp) {
                     RECT r = g_f[i].rc; InflateRect(&r, S(3), S(3)); InvalidateRect(hwnd, &r, FALSE);
@@ -7587,7 +8199,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return 0;
             }
-            if (id == ID_LIST_PLAYERS || id == ID_LIST_WL || id == ID_LIST_OP || id == ID_LIST_BK) return 0;
+            if (id == ID_LIST_PLAYERS || id == ID_LIST_WL || id == ID_LIST_OP || id == ID_LIST_BAN || id == ID_LIST_BK) return 0;
             if (code != BN_CLICKED && lp != 0) return 0;
             switch (id) {
                 case ID_BTN_BROWSE: {
@@ -7614,7 +8226,12 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g_logFilter = id - ID_BTN_FILT_ALL;
                     for (HWND b : { g_hBtnFiltAll, g_hBtnFiltWarn, g_hBtnFiltChat }) if (b) InvalidateRect(b, NULL, FALSE);
                     RebuildLogView(true);
+                    if (g_conFindOpen) RunConsoleSearch(0);
                     break;
+                case ID_BTN_CON_FIND:       ToggleConsoleFind(!g_conFindOpen); break;
+                case ID_BTN_CON_PREV:       RunConsoleSearch(-1); break;
+                case ID_BTN_CON_NEXT:       RunConsoleSearch(1); break;
+                case ID_BTN_CON_FIND_CLOSE: ToggleConsoleFind(false); break;
                 case ID_BTN_CON_SAVE:
                     if (g_state == SrvState::Running) {
                         WriteToConsole(L"save-all");
@@ -7656,9 +8273,13 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case ID_BTN_WL_ADD:    ModifyAccessList(false, true); break;
                 case ID_BTN_WL_REM:    ModifyAccessList(false, false); break;
                 case ID_BTN_WL_RELOAD: LoadAccessListsToUi(); break;
-                case ID_BTN_OP_ADD:    ModifyAccessList(true, true); break;
-                case ID_BTN_OP_REM:    ModifyAccessList(true, false); break;
-                case ID_BTN_OP_RELOAD: LoadAccessListsToUi(); break;
+                case ID_BTN_OP_ADD:     ModifyAccessList(true, true); break;
+                case ID_BTN_OP_REM:     ModifyAccessList(true, false); break;
+                case ID_BTN_OP_RELOAD:  LoadAccessListsToUi(); break;
+                case ID_BTN_BAN_ADD:    ModifyBanList(true); break;
+                case ID_BTN_BAN_REM:
+                case ID_CTX_UNBAN:      ModifyBanList(false); break;
+                case ID_BTN_BAN_RELOAD: LoadAccessListsToUi(); break;
                 case ID_BTN_BK_CREATE:  StartCreateBackup(); break;
                 case ID_BTN_BK_OPEN:
                     if (!HasServerJar()) {
@@ -7799,7 +8420,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     HWND targetLb = g_hList;
                     if (g_page == PG_ACCESS) {
                         HWND f = GetFocus();
-                        if (f == g_hListWl || f == g_hListOp) targetLb = f;
+                        if (f == g_hListWl || f == g_hListOp || f == g_hListBan) targetLb = f;
                     }
                     std::wstring n = ListTextFrom(targetLb, (int)SendMessageW(targetLb, LB_GETCURSEL, 0, 0));
                     if (!n.empty()) CopyTextToClipboard(hwnd, n);
@@ -7958,7 +8579,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_CONTEXTMENU: {
             HWND target = (HWND)wp;
-            if (target == g_hList || target == g_hListWl || target == g_hListOp) {
+            if (target == g_hList || target == g_hListWl || target == g_hListOp || target == g_hListBan) {
                 POINT pt = { (short)LOWORD(lp), (short)HIWORD(lp) };
                 if (pt.x == -1 && pt.y == -1) {
                     int idx = (int)SendMessageW(target, LB_GETCURSEL, 0, 0);
@@ -7988,6 +8609,9 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     AppendMenuW(cm, MF_STRING, ID_CTX_OP,        Tx(L"OP Ver", L"Grant OP"));
                     AppendMenuW(cm, MF_STRING, ID_CTX_DEOP,      Tx(L"OP Al (Deop)", L"Revoke OP"));
                     AppendMenuW(cm, MF_STRING, ID_CTX_WHITELIST, Tx(L"Whitelist'e Ekle", L"Add to Whitelist"));
+                    AppendMenuW(cm, MF_SEPARATOR, 0, NULL);
+                } else if (target == g_hListBan) {
+                    AppendMenuW(cm, MF_STRING, ID_CTX_UNBAN, Tx(L"Banı Kaldır", L"Unban Selected"));
                     AppendMenuW(cm, MF_SEPARATOR, 0, NULL);
                 } else {
                     AppendMenuW(cm, MF_STRING, target == g_hListWl ? ID_BTN_WL_REM : ID_BTN_OP_REM,
@@ -8088,6 +8712,7 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_QUERYENDSESSION: return TRUE;
         case WM_ENDSESSION:
+            if (wp) SaveSettings();
             if (wp && g_state != SrvState::Stopped && g_hProc) {
                 WriteToConsole(L"stop");
                 if (WaitForSingleObject(g_hProc, 10000) == WAIT_TIMEOUT) {
@@ -8147,7 +8772,10 @@ static LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 g_hJob = NULL;
             }
             if (g_hReaderThread) {
-                WaitForSingleObject(g_hReaderThread, 2000);
+                if (WaitForSingleObject(g_hReaderThread, 400) == WAIT_TIMEOUT) {
+                    CancelReaderIo(g_hReaderThread);
+                    WaitForSingleObject(g_hReaderThread, 1500);
+                }
                 CloseHandle(g_hReaderThread);
                 g_hReaderThread = NULL;
             }
@@ -8561,7 +9189,12 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     HMODULE u32 = GetModuleHandleW(L"user32.dll");
     PFN_CTX setCtx = reinterpret_cast<PFN_CTX>(reinterpret_cast<void*>(GetProcAddress(u32, "SetProcessDpiAwarenessContext")));
     if (!(setCtx && setCtx((HANDLE)-2))) SetProcessDPIAware();
-    HDC sdc = GetDC(NULL); g_dpi = GetDeviceCaps(sdc, LOGPIXELSX); ReleaseDC(NULL, sdc);
+    HDC sdc = GetDC(NULL);
+    if (sdc) {
+        int d = GetDeviceCaps(sdc, LOGPIXELSX);
+        if (d > 0) g_dpi = d;
+        ReleaseDC(NULL, sdc);
+    }
 
     g_msgTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 
@@ -8615,21 +9248,38 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
 
     MSG msg = {};
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
-        if (msg.message == WM_KEYDOWN && msg.wParam == VK_TAB && g_modalDepth == 0 && g_hwnd &&
+        if (msg.message == WM_KEYDOWN && g_modalDepth == 0 && g_hwnd &&
             (msg.hwnd == g_hwnd || IsChild(g_hwnd, msg.hwnd))) {
             bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
             bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-            if (ctrl) {
-                NavigateTo((g_page + (shift ? -1 : 1) + PG_COUNT) % PG_COUNT);
+            if (ctrl && msg.wParam == 'F' && g_page == PG_PANEL) {
+                ToggleConsoleFind(true);
                 continue;
             }
-            if (g_animatingPage) FinishPageAnimation(g_hwnd);
-            // Forward plain Tab/Shift+Tab for ListBoxes, RichEdit log, or main window itself
-            if (msg.hwnd == g_hwnd || msg.hwnd == g_hLog || msg.hwnd == g_hList ||
-                msg.hwnd == g_hListWl || msg.hwnd == g_hListOp || msg.hwnd == g_hListBk ||
-                msg.hwnd == g_hListProf || msg.hwnd == g_hListPlugins || msg.hwnd == g_hListMods) {
-                FocusNext((msg.hwnd == g_hwnd) ? NULL : msg.hwnd);
+            if (msg.wParam == VK_F3 && g_page == PG_PANEL && g_conFindOpen) {
+                RunConsoleSearch(shift ? -1 : 1);
                 continue;
+            }
+            if (msg.wParam == VK_ESCAPE && g_page == PG_PANEL && g_conFindOpen &&
+                (msg.hwnd == g_hwnd || msg.hwnd == g_hLog || msg.hwnd == g_hBtnConPrev ||
+                 msg.hwnd == g_hBtnConNext || msg.hwnd == g_hBtnConFindClose)) {
+                ToggleConsoleFind(false);
+                continue;
+            }
+            if (msg.wParam == VK_TAB) {
+                if (ctrl) {
+                    NavigateTo((g_page + (shift ? -1 : 1) + PG_COUNT) % PG_COUNT);
+                    continue;
+                }
+                if (g_animatingPage) FinishPageAnimation(g_hwnd);
+                // Forward plain Tab/Shift+Tab for ListBoxes, RichEdit log, or main window itself
+                if (msg.hwnd == g_hwnd || msg.hwnd == g_hLog || msg.hwnd == g_hList ||
+                    msg.hwnd == g_hListWl || msg.hwnd == g_hListOp || msg.hwnd == g_hListBan ||
+                    msg.hwnd == g_hListBk || msg.hwnd == g_hListProf ||
+                    msg.hwnd == g_hListPlugins || msg.hwnd == g_hListMods) {
+                    FocusNext((msg.hwnd == g_hwnd) ? NULL : msg.hwnd);
+                    continue;
+                }
             }
         }
         TranslateMessage(&msg);

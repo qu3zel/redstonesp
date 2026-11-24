@@ -5,6 +5,12 @@ const state = {
   theme: 'dark',
   page: 'panel',
   settingsSubTab: 'gen',
+  accessSubTab: 'wlop',
+  consoleFindOpen: false,
+  consoleFindIdx: -1,
+  bannedPlayers: [
+    { name: 'Notch', reason: 'Banned by an operator' }
+  ],
   isRunning: false,
   serverPhase: 'stopped', // 'stopped' | 'starting' | 'running'
   serverGen: 0,
@@ -153,6 +159,8 @@ const i18n = {
     filtAll: "Tümü",
     filtWarn: "Uyarı",
     filtChat: "Sohbet",
+    btnConFind: "Ara",
+    phConFind: "Konsolda ara...",
     btnConSave: "Kaydet",
     btnConClear: "Temizle",
     tileCpuSys: "SİSTEM CPU",
@@ -226,13 +234,22 @@ const i18n = {
     chkNpcs: "Köylü / NPC Doğumu (spawn-npcs)",
 
     // Page 3: Access
+    subtabAccWlOp: "WHITELIST & OP",
+    subtabAccBan: "BANLI OYUNCULAR",
     cardWl: "WHITELIST (WHITELIST.JSON)",
     cardOps: "OPERATÖRLER (OPS.JSON)",
+    cardBanned: "BANLI OYUNCULAR (BANNED-PLAYERS.JSON)",
+    lblNoBanned: "Yasaklı oyuncu yok",
     phPlayerName: "Oyuncu adı...",
     btnAddWl: "Ekle",
     btnRemWl: "Seçileni Çıkar",
     btnOpAdd: "OP Ver",
     btnOpRem: "OP Al (Deop)",
+    btnBanAdd: "Banla",
+    btnBanRem: "Seçilenin Banını Kaldır",
+    banDefReason: "Operatör tarafından yasaklandı",
+    javaWarnLog: "» [JAVA] Uyarı: Seçilen sunucu en az Java {req} gerektiriyor (Algılanan: Java {det}).",
+    javaWarnConfirm: "Seçilen sunucu (.jar) en az Java {req} gerektiriyor, ancak seçili çalışma zamanı Java {det}.\n\nYine de başlatmayı denemek istiyor musunuz?",
 
     // Page 4: Backups
     cardBackupCreate: "DÜNYA YEDEKLEME",
@@ -420,6 +437,8 @@ const i18n = {
     filtAll: "All",
     filtWarn: "Warn",
     filtChat: "Chat",
+    btnConFind: "Find",
+    phConFind: "Search console...",
     btnConSave: "Save",
     btnConClear: "Clear",
     tileCpuSys: "SYSTEM CPU",
@@ -493,13 +512,22 @@ const i18n = {
     chkNpcs: "Spawn Villagers (spawn-npcs)",
 
     // Page 3: Access
+    subtabAccWlOp: "WHITELIST & OP",
+    subtabAccBan: "BANNED PLAYERS",
     cardWl: "WHITELIST (WHITELIST.JSON)",
     cardOps: "OPERATORS (OPS.JSON)",
+    cardBanned: "BANNED PLAYERS (BANNED-PLAYERS.JSON)",
+    lblNoBanned: "No banned players",
     phPlayerName: "Player name...",
     btnAddWl: "Add",
     btnRemWl: "Remove Selected",
     btnOpAdd: "Make OP",
     btnOpRem: "Remove OP (Deop)",
+    btnBanAdd: "Ban Player",
+    btnBanRem: "Unban Selected",
+    banDefReason: "Banned by an operator",
+    javaWarnLog: "» [JAVA] Warning: Selected server requires Java {req}+ (Detected: Java {det}).",
+    javaWarnConfirm: "The selected server (.jar) requires at least Java {req}, whereas the configured runtime is Java {det}.\n\nDo you want to try starting anyway?",
 
     // Page 4: Backups
     cardBackupCreate: "WORLD BACKUPS",
@@ -654,12 +682,21 @@ const winTabbar = document.getElementById('winTabbar');
 const tabIndicator = document.getElementById('tabIndicator');
 const settingsSubtabs = document.getElementById('settingsSubtabs');
 const subtabIndicator = document.getElementById('subtabIndicator');
+const accessSubtabs = document.getElementById('accessSubtabs');
+const accessSubtabIndicator = document.getElementById('accessSubtabIndicator');
 const winTitleText = document.getElementById('winTitleText');
 const subbarTitle = document.getElementById('subbarTitle');
 const subbarJava = document.getElementById('subbarJava');
 const subbarMcVer = document.getElementById('subbarMcVer');
 const consoleBody = document.getElementById('consoleBody');
 const consoleInput = document.getElementById('consoleInput');
+const consoleFindBar = document.getElementById('consoleFindBar');
+const inputConFind = document.getElementById('inputConFind');
+const conFindCount = document.getElementById('conFindCount');
+const btnConFind = document.getElementById('btnConFind');
+const btnConPrev = document.getElementById('btnConPrev');
+const btnConNext = document.getElementById('btnConNext');
+const btnConFindClose = document.getElementById('btnConFindClose');
 const btnStartStop = document.getElementById('btnStartStop');
 const btnRestartServer = document.getElementById('btnRestartServer');
 const btnOpenSrvFolder = document.getElementById('btnOpenSrvFolder');
@@ -713,12 +750,47 @@ function detectMcVerFromJar() {
   return m ? m[1] : '1.21.4';
 }
 
+function mcVersionRequiredJava(ver) {
+  const m = String(ver || '').match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!m) return 21;
+  const maj = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const pat = m[3] ? parseInt(m[3], 10) : 0;
+  if (maj >= 26) return 25;
+  if (maj === 1) {
+    if (min >= 21 || (min === 20 && pat >= 5)) return 21;
+    if (min >= 18) return 17;
+    if (min === 17) return 16;
+    return 8;
+  }
+  return 21;
+}
+
+function detectConfiguredJavaMajor() {
+  const jp = (state.appSettings.javaPath || '').trim();
+  if (!jp) return 21;
+  const legacy = jp.match(/\b1\.(\d+)\.\d+/);
+  if (legacy) return parseInt(legacy[1], 10);
+  const modern = jp.match(/(?:jdk|jre|java|openjdk|temurin|corretto|graalvm|zulu)[-_/\s\\]*(\d{1,2})\b/i)
+    || jp.match(/\b(\d{1,2})\.\d+\.\d+/);
+  if (modern) return parseInt(modern[1], 10);
+  return 21;
+}
+
 function updateSubbarRuntime() {
   if (subbarJava) {
     const jp = (state.appSettings.javaPath || '').trim();
-    if (!jp) subbarJava.textContent = 'Java 21';
-    else if (/21\.0\.5/.test(jp)) subbarJava.textContent = 'Java 21 (21.0.5)';
-    else subbarJava.textContent = state.lang === 'tr' ? 'Java (Özel)' : 'Java (Custom)';
+    if (!jp) {
+      subbarJava.textContent = 'Java 21';
+    } else if (/21\.0\.5/.test(jp)) {
+      subbarJava.textContent = 'Java 21 (21.0.5)';
+    } else {
+      const maj = detectConfiguredJavaMajor();
+      const hasExplicitVer = /\b1\.\d+\.\d+|(?:jdk|jre|java|openjdk|temurin|corretto|graalvm|zulu)[-_/\s\\]*\d{1,2}\b|\b\d{1,2}\.\d+\.\d+/i.test(jp);
+      subbarJava.textContent = hasExplicitVer
+        ? `Java ${maj}`
+        : (state.lang === 'tr' ? 'Java (Özel)' : 'Java (Custom)');
+    }
   }
   if (subbarMcVer) {
     subbarMcVer.textContent = (state.serverPhase === 'running')
@@ -955,11 +1027,16 @@ function applyConsoleFilter() {
   const children = consoleBody.children;
   for (let i = 0; i < children.length; i++) {
     const el = children[i];
+    if (el.dataset.rawText === undefined) el.dataset.rawText = el.textContent || '';
     const logType = el.dataset.logType || (el.className.match(/console-line-(\w+)/)?.[1] || 'info');
-    const show = matchesConsoleFilter(el.textContent || '', logType, state.consoleFilter);
+    const show = matchesConsoleFilter(el.dataset.rawText, logType, state.consoleFilter);
     el.classList.toggle('is-hidden', !show);
   }
-  consoleBody.scrollTop = consoleBody.scrollHeight;
+  if (state.consoleFindOpen) {
+    runConsoleSearch(0, false);
+  } else {
+    consoleBody.scrollTop = consoleBody.scrollHeight;
+  }
 }
 
 function setConsoleFilter(filter) {
@@ -970,11 +1047,111 @@ function setConsoleFilter(filter) {
   applyConsoleFilter();
 }
 
+function clearConsoleHighlights() {
+  if (!consoleBody) return;
+  for (let i = 0; i < consoleBody.children.length; i++) {
+    const el = consoleBody.children[i];
+    if (el.dataset.rawText !== undefined && el.querySelector('mark')) {
+      el.textContent = el.dataset.rawText;
+    }
+  }
+  if (conFindCount) conFindCount.textContent = '0 / 0';
+}
+
+function runConsoleSearch(step = 0, scrollToCurrent = true) {
+  if (!consoleBody) return;
+  const query = inputConFind ? inputConFind.value : '';
+  if (!query) {
+    clearConsoleHighlights();
+    state.consoleFindIdx = -1;
+    return;
+  }
+  const qLower = query.toLowerCase();
+  const qLen = query.length;
+  const marks = [];
+
+  for (let i = 0; i < consoleBody.children.length; i++) {
+    const el = consoleBody.children[i];
+    if (el.dataset.rawText === undefined) el.dataset.rawText = el.textContent || '';
+    const raw = el.dataset.rawText;
+    if (el.classList.contains('is-hidden')) {
+      if (el.querySelector('mark')) el.textContent = raw;
+      continue;
+    }
+    const rawLower = raw.toLowerCase();
+    let pos = rawLower.indexOf(qLower);
+    if (pos === -1) {
+      if (el.querySelector('mark')) el.textContent = raw;
+      continue;
+    }
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    while (pos !== -1) {
+      if (pos > last) frag.appendChild(document.createTextNode(raw.slice(last, pos)));
+      const m = document.createElement('mark');
+      m.className = 'con-find-mark';
+      m.textContent = raw.slice(pos, pos + qLen);
+      frag.appendChild(m);
+      marks.push(m);
+      last = pos + qLen;
+      pos = rawLower.indexOf(qLower, last);
+    }
+    if (last < raw.length) frag.appendChild(document.createTextNode(raw.slice(last)));
+    el.textContent = '';
+    el.appendChild(frag);
+  }
+
+  if (marks.length === 0) {
+    state.consoleFindIdx = -1;
+    if (conFindCount) conFindCount.textContent = '0 / 0';
+    return;
+  }
+
+  if (step !== 0) {
+    const base = state.consoleFindIdx < 0 ? (step > 0 ? -1 : 0) : state.consoleFindIdx;
+    state.consoleFindIdx = ((base + step) % marks.length + marks.length) % marks.length;
+  } else if (state.consoleFindIdx < 0 || state.consoleFindIdx >= marks.length) {
+    state.consoleFindIdx = 0;
+  }
+
+  const curMark = marks[state.consoleFindIdx];
+  curMark.classList.add('current');
+  if (conFindCount) conFindCount.textContent = `${state.consoleFindIdx + 1} / ${marks.length}`;
+
+  if (scrollToCurrent && curMark) {
+    const bodyRect = consoleBody.getBoundingClientRect();
+    const markRect = curMark.getBoundingClientRect();
+    if (markRect.top < bodyRect.top + 8 || markRect.bottom > bodyRect.bottom - 8) {
+      consoleBody.scrollTop += (markRect.top - bodyRect.top) - (consoleBody.clientHeight / 2) + (markRect.height / 2);
+    }
+  }
+}
+
+function toggleConsoleFind(forceState) {
+  const nextOpen = typeof forceState === 'boolean' ? forceState : !state.consoleFindOpen;
+  state.consoleFindOpen = nextOpen;
+  if (consoleFindBar) consoleFindBar.hidden = !nextOpen;
+  if (btnConFind) btnConFind.classList.toggle('active', nextOpen);
+  if (nextOpen) {
+    if (state.page !== 'panel') setPage('panel');
+    runConsoleSearch(0, true);
+    if (inputConFind) {
+      inputConFind.focus();
+      inputConFind.select();
+    }
+  } else {
+    state.consoleFindIdx = -1;
+    clearConsoleHighlights();
+    if (consoleInput && state.page === 'panel') consoleInput.focus();
+  }
+}
+
 function appendLog(line, type = '') {
   const logType = type || 'info';
   const div = document.createElement('div');
   div.className = type ? `console-line console-line-${type}` : 'console-line';
   div.dataset.logType = logType;
+  div.dataset.rawText = line;
   div.textContent = line;
   if (!matchesConsoleFilter(line, logType, state.consoleFilter)) {
     div.classList.add('is-hidden');
@@ -983,7 +1160,10 @@ function appendLog(line, type = '') {
   while (consoleBody.children.length > 500) {
     consoleBody.firstElementChild.remove();
   }
-  if (!div.classList.contains('is-hidden')) {
+  if (state.consoleFindOpen && inputConFind && inputConFind.value) {
+    runConsoleSearch(0, false);
+  }
+  if (!div.classList.contains('is-hidden') && !state.consoleFindOpen) {
     consoleBody.scrollTop = consoleBody.scrollHeight;
   }
 }
@@ -1006,7 +1186,8 @@ const navAnim = {
   lastTs: 0,
   reducedMotion: reducedMotionMq ? reducedMotionMq.matches : false,
   tab: { curX: -1, curW: 0, targetX: 0, targetW: 0, active: false },
-  sub: { curX: -1, curW: 0, targetX: 0, targetW: 0, y: 0, h: 0, active: false }
+  sub: { curX: -1, curW: 0, targetX: 0, targetW: 0, y: 0, h: 0, active: false },
+  accSub: { curX: -1, curW: 0, targetX: 0, targetW: 0, y: 0, h: 0, active: false }
 };
 
 if (reducedMotionMq) {
@@ -1015,6 +1196,7 @@ if (reducedMotionMq) {
     if (e.matches) {
       syncTabIndicator(false);
       if (state.page === 'settings') syncSubtabIndicator(false);
+      if (state.page === 'access') syncAccessSubtabIndicator(false);
     }
   };
   if (typeof reducedMotionMq.addEventListener === 'function') {
@@ -1035,6 +1217,13 @@ function applySubtabIndicatorDom() {
   subtabIndicator.style.transform = `translate3d(${navAnim.sub.curX.toFixed(2)}px, ${navAnim.sub.y.toFixed(2)}px, 0)`;
   subtabIndicator.style.width = `${Math.max(0, navAnim.sub.curW).toFixed(2)}px`;
   subtabIndicator.style.height = `${Math.max(0, navAnim.sub.h).toFixed(2)}px`;
+}
+
+function applyAccessSubtabIndicatorDom() {
+  if (!accessSubtabIndicator || navAnim.accSub.curX < 0) return;
+  accessSubtabIndicator.style.transform = `translate3d(${navAnim.accSub.curX.toFixed(2)}px, ${navAnim.accSub.y.toFixed(2)}px, 0)`;
+  accessSubtabIndicator.style.width = `${Math.max(0, navAnim.accSub.curW).toFixed(2)}px`;
+  accessSubtabIndicator.style.height = `${Math.max(0, navAnim.accSub.h).toFixed(2)}px`;
 }
 
 function stepNavAnimations(ts) {
@@ -1071,6 +1260,21 @@ function stepNavAnimations(ts) {
       keepGoing = true;
     }
     applySubtabIndicatorDom();
+  }
+
+  if (navAnim.accSub.active) {
+    const ax = navAnim.accSub.targetX - navAnim.accSub.curX;
+    const aw = navAnim.accSub.targetW - navAnim.accSub.curW;
+    if (Math.abs(ax) < 0.35 && Math.abs(aw) < 0.35) {
+      navAnim.accSub.curX = navAnim.accSub.targetX;
+      navAnim.accSub.curW = navAnim.accSub.targetW;
+      navAnim.accSub.active = false;
+    } else {
+      navAnim.accSub.curX += ax * alpha;
+      navAnim.accSub.curW += aw * alpha;
+      keepGoing = true;
+    }
+    applyAccessSubtabIndicatorDom();
   }
 
   if (keepGoing) {
@@ -1112,7 +1316,7 @@ function syncTabIndicator(animate = true) {
 
 function syncSubtabIndicator(animate = true) {
   if (!subtabIndicator) return;
-  const activeBtn = document.querySelector('.subtab-btn.active');
+  const activeBtn = document.querySelector('#settingsSubtabs .subtab-btn.active');
   if (!activeBtn) return;
   const bx = activeBtn.offsetLeft;
   const bw = activeBtn.offsetWidth;
@@ -1132,6 +1336,32 @@ function syncSubtabIndicator(animate = true) {
     applySubtabIndicatorDom();
   } else {
     navAnim.sub.active = true;
+    ensureNavAnimRunning();
+  }
+}
+
+function syncAccessSubtabIndicator(animate = true) {
+  if (!accessSubtabIndicator) return;
+  const activeBtn = document.querySelector('#accessSubtabs .subtab-btn.active');
+  if (!activeBtn) return;
+  const bx = activeBtn.offsetLeft;
+  const bw = activeBtn.offsetWidth;
+  const by = activeBtn.offsetTop;
+  const bh = activeBtn.offsetHeight;
+  if (bw <= 0 || bh <= 0) return;
+
+  navAnim.accSub.targetX = bx;
+  navAnim.accSub.targetW = bw;
+  navAnim.accSub.y = by;
+  navAnim.accSub.h = bh;
+
+  if (!animate || navAnim.reducedMotion || navAnim.accSub.curX < 0) {
+    navAnim.accSub.curX = bx;
+    navAnim.accSub.curW = bw;
+    navAnim.accSub.active = false;
+    applyAccessSubtabIndicatorDom();
+  } else {
+    navAnim.accSub.active = true;
     ensureNavAnimRunning();
   }
 }
@@ -1191,13 +1421,18 @@ function setPage(pageName) {
   } else {
     navAnim.sub.active = false;
   }
+  if (pageName === 'access') {
+    syncAccessSubtabIndicator(false);
+  } else {
+    navAnim.accSub.active = false;
+  }
 }
 
 // Settings Sub-Tabs
 function setSettingsSubTab(subtab) {
   const changed = state.settingsSubTab !== subtab;
   state.settingsSubTab = subtab;
-  document.querySelectorAll('.subtab-btn').forEach(btn => {
+  document.querySelectorAll('#settingsSubtabs .subtab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.subtab === subtab);
   });
   const subGen = document.getElementById('subpage-gen');
@@ -1215,6 +1450,21 @@ function setSettingsSubTab(subtab) {
 }
 window.setSettingsSubTab = setSettingsSubTab;
 
+// Access Sub-Tabs (Whitelist & OP | Banned Players)
+function setAccessSubTab(subtab) {
+  const changed = state.accessSubTab !== subtab;
+  state.accessSubTab = subtab;
+  document.querySelectorAll('#accessSubtabs .subtab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.accSubtab === subtab);
+  });
+  const subWlOp = document.getElementById('subpage-acc-wlop');
+  const subBan = document.getElementById('subpage-acc-ban');
+  if (subWlOp) subWlOp.classList.toggle('active', subtab !== 'ban');
+  if (subBan) subBan.classList.toggle('active', subtab === 'ban');
+  syncAccessSubtabIndicator(changed && state.page === 'access');
+}
+window.setAccessSubTab = setAccessSubTab;
+
 if (typeof ResizeObserver !== 'undefined') {
   const handleNavResize = () => {
     const activeTab = document.querySelector('.win-tab.active');
@@ -1225,7 +1475,7 @@ if (typeof ResizeObserver !== 'undefined') {
       }
     }
     if (state.page === 'settings') {
-      const activeSub = document.querySelector('.subtab-btn.active');
+      const activeSub = document.querySelector('#settingsSubtabs .subtab-btn.active');
       if (activeSub && activeSub.offsetWidth > 0 && !navAnim.sub.active) {
         if (Math.abs(navAnim.sub.targetX - activeSub.offsetLeft) > 0.5 ||
             Math.abs(navAnim.sub.targetW - activeSub.offsetWidth) > 0.5) {
@@ -1233,14 +1483,25 @@ if (typeof ResizeObserver !== 'undefined') {
         }
       }
     }
+    if (state.page === 'access') {
+      const activeAccSub = document.querySelector('#accessSubtabs .subtab-btn.active');
+      if (activeAccSub && activeAccSub.offsetWidth > 0 && !navAnim.accSub.active) {
+        if (Math.abs(navAnim.accSub.targetX - activeAccSub.offsetLeft) > 0.5 ||
+            Math.abs(navAnim.accSub.targetW - activeAccSub.offsetWidth) > 0.5) {
+          syncAccessSubtabIndicator(false);
+        }
+      }
+    }
   };
   const navResizeObs = new ResizeObserver(handleNavResize);
   if (winTabbar) navResizeObs.observe(winTabbar);
   if (settingsSubtabs) navResizeObs.observe(settingsSubtabs);
+  if (accessSubtabs) navResizeObs.observe(accessSubtabs);
 } else if (typeof window !== 'undefined') {
   window.addEventListener('resize', () => {
     if (!navAnim.tab.active) syncTabIndicator(false);
     if (state.page === 'settings' && !navAnim.sub.active) syncSubtabIndicator(false);
+    if (state.page === 'access' && !navAnim.accSub.active) syncAccessSubtabIndicator(false);
   });
 }
 
@@ -1248,11 +1509,13 @@ if (typeof window !== 'undefined') {
   window.addEventListener('load', () => {
     syncTabIndicator(false);
     if (state.page === 'settings') syncSubtabIndicator(false);
+    if (state.page === 'access') syncAccessSubtabIndicator(false);
   });
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(() => {
       syncTabIndicator(false);
       if (state.page === 'settings') syncSubtabIndicator(false);
+      if (state.page === 'access') syncAccessSubtabIndicator(false);
     });
   }
 }
@@ -1538,7 +1801,9 @@ function setLanguage(langCode) {
   // Update initial console greeting if only 1 line exists
   const initialMsg = document.getElementById('consoleInitialMsg');
   if (initialMsg && consoleBody.children.length === 1) {
+    initialMsg.dataset.rawText = t.consoleReady;
     initialMsg.textContent = t.consoleReady;
+    if (state.consoleFindOpen) runConsoleSearch(0, false);
   }
 
   // Update Floating Back-to-Top accessibility label
@@ -1550,9 +1815,11 @@ function setLanguage(langCode) {
   }
 
   renderDashboardPlayers();
+  renderBannedList();
   setPage(state.page);
   syncTabIndicator(false);
   if (state.page === 'settings') syncSubtabIndicator(false);
+  if (state.page === 'access') syncAccessSubtabIndicator(false);
 }
 window.setLanguage = setLanguage;
 
@@ -1567,6 +1834,16 @@ function launchServerWithUi() {
     showToast(t.errInvalidPort);
     appendLog(`» ${t.errInvalidPort}`, 'err');
     return false;
+  }
+  const reqJava = mcVersionRequiredJava(detectMcVerFromJar());
+  const detJava = detectConfiguredJavaMajor();
+  if (detJava > 0 && reqJava > 0 && detJava < reqJava) {
+    const warnLine = t.javaWarnLog.replace('{req}', String(reqJava)).replace('{det}', String(detJava));
+    const confirmMsg = t.javaWarnConfirm.replace('{req}', String(reqJava)).replace('{det}', String(detJava));
+    appendLog(warnLine, 'warn');
+    if (!window.confirm(confirmMsg)) {
+      return false;
+    }
   }
   if (state.restartTimer) {
     clearTimeout(state.restartTimer);
@@ -1623,6 +1900,49 @@ document.querySelectorAll('.con-pill[data-filter]').forEach(btn => {
   btn.addEventListener('click', () => setConsoleFilter(btn.dataset.filter));
 });
 
+if (btnConFind) {
+  btnConFind.addEventListener('click', () => toggleConsoleFind());
+}
+if (btnConFindClose) {
+  btnConFindClose.addEventListener('click', () => toggleConsoleFind(false));
+}
+if (btnConNext) {
+  btnConNext.addEventListener('click', () => runConsoleSearch(1, true));
+}
+if (btnConPrev) {
+  btnConPrev.addEventListener('click', () => runConsoleSearch(-1, true));
+}
+if (inputConFind) {
+  inputConFind.addEventListener('input', () => {
+    state.consoleFindIdx = 0;
+    runConsoleSearch(0, true);
+  });
+  inputConFind.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runConsoleSearch(e.shiftKey ? -1 : 1, true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      toggleConsoleFind(false);
+    }
+  });
+}
+
+document.addEventListener('keydown', (e) => {
+  if (state.page !== 'panel') return;
+  const inWin = winWindow && (winWindow.contains(e.target) || winWindow.contains(document.activeElement) || document.activeElement === document.body);
+  if ((e.ctrlKey || e.metaKey) && e.key && e.key.toLowerCase() === 'f' && inWin) {
+    e.preventDefault();
+    toggleConsoleFind(true);
+  } else if (e.key === 'F3' && state.consoleFindOpen) {
+    e.preventDefault();
+    runConsoleSearch(e.shiftKey ? -1 : 1, true);
+  } else if (e.key === 'Escape' && state.consoleFindOpen) {
+    e.preventDefault();
+    toggleConsoleFind(false);
+  }
+});
+
 if (btnConClear) {
   btnConClear.addEventListener('click', () => {
     const t = i18n[state.lang];
@@ -1631,9 +1951,11 @@ if (btnConClear) {
     initDiv.id = 'consoleInitialMsg';
     initDiv.dataset.i18n = 'consoleReady';
     initDiv.dataset.logType = 'sys';
+    initDiv.dataset.rawText = t.consoleReady;
     initDiv.className = 'console-line console-line-sys';
     initDiv.textContent = t.consoleReady;
     consoleBody.appendChild(initDiv);
+    state.consoleFindIdx = -1;
     applyConsoleFilter();
   });
 }
@@ -2000,6 +2322,35 @@ function sendCommand() {
       case 'gamemode':
         appendLog(`[${now()}] [Server thread/INFO]: Set game mode to ${parts[1] || 'creative'}`, 'info');
         break;
+      case 'ban': {
+        const pl = (parts[1] || '').trim();
+        const reason = parts.slice(2).join(' ').trim() || 'Banned by an operator';
+        if (!isValidPlayerName(pl)) {
+          appendLog(`[${now()}] [Server thread/INFO]: Unknown or incomplete command. Usage: /ban <player> [reason]`, 'warn');
+          break;
+        }
+        upsertBannedPlayer(pl, reason);
+        const wasOnline = state.onlinePlayers.some(p => p.name.toLowerCase() === pl.toLowerCase());
+        state.onlinePlayers = state.onlinePlayers.filter(p => p.name.toLowerCase() !== pl.toLowerCase());
+        if (state.selectedPlayer && state.selectedPlayer.toLowerCase() === pl.toLowerCase()) {
+          state.selectedPlayer = state.onlinePlayers.length ? state.onlinePlayers[0].name : null;
+        }
+        renderDashboardPlayers();
+        appendLog(`[${now()}] [Server thread/INFO]: Banned ${pl}: "${reason}"`, 'sys');
+        if (wasOnline) appendLog(`[${now()}] [Server thread/INFO]: ${pl} left the game`, 'sys');
+        break;
+      }
+      case 'pardon':
+      case 'unban': {
+        const pl = (parts[1] || '').trim();
+        if (!isValidPlayerName(pl)) {
+          appendLog(`[${now()}] [Server thread/INFO]: Unknown or incomplete command. Usage: /pardon <player>`, 'warn');
+          break;
+        }
+        removeBannedPlayerByName(pl);
+        appendLog(`[${now()}] [Server thread/INFO]: Unbanned player ${pl}`, 'sys');
+        break;
+      }
       case 'stop':
         stopServer();
         break;
@@ -2066,7 +2417,97 @@ if (btnBrowse && inputJar) {
   });
 }
 
-// Unban button interaction
+// Banned players (banned-players.json) helpers & sync
+function renderBannedList(selectedName = null) {
+  const list = document.getElementById('listBanned');
+  if (!list) return;
+  const prevSel = selectedName || list.querySelector('.player-item.selected')?.dataset.player || '';
+  list.innerHTML = '';
+  const t = i18n[state.lang] || i18n.tr;
+  if (!state.bannedPlayers.length) {
+    const empty = document.createElement('div');
+    empty.className = 'player-empty';
+    empty.dataset.i18n = 'lblNoBanned';
+    empty.textContent = t.lblNoBanned || 'Yasaklı oyuncu yok';
+    list.appendChild(empty);
+    return;
+  }
+  let matchedSel = false;
+  state.bannedPlayers.forEach((entry, idx) => {
+    const item = document.createElement('div');
+    const isSel = prevSel
+      ? entry.name.toLowerCase() === prevSel.toLowerCase()
+      : idx === 0;
+    if (isSel) matchedSel = true;
+    item.className = `player-item${isSel ? ' selected' : ''}`;
+    item.dataset.player = entry.name;
+    const head = document.createElement('div');
+    head.className = 'skin-head';
+    applyPlayerSkinHead(head, entry.name);
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = entry.name;
+    const reasonSpan = document.createElement('span');
+    reasonSpan.className = 'player-ban-reason';
+    const rText = (!entry.reason || entry.reason === 'Banned by an operator')
+      ? (t.banDefReason || 'Banned by an operator')
+      : entry.reason;
+    reasonSpan.textContent = `— ${rText}`;
+    item.appendChild(head);
+    item.appendChild(nameSpan);
+    item.appendChild(reasonSpan);
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      selectListItem(list, item);
+      unbanPlayerWithFeedback(entry.name);
+    });
+    list.appendChild(item);
+  });
+  if (!matchedSel) {
+    const first = list.querySelector('.player-item');
+    if (first) first.classList.add('selected');
+  }
+}
+
+function upsertBannedPlayer(name, reason = 'Banned by an operator') {
+  const clean = (name || '').trim();
+  if (!clean) return 'empty';
+  const existing = state.bannedPlayers.find(b => b.name.toLowerCase() === clean.toLowerCase());
+  if (existing) {
+    existing.reason = reason || existing.reason;
+    renderBannedList(existing.name);
+    return 'duplicate';
+  }
+  state.bannedPlayers.push({ name: clean, reason: reason || 'Banned by an operator' });
+  renderBannedList(clean);
+  return 'added';
+}
+
+function removeBannedPlayerByName(name) {
+  const clean = (name || '').trim().toLowerCase();
+  if (!clean) return false;
+  const before = state.bannedPlayers.length;
+  state.bannedPlayers = state.bannedPlayers.filter(b => b.name.toLowerCase() !== clean);
+  renderBannedList();
+  return state.bannedPlayers.length < before;
+}
+
+function unbanPlayerWithFeedback(name) {
+  const t = i18n[state.lang];
+  if (!isValidPlayerName(name)) {
+    showToast(t.errEmptyName);
+    return false;
+  }
+  removeBannedPlayerByName(name);
+  if (state.serverPhase === 'running') {
+    appendLog(`[${now()}] [Server thread/INFO]: Unbanned player ${name}`, 'sys');
+  } else {
+    appendLog(`${t.logUnban}${name}`, 'sys');
+  }
+  showToast(`${t.logUnban.replace('» ', '')}${name}`);
+  return true;
+}
+
+// Unban button interaction (Dashboard)
 const btnUnban = document.getElementById('btnUnban');
 const inputUnban = document.getElementById('inputUnban');
 if (btnUnban && inputUnban) {
@@ -2077,13 +2518,13 @@ if (btnUnban && inputUnban) {
       showToast(t.errEmptyName);
       return;
     }
-    if (state.serverPhase !== 'running') {
+    const inBannedJson = state.bannedPlayers.some(b => b.name.toLowerCase() === val.toLowerCase());
+    if (state.serverPhase !== 'running' && !inBannedJson) {
       appendLog(t.consoleNotRunning, 'warn');
       showToast(t.consoleNotRunning.replace('» ', ''));
       return;
     }
-    appendLog(`[${now()}] [Server thread/INFO]: Unbanned player ${val}`, 'sys');
-    showToast(`${t.logUnban.replace('» ', '')}${val}`);
+    unbanPlayerWithFeedback(val);
     inputUnban.value = '';
   });
 }
@@ -2108,10 +2549,59 @@ if (btnBanPlayer) {
     if (state.serverPhase !== 'running' || state.onlinePlayers.length === 0) return;
     const target = state.selectedPlayer || state.onlinePlayers[0].name;
     state.onlinePlayers = state.onlinePlayers.filter(p => p.name !== target);
+    upsertBannedPlayer(target, 'Banned by an operator');
     appendLog(`[${now()}] [Server thread/INFO]: Banned ${target}: "Banned by an operator"`, 'sys');
     appendLog(`[${now()}] [Server thread/INFO]: ${target} left the game`, 'sys');
     state.selectedPlayer = state.onlinePlayers.length ? state.onlinePlayers[0].name : null;
     renderDashboardPlayers();
+  });
+}
+
+// Access -> Banned Players tab actions
+const btnBanAdd = document.getElementById('btnBanAdd');
+const inputBanAdd = document.getElementById('inputBanAdd');
+if (btnBanAdd) {
+  btnBanAdd.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    const name = inputBanAdd ? inputBanAdd.value.trim() : '';
+    if (!isValidPlayerName(name)) {
+      showToast(t.errEmptyName);
+      return;
+    }
+    const status = upsertBannedPlayer(name, 'Banned by an operator');
+    if (status === 'duplicate') {
+      showToast(t.errDuplicateItem);
+      return;
+    }
+    if (state.serverPhase === 'running') {
+      const wasOnline = state.onlinePlayers.some(p => p.name.toLowerCase() === name.toLowerCase());
+      state.onlinePlayers = state.onlinePlayers.filter(p => p.name.toLowerCase() !== name.toLowerCase());
+      if (state.selectedPlayer && state.selectedPlayer.toLowerCase() === name.toLowerCase()) {
+        state.selectedPlayer = state.onlinePlayers.length ? state.onlinePlayers[0].name : null;
+      }
+      renderDashboardPlayers();
+      appendLog(`[${now()}] [Server thread/INFO]: Banned ${name}: "Banned by an operator"`, 'sys');
+      if (wasOnline) appendLog(`[${now()}] [Server thread/INFO]: ${name} left the game`, 'sys');
+    } else {
+      appendLog(`${t.logBan}${name}`, 'sys');
+    }
+    showToast(`${t.logBan.replace('» ', '')}${name}`);
+    if (inputBanAdd) inputBanAdd.value = '';
+  });
+}
+
+const btnBanRemove = document.getElementById('btnBanRemove');
+if (btnBanRemove) {
+  btnBanRemove.addEventListener('click', () => {
+    const t = i18n[state.lang];
+    const list = document.getElementById('listBanned');
+    const sel = list ? (list.querySelector('.player-item.selected') || list.querySelector('.player-item')) : null;
+    const name = sel ? sel.dataset.player : '';
+    if (!name) {
+      showToast(t.errEmptyList);
+      return;
+    }
+    unbanPlayerWithFeedback(name);
   });
 }
 
@@ -3028,7 +3518,9 @@ setLanguage('tr');
 setTheme('dark');
 setPage('panel');
 setSettingsSubTab('gen');
+setAccessSubTab('wlop');
 hydrateStaticSkinHeads();
+renderBannedList();
 renderDashboardPlayers();
 syncDashboardControlLocks();
 updateTelemetryVisuals(false);

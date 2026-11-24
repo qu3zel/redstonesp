@@ -23,7 +23,7 @@
 ### English
 - **Pure Native Win32**: Single C++17 source file (`redstonesp.cpp`), zero external dependencies, tiny memory footprint (~8-12 MB RAM), high-DPI aware.
 - **7-Tab Modern Window Architecture**:
-  - **Dashboard (Panel)**: Jar, IP, port, RAM configuration, one-click **Start / Stop Safely / Restart / Open Folder** lifecycle controls, online player list with skin heads & kick/ban/unban actions, Bento telemetry grid (4 KPI tiles + live **RAM & CPU sparkline charts**), interactive RichEdit colored console with log filters (**All / Warn / Chat / Save / Clear**), Tab auto-completion for player names & Minecraft commands, and Up/Down command history.
+  - **Dashboard (Panel)**: Jar, IP, port, RAM configuration, Java version compatibility pre-check, one-click **Start / Stop Safely / Restart / Open Folder** lifecycle controls, online player list with skin heads & kick/ban/unban actions, Bento telemetry grid (4 KPI tiles + live **RAM & CPU sparkline charts**), interactive RichEdit colored console with log filters (**All / Warn / Chat / Find (`Ctrl+F`) / Save / Clear**), Tab auto-completion for player names & Minecraft commands, and Up/Down command history.
     <details>
       <summary>📸 <i>View Dashboard Preview</i></summary>
       <br>
@@ -35,7 +35,7 @@
       <br>
       <img src="assets/tab_properties_en.png" alt="Properties" width="750">
     </details>
-  - **Access (`whitelist.json` & `ops.json`)**: Dual card lists with player skinheads, add/remove synchronized with live server commands.
+  - **Access (`whitelist.json`, `ops.json` & `banned-players.json`)**: Animated **Whitelist & OP** and **Banned Players** sub-tabs with player skinheads, ban reasons, and add/remove/unban actions synchronized with live server commands.
     <details>
       <summary>📸 <i>View Access Preview</i></summary>
       <br>
@@ -71,7 +71,7 @@
 ### Türkçe
 - **Saf Win32 Performansı**: Tek dosyalı C++17 kaynak kodu (`redstonesp.cpp`), sıfır harici kütüphane bağımlılığı, ultra düşük bellek tüketimi ve yüksek DPI desteği.
 - **7 Sekmeli Modern Arayüz**:
-  - **Panel (Dashboard)**: Sunucu yapılandırması (`.jar`, IP, port, RAM), tek tıkla **Başlat / Güvenle Durdur / Yeniden Başlat / Klasör Aç** kontrolleri, oyuncu listesi ve kafaları, kick/ban/unban işlemleri, Bento telemetri paneli (4 KPI kartı + canlı **RAM & CPU sparkline grafikleri**), filtreli (**Tümü / Uyarı / Sohbet / Kaydet / Temizle**) RichEdit renkli konsol, Minecraft tarzı Tab otomatik tamamlama ve Yukarı/Aşağı komut geçmişi.
+  - **Panel (Dashboard)**: Sunucu yapılandırması (`.jar`, IP, port, RAM), başlatma öncesi Java sürüm uyumluluk kontrolü, tek tıkla **Başlat / Güvenle Durdur / Yeniden Başlat / Klasör Aç** kontrolleri, oyuncu listesi ve kafaları, kick/ban/unban işlemleri, Bento telemetri paneli (4 KPI kartı + canlı **RAM & CPU sparkline grafikleri**), filtreli (**Tümü / Uyarı / Sohbet / Ara (`Ctrl+F`) / Kaydet / Temizle**) RichEdit renkli konsol, Minecraft tarzı Tab otomatik tamamlama ve Yukarı/Aşağı komut geçmişi.
     <details>
       <summary>📸 <i>Panel Ekran Görüntüsü</i></summary>
       <br>
@@ -83,7 +83,7 @@
       <br>
       <img src="assets/tab_properties_tr.png" alt="Özellikler" width="750">
     </details>
-  - **Yetkiler (`whitelist.json` & `ops.json`)**: Oyuncu kafalarıyla görselleştirilmiş çift kart listesi, anlık sunucu komutlarıyla tam senkronize ekleme/çıkarma.
+  - **Yetkiler (`whitelist.json`, `ops.json` & `banned-players.json`)**: Animasyonlu **Whitelist & OP** ve **Banlı Oyuncular** alt sekmeleri, oyuncu kafaları, ban sebepleri ve anlık sunucu komutlarıyla tam senkronize ekleme/çıkarma/ban kaldırma.
     <details>
       <summary>📸 <i>Yetkiler Ekran Görüntüsü</i></summary>
       <br>

@@ -276,12 +276,20 @@
                       <button class="con-pill" data-filter="chat" data-i18n="filtChat">Sohbet</button>
                     </div>
                     <div class="con-action-group">
+                      <button class="con-pill" id="btnConFind" data-i18n="btnConFind" title="Ctrl+F">Ara</button>
                       <button class="con-pill" id="btnConSave" data-i18n="btnConSave">Kaydet</button>
                       <button class="con-pill" id="btnConClear" data-i18n="btnConClear">Temizle</button>
                     </div>
                   </div>
                 </div>
                 <div class="console-wrapper">
+                  <div class="console-find-bar" id="consoleFindBar" hidden>
+                    <input type="text" class="console-find-input" id="inputConFind" placeholder="Konsolda ara..." data-i18n-ph="phConFind" autocomplete="off">
+                    <span class="console-find-count" id="conFindCount">0 / 0</span>
+                    <button type="button" class="con-find-btn" id="btnConPrev" title="Shift+F3" aria-label="Previous match">▲</button>
+                    <button type="button" class="con-find-btn" id="btnConNext" title="F3" aria-label="Next match">▼</button>
+                    <button type="button" class="con-find-btn" id="btnConFindClose" title="Esc" aria-label="Close search">✕</button>
+                  </div>
                   <div class="console-body" id="consoleBody">
                     <div class="console-line console-line-sys" id="consoleInitialMsg" data-log-type="sys" data-i18n="consoleReady">» Redstone Server Panel hazır. .jar dosyasını seçip "Başlat"a basın.</div>
                   </div>
@@ -438,36 +446,61 @@
 
         <!-- PAGE 3: ACCESS -->
         <div class="tab-page" id="page-access">
-          <div class="prop-grid">
-            <!-- Whitelist Card -->
-            <div class="w-card">
-              <div class="w-card-title" data-i18n="cardWl">WHITELIST (WHITELIST.JSON)</div>
-              <div class="player-list" id="listWhitelist" style="height: 180px;">
-                <div class="player-item selected"><div class="skin-head" data-skin="Steve"></div><span>Steve</span></div>
-                <div class="player-item"><div class="skin-head" data-skin="Alex"></div><span>Alex</span></div>
+          <div class="settings-subtabs" id="accessSubtabs">
+            <div class="subtab-indicator" id="accessSubtabIndicator" aria-hidden="true"></div>
+            <button class="subtab-btn active" data-acc-subtab="wlop" onclick="setAccessSubTab('wlop')" data-i18n="subtabAccWlOp">WHITELIST &amp; OP</button>
+            <button class="subtab-btn" data-acc-subtab="ban" onclick="setAccessSubTab('ban')" data-i18n="subtabAccBan">BANLI OYUNCULAR</button>
+          </div>
+
+          <!-- Access Sub-Tab 0: Whitelist & OP -->
+          <div class="settings-subpage active" id="subpage-acc-wlop">
+            <div class="prop-grid">
+              <!-- Whitelist Card -->
+              <div class="w-card" style="margin-bottom: 0;">
+                <div class="w-card-title" data-i18n="cardWl">WHITELIST (WHITELIST.JSON)</div>
+                <div class="player-list" id="listWhitelist" style="height: 180px;">
+                  <div class="player-item selected"><div class="skin-head" data-skin="Steve"></div><span>Steve</span></div>
+                  <div class="player-item"><div class="skin-head" data-skin="Alex"></div><span>Alex</span></div>
+                </div>
+                <div class="w-input-row" style="margin-bottom: 0.5rem;">
+                  <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
+                  <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnAddWl">Ekle</button>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="w-btn" style="flex: 1;" data-i18n="btnRemWl">Seçileni Çıkar</button>
+                  <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
+                </div>
               </div>
-              <div class="w-input-row" style="margin-bottom: 0.5rem;">
-                <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
-                <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnAddWl">Ekle</button>
-              </div>
-              <div style="display: flex; gap: 0.5rem;">
-                <button class="w-btn" style="flex: 1;" data-i18n="btnRemWl">Seçileni Çıkar</button>
-                <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
+
+              <!-- Operators Card -->
+              <div class="w-card" style="margin-bottom: 0;">
+                <div class="w-card-title" data-i18n="cardOps">OPERATÖRLER (OPS.JSON)</div>
+                <div class="player-list" id="listOps" style="height: 180px;">
+                  <div class="player-item selected"><div class="skin-head" data-skin="Steve"></div><span>Steve (Level 4 OP)</span></div>
+                </div>
+                <div class="w-input-row" style="margin-bottom: 0.5rem;">
+                  <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
+                  <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnOpAdd">OP Ver</button>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="w-btn" style="flex: 1;" data-i18n="btnOpRem">OP Al (Deop)</button>
+                  <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
+                </div>
               </div>
             </div>
+          </div>
 
-            <!-- Operators Card -->
-            <div class="w-card">
-              <div class="w-card-title" data-i18n="cardOps">OPERATÖRLER (OPS.JSON)</div>
-              <div class="player-list" id="listOps" style="height: 180px;">
-                <div class="player-item selected"><div class="skin-head" data-skin="Steve"></div><span>Steve (Level 4 OP)</span></div>
-              </div>
+          <!-- Access Sub-Tab 1: Banned Players -->
+          <div class="settings-subpage" id="subpage-acc-ban">
+            <div class="w-card" style="margin-bottom: 0;">
+              <div class="w-card-title" data-i18n="cardBanned">BANLI OYUNCULAR (BANNED-PLAYERS.JSON)</div>
+              <div class="player-list" id="listBanned" style="height: 180px;"></div>
               <div class="w-input-row" style="margin-bottom: 0.5rem;">
-                <input type="text" class="w-input" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
-                <button class="w-btn w-btn-start" style="height: 32px;" data-i18n="btnOpAdd">OP Ver</button>
+                <input type="text" class="w-input" id="inputBanAdd" placeholder="Oyuncu adı..." data-i18n-ph="phPlayerName" style="margin-bottom: 0;">
+                <button class="w-btn w-btn-stop" id="btnBanAdd" style="flex: none; height: 32px;" data-i18n="btnBanAdd">Banla</button>
               </div>
               <div style="display: flex; gap: 0.5rem;">
-                <button class="w-btn" style="flex: 1;" data-i18n="btnOpRem">OP Al (Deop)</button>
+                <button class="w-btn" id="btnBanRemove" style="flex: 1;" data-i18n="btnBanRem">Seçilenin Banını Kaldır</button>
                 <button class="w-btn" data-i18n="btnRefresh">Yenile</button>
               </div>
             </div>
